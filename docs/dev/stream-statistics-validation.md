@@ -10,7 +10,7 @@ The macOS statistics follow-up passed 62 Swift tests and live UI checks against 
 - The panel uses native SwiftUI Liquid Glass on OS 26 and later, with material and accessibility fallbacks. It respects safe areas; only the underlying video ignores them. Shared preference/measurement models can be reused by the future iOS, iPadOS and tvOS apps; those app targets and OS 27 devices were not built or tested here.
 - Requested settings remain separate from actual decoded dimensions and RTP receive-rate measurements. Simple mode shows timing averages; Detailed shows min/max/average, decoded color, first-packet-to-presentation timing, and the estimated host-to-display duration. Missing measurements display as unavailable.
 
-The implementation uses Apple's [Liquid Glass API](https://developer.apple.com/documentation/SwiftUI/Applying-Liquid-Glass-to-custom-views). [Measurement definitions and upstream references](stream-statistics-implementation.md) explain the host metadata, RTP counters, jitter estimator, calibrated drawable clock and latency estimate. Common-c remains a pristine pinned submodule: one additional targeted patch exposes confirmed receive/loss counters in the generated build sources.
+The implementation uses Apple's [Liquid Glass API](https://developer.apple.com/documentation/SwiftUI/Applying-Liquid-Glass-to-custom-views). [Measurement definitions and upstream references](stream-statistics-implementation.md) explain the host metadata, RTP counters, jitter estimator, calibrated drawable clock and latency estimate. Common-c remains a pristine pinned source checkout: one additional targeted patch exposes confirmed receive/loss counters in the generated build sources.
 
 ## Automated checks
 

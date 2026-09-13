@@ -1,6 +1,6 @@
 # Swiftlight common-c patches
 
-`Dependencies/moonlight-common-c` is the real, pristine Git submodule. Its revision and nested ENet/nanors revisions are pinned in `Dependencies/versions.json`. `scripts/prepare-common-c.py` archives committed source, verifies each pin and clean tracked content, then applies this explicit `series` into ignored `Sources/CStreamBridge/vendor/common-c`. Build and native validation entry points invoke preparation. Edit these patches rather than the generated source or upstream checkout.
+`Dependencies/versions.json` is the source lock for common-c and its ENet/nanors dependencies. `scripts/prepare-common-c.py` materializes pristine source checkouts in `.build/dependency-sources/`, archives committed source, verifies each pin and clean tracked content, then applies this explicit `series` into ignored `Sources/CStreamBridge/vendor/common-c`. Build and native validation entry points invoke preparation. Edit these patches rather than the generated source or upstream checkout.
 
 The application currently selects upstream `62e066388f1a1b133e0bee947b9a374311a3354b`. The first three patches were extracted and audited against the earlier local Qt reference `874ac9548f1bd6f095ef2b435c42cdde460e7821`; all three pass `git apply --check` against both pins. The three newer upstream commits change only `RtpVideoQueue.c` and `VideoDepacketizer.c` (12 insertions, 6 deletions) and do not overlap those first three patches. The fourth patch was added against the selected `62e0663` source to observe its RTP outcomes. Their upstream frame-loss/recovery improvements remain intact.
 
@@ -16,7 +16,6 @@ The current four-patch series changes six upstream files. It does not substitute
 To prepare and verify idempotently:
 
 ```sh
-git submodule update --init --recursive
 python3 scripts/prepare-common-c.py
 python3 scripts/prepare-common-c.py
 scripts/validate-transport-native.sh

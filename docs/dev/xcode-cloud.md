@@ -44,14 +44,17 @@ Create these workflows in Xcode Cloud after the first project build succeeds:
 | Workflow | Start condition | Action | Signing/distribution |
 | --- | --- | --- | --- |
 | `Swiftlight PR` | Pull requests targeting `main` | Build the shared `Swiftlight` scheme for macOS | None; set `SWIFTLIGHT_RUN_VALIDATION=1`. |
-| `Swiftlight macOS direct` | A protected `macos-v*` tag | Archive the shared scheme for macOS | Select Developer ID/direct distribution, then notarize the exported app. |
+| `Swiftlight macOS direct` | A protected `v*` tag | Archive the shared scheme for macOS | Select Developer ID/direct distribution, then notarize the exported app. |
 | `Swiftlight iOS TestFlight` | Later, after the iOS target exists | Archive | TestFlight internal testing first. |
 | `Swiftlight tvOS TestFlight` | Later, after the tvOS target exists | Archive | TestFlight internal testing first. |
 
-Use a distinct `macos-v*` tag namespace for the Cloud direct-distribution
-workflow while the existing GitHub `v*` release workflow remains enabled. This
-prevents a first Cloud test from publishing a duplicate release. The pre-build
-script derives `CFBundleShortVersionString` from `macos-vX.Y.Z` and
+Use the shared protected `v*` release-tag namespace for every platform. The
+current macOS workflow archives the Mac app; future iOS/iPadOS and tvOS
+workflows should use the same tag so one version identifies every platform's
+artifacts. The existing GitHub release workflow remains enabled during the
+signing migration, but this Cloud workflow must not publish GitHub release
+assets until the Cloud packaging/notarization path has been validated. The
+pre-build script derives `CFBundleShortVersionString` from `vX.Y.Z` and
 `CFBundleVersion` from Xcode Cloud's monotonically increasing build number in
 its disposable checkout.
 

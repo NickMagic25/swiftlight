@@ -30,13 +30,21 @@ class PreparationTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         repository(self.root, "parent must remain unchanged\n")
-        self.upstream = self.root / "Dependencies/moonlight-common-c"
+        self.upstream = self.root / "source/common-c"
         revision = repository(self.upstream, "before\n")
+        self.enet = self.root / "source/enet"
+        enet_revision = repository(self.enet, "enet\n")
+        self.nanors = self.root / "source/nanors"
+        nanors_revision = repository(self.nanors, "nanors\n")
         (self.root / "scripts").mkdir()
         shutil.copyfile(SCRIPT, self.root / "scripts/prepare-common-c.py")
+        (self.root / "Dependencies").mkdir()
         self.lock = self.root / "Dependencies/versions.json"
         self.lock.write_text(json.dumps({"moonlight-common-c": {
-            "path": "Dependencies/moonlight-common-c", "revision": revision, "submodules": {}
+            "url": self.upstream.as_uri(), "revision": revision, "submodules": {
+                "enet": {"url": self.enet.as_uri(), "revision": enet_revision},
+                "nanors": {"url": self.nanors.as_uri(), "revision": nanors_revision}
+            }
         }}))
         self.patches = self.root / "patches/moonlight-common-c"
         self.patches.mkdir(parents=True)
@@ -45,6 +53,7 @@ class PreparationTests(unittest.TestCase):
             "diff --git a/value.txt b/value.txt\n--- a/value.txt\n+++ b/value.txt\n"
             "@@ -1 +1 @@\n-before\n+after\n")
         self.output = self.root / "Sources/CStreamBridge/vendor/common-c"
+        self.cache = self.root / ".build/dependency-sources/moonlight-common-c"
 
     def prepare(self, success=True):
         result = subprocess.run([sys.executable, str(self.root / "scripts/prepare-common-c.py")],
@@ -55,9 +64,11 @@ class PreparationTests(unittest.TestCase):
     def test_patch_isolation_and_idempotent_verified_output(self):
         self.prepare()
         self.assertEqual((self.output / "value.txt").read_text(), "after\n")
+        self.assertEqual((self.output / "enet/value.txt").read_text(), "enet\n")
+        self.assertEqual((self.output / "nanors/value.txt").read_text(), "nanors\n")
         self.assertEqual((self.upstream / "value.txt").read_text(), "before\n")
         self.assertEqual((self.root / "value.txt").read_text(), "parent must remain unchanged\n")
-        self.assertEqual(git(self.upstream, "status", "--porcelain"), "")
+        self.assertEqual(git(self.cache, "status", "--porcelain", "--untracked-files=no"), "")
         mtime = (self.output / "value.txt").stat().st_mtime_ns
         self.prepare()
         self.assertEqual((self.output / "value.txt").stat().st_mtime_ns, mtime)
@@ -66,17 +77,18 @@ class PreparationTests(unittest.TestCase):
         self.prepare()
         self.assertEqual((self.output / "value.txt").read_text(), "after\n")
 
-    def test_wrong_pin_and_dirty_source_fail_without_resetting_checkout(self):
+    def test_wrong_pin_and_dirty_cache_fail_without_resetting_checkout(self):
+        self.prepare()
         lock = json.loads(self.lock.read_text())
         lock["moonlight-common-c"]["revision"] = "0" * 40
         self.lock.write_text(json.dumps(lock))
         self.assertIn("expected", self.prepare(success=False).stderr)
-        lock["moonlight-common-c"]["revision"] = git(self.upstream, "rev-parse", "HEAD")
+        lock["moonlight-common-c"]["revision"] = git(self.cache, "rev-parse", "HEAD")
         self.lock.write_text(json.dumps(lock))
-        (self.upstream / "value.txt").write_text("local work\n")
+        (self.cache / "value.txt").write_text("local work\n")
         self.assertIn("modified tracked content", self.prepare(success=False).stderr)
-        self.assertEqual((self.upstream / "value.txt").read_text(), "local work\n")
-        self.assertFalse(self.output.exists())
+        self.assertEqual((self.cache / "value.txt").read_text(), "local work\n")
+        self.assertEqual((self.output / "value.txt").read_text(), "after\n")
 
     def test_failed_or_unlisted_patch_preserves_previous_output(self):
         self.prepare()

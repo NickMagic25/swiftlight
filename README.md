@@ -23,7 +23,7 @@ macOS is the current application target. iOS, iPadOS, and tvOS adapters are futu
 ## Build and launch
 
 ```sh
-git clone --recurse-submodules https://github.com/NickMagic25/swiftlight.git
+git clone https://github.com/NickMagic25/swiftlight.git
 cd swiftlight
 scripts/build-app.sh
 open .build/Swiftlight.app

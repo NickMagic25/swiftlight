@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a reproducible patched source tree without editing upstream submodules."""
+"""Build a reproducible patched source tree from pinned public Git sources."""
 import hashlib
 import io
 import json
@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / "Dependencies/versions.json"
 PATCHES = ROOT / "patches/moonlight-common-c"
 OUTPUT = ROOT / "Sources/CStreamBridge/vendor/common-c"
+CACHE = ROOT / ".build/dependency-sources/moonlight-common-c"
 STAMP = ".swiftlight-source.json"
 
 
@@ -32,9 +33,35 @@ def initialized(directory):
 def verify_checkout(directory, revision):
     actual = git(directory, "rev-parse", "HEAD").decode().strip()
     if actual != revision:
-        raise RuntimeError(f"{directory}: expected {revision}, found {actual}; run git submodule update --init --recursive")
+        raise RuntimeError(f"{directory}: expected {revision}, found {actual}")
     if git(directory, "status", "--porcelain", "--untracked-files=no").strip():
         raise RuntimeError(f"{directory} has modified tracked content; keep upstream pristine and put changes in {PATCHES}")
+
+
+def clone_checkout(directory, url, revision):
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([
+        "git", "clone", "--no-checkout", "--filter=blob:none", "--no-tags", url, str(directory)
+    ], check=True)
+    subprocess.run(["git", "-C", str(directory), "checkout", "--detach", "--quiet", revision], check=True)
+    verify_checkout(directory, revision)
+
+
+def ensure_checkout(directory, url, revision):
+    if initialized(directory):
+        verify_checkout(directory, revision)
+        return
+    if directory.exists():
+        raise RuntimeError(f"{directory} exists but is not a Git checkout; remove it before preparing common-c")
+    clone_checkout(directory, url, revision)
+
+
+def nested_checkout(root, relative_path, source):
+    directory = (root / relative_path).resolve()
+    if not directory.is_relative_to(root.resolve()):
+        raise RuntimeError(f"Nested source path escapes common-c checkout: {relative_path}")
+    ensure_checkout(directory, source["url"], source["revision"])
+    return directory
 
 
 def archive(directory, destination):
@@ -68,12 +95,11 @@ def tree_digest(directory):
 
 def main():
     lock = json.loads(LOCK.read_text())["moonlight-common-c"]
-    upstream = ROOT / lock["path"]
-    checkouts = [(upstream, lock["revision"])] + [
-        (upstream / path, revision) for path, revision in lock["submodules"].items()
-    ]
-    if not all(initialized(path) for path, _ in checkouts):
-        subprocess.run(["git", "-C", str(ROOT), "submodule", "update", "--init", "--recursive", "--", lock["path"]], check=True)
+    upstream = CACHE
+    ensure_checkout(upstream, lock["url"], lock["revision"])
+    checkouts = [(upstream, lock["revision"])]
+    for path, source in lock["submodules"].items():
+        checkouts.append((nested_checkout(upstream, path, source), source["revision"]))
     for path, revision in reversed(checkouts):
         verify_checkout(path, revision)
 

@@ -71,5 +71,9 @@ artifacts/
 __pycache__/
 *.pyc
 
-# Generated from the pristine common-c submodule and patches/moonlight-common-c.
+# Generated from the pinned common-c source cache and patches/moonlight-common-c.
 /Sources/CStreamBridge/vendor/common-c/
+
+# Left behind only by older recursive-submodule clones. New builds cache source
+# checkouts under .build instead, so Xcode Cloud only accesses Swiftlight itself.
+/Dependencies/moonlight-common-c/

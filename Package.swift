@@ -29,8 +29,8 @@ let package = Package(
                 cSettings: [.unsafeFlags(["-I", nativeInclude])],
                 linkerSettings: [.unsafeFlags(["-L", nativeLibrary]), .linkedLibrary("crypto")]),
         .target(name: "SwiftlightHost", dependencies: ["CHostCrypto"]),
-        // bootstrap-dependencies.sh prepares these sources from the pinned common-c submodule
-        // and the explicit patch series. The upstream checkout remains pristine.
+        // bootstrap-dependencies.sh prepares these sources from pinned common-c Git commits
+        // and the explicit patch series. The cached upstream checkouts remain pristine.
         .target(name: "CStreamBridge", sources: ["StreamBridge.c", "AudioOutput.c", "AudioRing.c", "AudioFormat.c", "AudioSpatialOutput.m", "vendor/common-c/src",
                 "vendor/common-c/enet/callbacks.c", "vendor/common-c/enet/compress.c", "vendor/common-c/enet/host.c",
                 "vendor/common-c/enet/list.c", "vendor/common-c/enet/packet.c", "vendor/common-c/enet/peer.c",

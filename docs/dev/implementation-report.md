@@ -12,7 +12,7 @@ The dedicated visual validation window uses the same video adapter/renderer to e
 
 The decoder remains a separate `MoonlightAppleVideo` SwiftPM dependency pinned to `8d92ee039dc19fe50dc0158d5098d4c5646c6a56`, the existing checkout revision. No decoder source changes were made. Existing uncommitted Qt integration work in the decoder repository remains intact. The application contains no alternate video decoder or H.264 fallback.
 
-common-c is a pristine Git submodule pinned to `62e066388f1a1b133e0bee947b9a374311a3354b`, with its exact recursive ENet/nanors pins. The build applies the explicit, targeted patch series to generated sources, covering callback lifetime/atomic arbitration, read-only clock/socket access and confirmed RTP frame outcome counters. See `dependencies.md` and `transport.md`. Opus1.5.2 and OpenSSL3.6.4 are built statically from SHA-verified source archives. The local app's GPL/dependency notices are bundled. Apple targets beyond macOS require future application/dependency slices.
+common-c is a pristine source-locked Git checkout pinned to `62e066388f1a1b133e0bee947b9a374311a3354b`, with exact ENet/nanors pins. The build applies the explicit, targeted patch series to generated sources, covering callback lifetime/atomic arbitration, read-only clock/socket access and confirmed RTP frame outcome counters. See `dependencies.md` and `transport.md`. Opus1.5.2 and OpenSSL3.6.4 are built statically from SHA-verified source archives. The local app's GPL/dependency notices are bundled. Apple targets beyond macOS require future application/dependency slices.
 
 ## Executed validation
 

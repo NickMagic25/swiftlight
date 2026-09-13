@@ -1,6 +1,6 @@
 # Transport, audio, input, and ownership
 
-`SwiftlightTransport` wraps the C `CStreamBridge` target. The only media transport is the pinned Moonlight common-c Git submodule with targeted patches; there is no alternate video decoder in either target. `StreamTransport` is single-use and common-c permits only one active session per process. Swift serializes `LiStartConnection` and `LiStopConnection` on a lifecycle queue. Cancellation uses only `LiInterruptConnection` while start is pending and joins start before stop. Bridge state uses explicit acquire/release atomics because the input and callback gates serve different lifetimes; neither gate is acquired while holding the other. C input APIs hold an admission mutex while using common-c, so disconnect closes admission before common-c tears down its input queue. Held keyboard, mouse and controller buttons are released before stop. Disconnect never invokes host `/cancel` or `/quit`.
+`SwiftlightTransport` wraps the C `CStreamBridge` target. The only media transport is the pinned Moonlight common-c source lock with targeted patches; there is no alternate video decoder in either target. `StreamTransport` is single-use and common-c permits only one active session per process. Swift serializes `LiStartConnection` and `LiStopConnection` on a lifecycle queue. Cancellation uses only `LiInterruptConnection` while start is pending and joins start before stop. Bridge state uses explicit acquire/release atomics because the input and callback gates serve different lifetimes; neither gate is acquired while holding the other. C input APIs hold an admission mutex while using common-c, so disconnect closes admission before common-c tears down its input queue. Held keyboard, mouse and controller buttons are released before stop. Disconnect never invokes host `/cancel` or `/quit`.
 
 ## Compressed frame ownership
 
@@ -38,10 +38,10 @@ Input is forwarded independently of decoder backpressure. Keyboard VK values are
 
 ## Pins and patches
 
-- moonlight-common-c: `62e066388f1a1b133e0bee947b9a374311a3354b` (GPL-3.0), actual pristine submodule at `Dependencies/moonlight-common-c`.
-- `scripts/prepare-common-c.py` verifies pinned committed source and applies `patches/moonlight-common-c/series` into the ignored generated build tree; the submodule remains pristine.
-- Its ENet: `aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1` (MIT), nested Git submodule.
-- Its nanors: `b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a` (MIT), nested Git submodule.
+- moonlight-common-c: `62e066388f1a1b133e0bee947b9a374311a3354b` (GPL-3.0), materialized in the ignored `.build/dependency-sources/` cache.
+- `scripts/prepare-common-c.py` verifies locked committed sources and applies `patches/moonlight-common-c/series` into the ignored generated build tree; cached sources remain pristine.
+- Its ENet: `aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1` (MIT), separately pinned in the source lock.
+- Its nanors: `b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a` (MIT), separately pinned in the source lock.
 - Opus 1.5.2, SHA256 `65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1`.
 - OpenSSL 3.6.4, SHA256 `9bffaa1ad1e07b354c21bd3324ec02fa15579f45a7d0494b3e74bc449b7333ef`.
 

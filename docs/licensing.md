@@ -6,9 +6,9 @@ Swiftlight's existing repository LICENSE is GPL-3.0. This is a GPL source distri
 |---|---|---|
 | Swiftlight | this source tree | repository LICENSE, GPL-3.0 |
 | MoonlightAppleVideo | 8d92ee039dc19fe50dc0158d5098d4c5646c6a56 | decoder repository LICENSE (GPL v3); separate SwiftPM source dependency |
-| moonlight-common-c | 62e066388f1a1b133e0bee947b9a374311a3354b | Git submodule LICENSE.txt; GPL v3; explicit targeted patch series |
-| ENet | aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1 | recursive submodule LICENSE; MIT |
-| nanors | b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a | recursive submodule licenses, Reed-Solomon implementation and dependencies |
+| moonlight-common-c | 62e066388f1a1b133e0bee947b9a374311a3354b | source-locked Git checkout LICENSE.txt; GPL v3; explicit targeted patch series |
+| ENet | aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1 | source-locked checkout LICENSE; MIT |
+| nanors | b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a | source-locked checkout licenses, Reed-Solomon implementation and dependencies |
 | Opus | 1.5.2 | BSD-style COPYING in downloaded source; statically built, audio only |
 | OpenSSL | 3.6.4 | Apache-2.0 LICENSE.txt in downloaded source; statically built crypto |
 

@@ -9,7 +9,7 @@ On 2026-09-12, Swiftlight was rebuilt and relaunched against the user's Vibepoll
 - A new host address now resolves existing trust by the host ID learned during bootstrap. An authenticated host that has revoked pairing cannot be reported as successfully paired. Explicit unpair/re-pair recovery remains available, and refresh/selection cannot interrupt an in-progress pairing operation.
 - Display geometry publication caused a SwiftUI/AppKit feedback loop. Display and headroom changes are now deduplicated and coalesced, while actual resize/screen changes continue to publish. Unchanged power statistics and stream settings no longer trigger redundant view updates.
 
-The changes are in Swiftlight's host and app layers. The pristine `moonlight-common-c` submodule remains pinned to `62e066388f1a1b133e0bee947b9a374311a3354b`, compiled through `CStreamBridge` with the existing three targeted patches. No additional common-c or decoder patch was needed for this repair.
+The changes are in Swiftlight's host and app layers. The pristine `moonlight-common-c` source lock remains pinned to `62e066388f1a1b133e0bee947b9a374311a3354b`, compiled through `CStreamBridge` with the existing three targeted patches. No additional common-c or decoder patch was needed for this repair.
 
 ## Executed checks
 
