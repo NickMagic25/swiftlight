@@ -58,8 +58,8 @@ struct SettingsView: View {
             Section {
                 Text("Stream quality, video and presentation changes apply on the next connection. Sunshine uses the host's configured display modes; Apollo may provide a virtual display when permitted.").font(.caption).foregroundStyle(.secondary)
                 HStack {
-                    Button("Save for This Computer") { model.saveSettings() }.disabled(model.selectedHost == nil)
-                    Button("Use as Global Defaults") { model.saveSettings(asDefault: true) }
+                    Button("Save for This Computer") { model.saveSettings() }.swiftlightGlassButton(prominent: true).disabled(model.selectedHost == nil)
+                    Button("Use as Global Defaults") { model.saveSettings(asDefault: true) }.swiftlightGlassButton()
                 }
             }
         }.formStyle(.grouped)

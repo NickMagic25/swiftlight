@@ -20,11 +20,15 @@ public actor HostClient {
     }
     private func request(_ path: String, items: [URLQueryItem] = [], secure: Bool, pin: Data? = nil,
                          httpsPort: Int? = nil, timeout: TimeInterval = 10) async throws -> HostXML {
+        try HostXML(data: await requestData(path, items: items, secure: secure, pin: pin, httpsPort: httpsPort, timeout: timeout))
+    }
+    private func requestData(_ path: String, items: [URLQueryItem] = [], secure: Bool, pin: Data? = nil,
+                             httpsPort: Int? = nil, timeout: TimeInterval = 10) async throws -> Data {
         try Task.checkCancellation()
         let identity = try await identityStore.identity()
         let query = [URLQueryItem(name: "uniqueid", value: identity.uniqueID), URLQueryItem(name: "uuid", value: UUID().uuidString)] + items
         let url = try address.url(path: path, secure: secure, httpsPort: httpsPort ?? cachedInfo?.httpsPort, query: query)
-        return try HostXML(data: await transport.fetch(HostHTTPRequest(url: url, timeout: timeout), identity: identity, pin: pin))
+        return try await transport.fetch(HostHTTPRequest(url: url, timeout: timeout), identity: identity, pin: pin)
     }
     public func serverInfo() async throws -> HostInfo {
         var savedPin = try await pin()
@@ -126,6 +130,26 @@ public actor HostClient {
         let info = try await serverInfo()
         if let permissions = info.permissions, permissions & 0x07000000 == 0 { throw HostError.permissionDenied }
         return try await request("applist", secure: true, pin: pin).apps()
+    }
+    /// Original encoded cover bytes from the paired host. The caller owns a bounded
+    /// cache and thumbnail sizing; an unavailable cover need not fail the library.
+    /// Covers use the same exact-certificate mutual TLS policy as the app list.
+    public func artwork(appID: Int) async throws -> Data {
+        guard appID > 0, appID <= Int(Int32.max) else { throw HostError.invalidResponse }
+        try Task.checkCancellation()
+        guard let savedPin = try await pin() else { throw HostError.notPaired }
+        // Discover a custom HTTPS port and authenticate once if this client has not
+        // loaded serverinfo yet. Do not repeat those requests for every library tile.
+        if cachedInfo == nil { _ = try await serverInfo() }
+        guard cachedInfo?.isPaired == true else { throw HostError.notPaired }
+        let data = try await requestData("appasset", items: [
+            URLQueryItem(name: "appid", value: String(appID)),
+            URLQueryItem(name: "AssetType", value: "2"), URLQueryItem(name: "AssetIdx", value: "0")
+        ], secure: true, pin: savedPin)
+        try Task.checkCancellation()
+        try HostArtwork.validate(data)
+        try Task.checkCancellation()
+        return data
     }
     public func launch(_ request: StreamLaunchRequest) async throws -> StreamLaunchResponse { try await start(request, resume: false) }
     public func resume(_ request: StreamLaunchRequest) async throws -> StreamLaunchResponse { try await start(request, resume: true) }

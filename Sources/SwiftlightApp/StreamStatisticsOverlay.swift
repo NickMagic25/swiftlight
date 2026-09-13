@@ -10,12 +10,11 @@ struct StreamStatisticRow: Identifiable, Equatable, Sendable {
 /// surface's safe area; this view never changes stream settings or captures input.
 struct StreamStatisticsOverlay: View {
     let rows: [StreamStatisticRow]
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        styledPanel
+        panel
+            .swiftlightGlassSurface()
             .accessibilityElement(children: .contain)
             .allowsHitTesting(false)
     }
@@ -57,18 +56,4 @@ struct StreamStatisticsOverlay: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    @ViewBuilder private var styledPanel: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        if reduceTransparency {
-            panel.background(.background, in: shape)
-                .overlay(shape.strokeBorder(.primary.opacity(contrast == .increased ? 0.5 : 0.2), lineWidth: 1))
-        } else if #available(macOS 26, iOS 26, tvOS 26, *) {
-            // One regular Liquid Glass surface preserves legibility over moving
-            // video. No interactive/morphing effects are needed for passive stats.
-            panel.glassEffect(.regular, in: shape)
-        } else {
-            panel.background(.regularMaterial, in: shape)
-                .overlay(shape.strokeBorder(.primary.opacity(contrast == .increased ? 0.4 : 0.12), lineWidth: 1))
-        }
-    }
 }

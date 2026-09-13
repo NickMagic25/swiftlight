@@ -43,7 +43,7 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 210, ideal: 240)
                     .safeAreaInset(edge: .bottom) {
                         Button { showingAddHost = true } label: { Label("Add Computer", systemImage: "plus") }
-                            .buttonStyle(.borderless).padding().frame(maxWidth: .infinity, alignment: .leading)
+                            .swiftlightGlassButton().padding().frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } detail: {
                     library
@@ -67,8 +67,8 @@ struct ContentView: View {
         .sheet(isPresented: $showingSettings) {
             VStack(spacing: 0) {
                 SettingsView(model: model).padding(24)
-                Divider()
-                HStack { Spacer(); Button("Done") { model.saveSettings(); showingSettings = false }.keyboardShortcut(.defaultAction) }.padding()
+                HStack { Spacer(); Button("Done") { model.saveSettings(); showingSettings = false }
+                    .keyboardShortcut(.defaultAction).swiftlightGlassButton(prominent: true) }.padding()
             }.frame(width: 540)
         }
         .alert("Swiftlight", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) {
@@ -102,44 +102,38 @@ struct ContentView: View {
                             Button("Unpair and Pair Again") { model.unpair() }
                             Button("Remove Computer…", role: .destructive) { confirmingRemove = true }
                             if (model.hostInfo?.currentAppID ?? 0) > 0 { Button("Quit Remote Application…", role: .destructive) { confirmingQuit = true } }
-                        } label: { Image(systemName: "ellipsis.circle").font(.title2) }.menuStyle(.borderlessButton).fixedSize().disabled(model.busy)
+                        } label: { Image(systemName: "ellipsis").font(.title3) }
+                            .menuStyle(.button).swiftlightGlassButton().fixedSize().disabled(model.busy)
+                            .accessibilityLabel("Computer options")
                     }
                     if model.busy { ProgressView().controlSize(.small) }
                     if model.hostInfo?.isPaired == false {
                         ContentUnavailableView {
                             Label("Pair this computer", systemImage: "lock.shield")
                         } description: { Text("Connect securely to your Sunshine or Apollo host, then choose a game or desktop.") }
-                        actions: { Button("Pair Computer") { model.showingPairing = true }.buttonStyle(.borderedProminent) }
+                        actions: { Button("Pair Computer") { model.showingPairing = true }.swiftlightGlassButton(prominent: true) }
                     } else if model.apps.isEmpty && !model.busy {
                         ContentUnavailableView("No applications loaded", systemImage: "square.grid.2x2", description: Text("Refresh the computer to load its application library."))
                     } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 280))], spacing: 16) {
-                            ForEach(model.apps) { app in
-                                Button { model.launch(app) } label: {
-                                    VStack(alignment: .leading, spacing: 14) {
-                                        Image(systemName: app.name.lowercased().contains("desktop") ? "desktopcomputer" : "gamecontroller")
-                                            .font(.system(size: 38)).frame(height: 78).frame(maxWidth: .infinity).foregroundStyle(.tint)
-                                        Text(app.name).font(.headline).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                                        Label(model.hostInfo?.currentAppID == app.id ? "Resume" : "Play", systemImage: "play.fill").font(.callout)
-                                    }.padding(18).frame(maxWidth: .infinity, minHeight: 175, alignment: .topLeading)
-                                        .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
-                                }.buttonStyle(.plain).accessibilityLabel("\(model.hostInfo?.currentAppID == app.id ? "Resume" : "Launch") \(app.name)")
-                            }
-                        }
+                        AppLibraryGrid(apps: model.apps, runningAppID: model.hostInfo?.currentAppID,
+                                       artwork: model.artwork, loadingAllowed: !model.isSessionActive,
+                                       requestArtwork: { model.loadArtwork(for: $0) }, launch: model.launch)
                     }
-                    if model.state.phase == .suspending { Button("Resume after Sleep") { model.resumeSuspended() }.buttonStyle(.borderedProminent) }
+                    if model.state.phase == .suspending { Button("Resume after Sleep") { model.resumeSuspended() }.swiftlightGlassButton(prominent: true) }
                     if model.isSessionActive {
-                        HStack { ProgressView(); Text("Connecting to \(model.activeApp?.name ?? "host")…"); Spacer(); Button("Cancel") { model.disconnect() } }
+                        HStack { ProgressView(); Text("Connecting to \(model.activeApp?.name ?? "host")…"); Spacer(); Button("Cancel") { model.disconnect() }.buttonStyle(.borderless) }
+                            .padding(16).swiftlightGlassSurface()
                     }
                 }.padding(32)
             }
             .safeAreaInset(edge: .bottom) { NetworkFooter(network: model.network) }
             .navigationTitle(host.name)
+            .onAppear { model.loadArtwork() }
         } else {
             ContentUnavailableView {
                 Label("Your games. Your Mac.", systemImage: "gamecontroller")
             } description: { Text("Add a computer running Sunshine or Apollo to stream your library with native Apple video, audio, and input.").frame(maxWidth: 380) }
-            actions: { Button("Add Computer") { showingAddHost = true }.buttonStyle(.borderedProminent).controlSize(.large) }
+            actions: { Button("Add Computer") { showingAddHost = true }.swiftlightGlassButton(prominent: true).controlSize(.large) }
         }
     }
     private var streamOverlay: some View {
@@ -157,7 +151,7 @@ struct ContentView: View {
             } label: { Image(systemName: "ellipsis.circle") }.help("Stream options")
             Button("Reconnect") { model.reconnect() }
             Button("Disconnect") { model.disconnect() }
-        }.padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)).padding(12)
+        }.buttonStyle(.borderless).padding(16).swiftlightGlassSurface(cornerRadius: 20).padding(.horizontal, 16)
     }
     private var statisticsAlignment: Alignment {
         switch model.statisticsPreferences.position {
@@ -170,8 +164,13 @@ struct ContentView: View {
 struct NetworkFooter: View {
     @ObservedObject var network: NetworkStatus
     var body: some View {
-        HStack { Image(systemName: network.available ? "network" : "network.slash"); Text(network.description); Spacer() }
-            .font(.caption).foregroundStyle(.secondary).padding(12).background(.bar)
+        HStack {
+            Label(network.description, systemImage: network.available ? "network" : "network.slash")
+                .font(.caption).foregroundStyle(.secondary)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .swiftlightGlassSurface(cornerRadius: 20)
+            Spacer()
+        }.padding(.horizontal, 24).padding(.bottom, 12)
             .help("System path observation; the active stream's socket route may differ.")
     }
 }
@@ -185,7 +184,11 @@ struct AddHostView: View {
             Text("Enter a hostname or IP address, or select a discovered computer.").foregroundStyle(.secondary)
             TextField("Hostname, IP, or [IPv6]:port", text: $address).textFieldStyle(.roundedBorder).onSubmit(add)
             DiscoveredHostList(discovery: model.discovery) { address = $0; add() }
-            HStack { Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction); Spacer(); Button("Continue", action: add).keyboardShortcut(.defaultAction).disabled(address.isEmpty) }
+            HStack {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).swiftlightGlassButton()
+                Spacer()
+                Button("Continue", action: add).keyboardShortcut(.defaultAction).swiftlightGlassButton(prominent: true).disabled(address.isEmpty)
+            }
         }.padding(24).frame(width: 460)
     }
     private func add() { guard !address.isEmpty else { return }; model.addHost(address: address); dismiss() }
@@ -200,7 +203,7 @@ struct DiscoveredHostList: View {
             } else if discovery.hosts.isEmpty {
                 Text("Looking for computers on your local network…").font(.caption).foregroundStyle(.secondary)
             }
-            ForEach(discovery.hosts) { host in Button { choose(host.address.description) } label: { Label(host.name, systemImage: "desktopcomputer") }.buttonStyle(.borderless) }
+            ForEach(discovery.hosts) { host in Button { choose(host.address.description) } label: { Label(host.name, systemImage: "desktopcomputer") }.swiftlightGlassButton() }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -225,7 +228,7 @@ struct PairingView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Text("Swiftlight will show a four-digit PIN. Enter it in the Sunshine or Apollo web interface to trust this Mac.").foregroundStyle(.secondary)
-                    Button("Start PIN Pairing") { model.beginPINPairing() }.buttonStyle(.borderedProminent).disabled(model.busy)
+                    Button("Start PIN Pairing") { model.beginPINPairing() }.swiftlightGlassButton(prominent: true).disabled(model.busy)
                 }
             } else {
                 Toggle("Enter OTP and passphrase separately", isOn: $useSeparateFields).disabled(model.busy)
@@ -240,11 +243,11 @@ struct PairingView: View {
                     SecureField("Paste art:// pairing link", text: $link).textFieldStyle(.roundedBorder).disabled(model.busy)
                 }
                 Text("Generate a one-time pairing link in Apollo. Its secret is used only for this attempt.").font(.callout).foregroundStyle(.secondary)
-                Button("Pair with Apollo", action: pairApollo).buttonStyle(.borderedProminent)
+                Button("Pair with Apollo", action: pairApollo).swiftlightGlassButton(prominent: true)
                     .disabled(model.busy || (useSeparateFields ? apolloAddress.isEmpty || otp.isEmpty || passphrase.isEmpty : link.isEmpty))
                 if model.busy { ProgressView().controlSize(.small) }
             }
-            Button("Cancel") { clearSecrets(); model.cancelPairing() }.keyboardShortcut(.cancelAction)
+            Button("Cancel") { clearSecrets(); model.cancelPairing() }.keyboardShortcut(.cancelAction).swiftlightGlassButton()
         }.multilineTextAlignment(.center).padding(28).frame(width: 460).interactiveDismissDisabled(model.busy)
             .onAppear { apolloAddress = model.selectedHost?.address.description ?? "" }
             .onDisappear { clearSecrets() }

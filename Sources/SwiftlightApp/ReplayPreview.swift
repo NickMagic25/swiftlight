@@ -22,7 +22,7 @@ struct ReplayPreview: View {
                 Button("Play", systemImage: "play.fill") { model.start() }.disabled(model.selectedURL == nil || model.isPlaying)
                 Button("Stop", systemImage: "stop.fill") { model.stop() }.disabled(!model.canStop)
                 Button("Export Results…") { model.export() }.disabled(model.engine == nil)
-            }.padding()
+            }.buttonStyle(.borderless).padding(16).swiftlightGlassSurface(cornerRadius: 20).padding(12)
             if let engine = model.engine {
                 ReplayMetalSurface(engine: engine).id(model.runID)
                     .frame(minWidth: 560, minHeight: 315)

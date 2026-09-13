@@ -5,7 +5,7 @@ import Darwin
 public enum HostError: Error, LocalizedError, Equatable, Sendable {
     case invalidAddress, malformedPairingLink, invalidPIN, notPaired, pairingInProgress
     case incorrectPIN, credentialRejected, credentialUnavailable, certificateChanged, identityChanged
-    case invalidResponse, unsupportedHost, cryptoFailure, keychain(Int32), permissionDenied, hostStatus(Int)
+    case invalidResponse, invalidArtwork, unsupportedHost, cryptoFailure, keychain(Int32), permissionDenied, hostStatus(Int)
     case timeout, connectionFailed, networkFailure(Int), pairingFailed, launchFailed
     public var errorDescription: String? {
         switch self {
@@ -20,6 +20,7 @@ public enum HostError: Error, LocalizedError, Equatable, Sendable {
         case .certificateChanged: "This host's certificate changed. Verify the host, then remove its saved pairing and pair again."
         case .identityChanged: "This address now reports a different host identity. Verify the address before pairing."
         case .invalidResponse: "The host returned an invalid or incomplete response."
+        case .invalidArtwork: "The host's cover image is missing, damaged, or too large."
         case .unsupportedHost: "This client requires Sunshine or Apollo with generation 7 or newer pairing."
         case .cryptoFailure: "The cryptographic pairing operation failed."
         case .keychain(let status): "The client identity could not be accessed in Keychain (\(status))."

@@ -37,6 +37,8 @@ The scripts use `--manifest-cache none` so SwiftPM reevaluates the override. Omi
 4. Streams start in native full screen by default; disable **Start streams in full screen** in Presentation settings for windowed playback. The first frame captures input when Swiftlight is active; **Control–Option–Shift–Z** releases capture and shows the stream controls. Click the video to capture again.
 5. **Disconnect** leaves the remote application running. **Quit Remote Application** is a separate confirmed action.
 
+The library loads real covers from the paired host into a 3:4 grid. Hover or focus a cover to reveal its title and Play/Resume action; unavailable artwork uses a titled fallback. Native controls and floating panels share Liquid Glass on macOS 26 and later, with material and accessibility fallbacks. Artwork stays in a bounded memory-only cache. See [appearance and covers](docs/appearance.md) for behavior, resource limits and the pending live visual checks.
+
 | Shortcut | Action |
 | --- | --- |
 | Control–Option–Shift–Q | Disconnect locally; leave the remote application running. |
@@ -58,7 +60,7 @@ scripts/validate-offline.sh
 
 This runs unit/protocol/ownership tests, the native ASan/UBSan harness, independent OTP vectors, real HEVC/AV1 hardware decode and production Metal render/readback for all eight fixture sets, and the sole-decoder audit. It requires an Apple GPU and HEVC/AV1 hardware; a sandbox or unsupported device can block these checks and must not be called a pass. Outputs are written to `artifacts/` and `.build/native-transport-tests/`.
 
-The latest full Swift suite passed 62 tests (43 XCTest and 19 host tests), including statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. Native ASan, UBSan and TSan checks passed. Ten isolated window-lifecycle groups and nineteen packaging checks also pass. The initial live checks are partial functional evidence; they do not replace the remaining acceptance gates.
+The latest full Swift suite passed 69 tests (44 XCTest and 25 host tests), including artwork protocol/image bounds, statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. The integrated macOS app built and signed successfully. Native ASan, UBSan and TSan checks passed. Ten isolated window-lifecycle groups and nineteen packaging checks also pass. The initial live checks are partial functional evidence; they do not replace the remaining acceptance gates.
 
 ```sh
 .build/debug/swiftlight-replay --fixture fixtures/av1-accounting-10/manifest.json \
@@ -72,6 +74,8 @@ Correctness and paced offscreen modes are distinct. Offscreen GPU completion is 
 For a host-free visual check, open **Stream → Video Validation** in the app and choose a fixture manifest. The window uses the production decoder and Metal renderer. Its separate lifecycle regression is `python3 scripts/validate-preview-lifecycle.py`; that automated check opens no window and does not measure visible presentation.
 
 - [Architecture and lifetime](docs/architecture.md)
+- [Appearance and application covers](docs/appearance.md)
+- [Authenticated host artwork](docs/host-artwork.md)
 - [Verified API/protocol assumptions](docs/verified-assumptions.md)
 - [Compatibility matrix](docs/compatibility-matrix.md)
 - [Video validation](docs/video-validation.md)

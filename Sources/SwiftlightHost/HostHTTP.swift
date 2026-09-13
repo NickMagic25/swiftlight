@@ -2,6 +2,7 @@ import Foundation
 import Security
 
 struct HostHTTPRequest: Sendable {
+    static let maximumResponseBytes = 4 * 1024 * 1024
     let url: URL
     let timeout: TimeInterval
 }
@@ -35,7 +36,7 @@ struct URLSessionHostTransport: HostHTTPTransport {
             guard let http = response as? HTTPURLResponse else { throw HostError.invalidResponse }
             if http.statusCode == 401 || http.statusCode == 403 { throw HostError.permissionDenied }
             guard http.statusCode == 200 else { throw HostError.hostStatus(http.statusCode) }
-            let maximum = 4 * 1024 * 1024
+            let maximum = HostHTTPRequest.maximumResponseBytes
             guard response.expectedContentLength <= Int64(maximum) else { throw HostError.invalidResponse }
             var data = Data()
             if response.expectedContentLength > 0 { data.reserveCapacity(Int(response.expectedContentLength)) }

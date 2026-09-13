@@ -43,6 +43,7 @@ import SwiftlightVideo
     let discovery = BonjourHostDiscovery()
     let network = NetworkStatus()
     let streamWindow = StreamWindowController()
+    let artwork = AppArtworkStore()
     private let hostStore = SavedHostStore()
     private var client: HostClient?
     private var controlTask: Task<Void, Never>?
@@ -109,6 +110,7 @@ import SwiftlightVideo
     func selectHost(_ host: SavedHost) {
         guard !isSessionActive, !quittingRemote, !busy else { return }
         intentGate.retire()
+        artwork.cancel(clear: true)
         selectedHostID = host.id; apps = []; hostInfo = nil; pairingPIN = nil
         client = HostClient(address: host.address, hostID: host.id)
         loadProfile(host.id)
@@ -139,6 +141,7 @@ import SwiftlightVideo
     }
     private func controlFailed(_ error: Error, generation: UInt64) {
         guard generation == controlGeneration, !Task.isCancelled else { return }
+        artwork.cancel(clear: true)
         message = error.localizedDescription
         switch error {
         case HostError.connectionFailed, HostError.networkFailure, HostError.timeout:
@@ -154,6 +157,7 @@ import SwiftlightVideo
     func addHost(address rawAddress: String) {
         guard !isSessionActive, !quittingRemote else { return }
         intentGate.retire()
+        artwork.cancel(clear: true)
         let generation = beginControl(); hostStatus = "Checking address…"
         controlTask = Task {
             defer { finishControl(generation) }
@@ -180,14 +184,23 @@ import SwiftlightVideo
                 let info = try await client.serverInfo(); try ensureControl(generation, selection: selection)
                 applyHostInfo(info)
                 if info.isPaired { try await loadApps(using: client, selection: selection, generation: generation) }
-                else { apps = [] }
+                else { apps = []; artwork.cancel(clear: true) }
             } catch is CancellationError {} catch { controlFailed(error, generation: generation) }
         }
     }
     private func loadApps(using client: HostClient, selection: String, generation: UInt64) async throws {
         let loadedApps = try await client.apps()
         try ensureControl(generation, selection: selection)
-        apps = loadedApps; state.apply(.ready)
+        apps = loadedApps.sorted {
+            let order = $0.name.localizedStandardCompare($1.name)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
+        state.apply(.ready)
+        artwork.load(apps: Array(apps.prefix(40)), using: client, hostID: selection)
+    }
+    func loadArtwork(for app: RemoteApp? = nil) {
+        guard let client, let selectedHostID, hostInfo?.isPaired == true, !isSessionActive else { return }
+        artwork.load(apps: app.map { [$0] } ?? Array(apps.prefix(40)), using: client, hostID: selectedHostID)
     }
     func beginPINPairing() {
         guard let client, let selection = selectedHostID, !busy, !isSessionActive else { return }
@@ -210,6 +223,7 @@ import SwiftlightVideo
     }
     func pairApollo(credential: ApolloPairingCredential) {
         guard !busy, !isSessionActive else { return }
+        artwork.cancel(clear: true)
         let generation = beginControl(); hostStatus = "Pairing…"
         controlTask = Task {
             defer { finishControl(generation) }
@@ -235,6 +249,7 @@ import SwiftlightVideo
     func removeHost() {
         guard let host = selectedHost, !isSessionActive, !busy else { return }
         intentGate.retire()
+        artwork.cancel(clear: true)
         let hostClient = client ?? HostClient(address: host.address, hostID: host.id)
         let generation = beginControl()
         controlTask = Task {
@@ -249,6 +264,7 @@ import SwiftlightVideo
     }
     func unpair() {
         guard let client, let selection = selectedHostID, !isSessionActive, !busy else { return }
+        artwork.cancel(clear: true)
         let generation = beginControl(); hostStatus = "Removing pairing…"
         controlTask = Task {
             defer { finishControl(generation) }
@@ -261,6 +277,7 @@ import SwiftlightVideo
     }
     func launch(_ app: RemoteApp) {
         guard let client, let host = selectedHost, !isSessionActive, !busy, !quittingRemote, stoppingTask == nil else { return }
+        artwork.cancel()
         state.apply(.connect); let generation = state.generation
         activeApp = app; message = nil; renderFailure = nil; hostStatus = "Connecting stream…"
         statisticsRequest = nil; statisticsSelection = nil
@@ -391,6 +408,7 @@ import SwiftlightVideo
         }
     }
     func shutdown() async {
+        artwork.cancel(clear: true)
         controlTask?.cancel(); disconnect()
         await stoppingTask?.value
         await controlTask?.value
