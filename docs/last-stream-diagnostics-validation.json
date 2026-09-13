@@ -1,0 +1,38 @@
+{
+  "generated_at_utc": "2026-09-13T05:09:37.361426+00:00",
+  "status": "PARTIAL",
+  "scope": "Last completed stream diagnostics export; offline verification complete, native save-panel/live-stream interaction pending.",
+  "schema_version": 3,
+  "swift_tests": {
+    "xctest": 47,
+    "host": 25,
+    "total": 72,
+    "failures": 0,
+    "hardware_enabled": true
+  },
+  "new_tests": [
+    "One-second cadence,600-sample cap and forced terminal sample",
+    "Pre-frame failure, frozen completion and JSON round-trip",
+    "Non-finite/backward sampling clocks"
+  ],
+  "bundle": ".build/Swiftlight.app",
+  "binary_sha256": "4206fa758e28f4f3e8d0cedb364584f5a67f6b073ba3e853c7a60d77a01b8132",
+  "signed_build": "PASS",
+  "strict_signature_verification": "PASS",
+  "logs": [
+    "artifacts/last-stream-tests.log",
+    "artifacts/last-stream-build.log"
+  ],
+  "retention": "One completed attempt in memory; retained during the next attempt, replaced on completion, cleared on app exit. No automatic disk persistence.",
+  "capture_boundary": "Before cancellation and native owner teardown; does not include subsequent completion callbacks.",
+  "gui_validation": "Not attempted: user is away and cannot approve protected Keychain access; prior desktop lock remains unresolved.",
+  "source_sha256": {
+    "Sources/SwiftlightApp/ClientModel.swift": "fe24102ea1fd33846c7d3533fcb0dcdd35939ccd150e2f58e7bf26979ece0f7b",
+    "Sources/SwiftlightApp/Diagnostics.swift": "63e4ef1039a346e436e64ae37a09ffe2c696e60ea031217e378b2e05a1694bed",
+    "Sources/SwiftlightApp/StreamStatistics.swift": "e07110ad7d0e612e49dec572f00bae19f7cd87c4f908848e4cb4cc22d3d2623e",
+    "Sources/SwiftlightApp/ContentView.swift": "bee494c3eba9c7ecfa7916aaf1231df30346fc5ed514273c65f085325e12a064",
+    "Sources/SwiftlightApp/SwiftlightApp.swift": "ca769bd43c2642197c0c7688b006bb113035c860aee8aecf61736a44e6680b78",
+    "Sources/SwiftlightCore/StreamDiagnosticTimeline.swift": "2575ea56783bd09cb94e093d35562094e318f3a8a3847181da44f77679c0846e",
+    "Tests/SwiftlightCoreTests/StreamDiagnosticTimelineTests.swift": "df0c2aad4b9eb80ab523c2ab94d40b8d6807c310e925dfa1b051a8c8f5911815"
+  }
+}

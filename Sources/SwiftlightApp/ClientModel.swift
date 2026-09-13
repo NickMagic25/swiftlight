@@ -40,6 +40,10 @@ import SwiftlightVideo
     var statisticsRateWindow = StreamFrameRateWindow()
     var streamStatisticsSnapshot = StreamStatisticsSnapshot()
     var simplePresentationSample: (time: TimeInterval, milliseconds: Double?)?
+    @Published var lastStreamDiagnostics: Data?
+    var diagnosticTimeline: StreamDiagnosticTimeline?
+    var diagnosticSettings: StreamSettings?
+    var diagnosticFailure: String?
     let discovery = BonjourHostDiscovery()
     let network = NetworkStatus()
     let streamWindow = StreamWindowController()
@@ -68,6 +72,7 @@ import SwiftlightVideo
         timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect().sink { [weak self] _ in self?.updateStatistics() }
         network.$available.dropFirst().sink { [weak self] available in
             guard !available, let self, self.isSessionActive else { return }
+            self.diagnosticFailure = "Network path lost"
             self.state.apply(.pathLost); self.message = self.state.error; self.teardown()
         }.store(in: &observers)
         // NSWorkspace notifications are emitted by its own notification center.
@@ -278,6 +283,9 @@ import SwiftlightVideo
     func launch(_ app: RemoteApp) {
         guard let client, let host = selectedHost, !isSessionActive, !busy, !quittingRemote, stoppingTask == nil else { return }
         artwork.cancel()
+        diagnosticTimeline = StreamDiagnosticTimeline()
+        diagnosticSettings = settings; diagnosticFailure = nil
+        streamDetail = "Preparing stream"; decodedDetail = "Waiting for decoded output"
         state.apply(.connect); let generation = state.generation
         activeApp = app; message = nil; renderFailure = nil; hostStatus = "Connecting stream…"
         statisticsRequest = nil; statisticsSelection = nil
@@ -334,6 +342,7 @@ import SwiftlightVideo
                 try await transport.start(); try ensureCurrent(generation)
             } catch is CancellationError {} catch {
                 guard state.generation == generation else { return }
+                diagnosticFailure = "\(String(reflecting: type(of: error))) code \((error as NSError).code)"
                 state.apply(.failure(error.localizedDescription), generation: generation); message = error.localizedDescription; teardown()
             }
         }
@@ -344,8 +353,8 @@ import SwiftlightVideo
     private func handle(_ event: TransportEvent, generation: UInt64) {
         guard generation == state.generation else { return }
         switch event {
-        case .terminated(let code): state.apply(.failure("Host disconnected (\(code)).")); message = state.error; teardown()
-        case .failed(let stage, let code): state.apply(.failure("Connection failed at \(stage) (\(code)).")); message = state.error; teardown()
+        case .terminated(let code): diagnosticFailure = "Host terminated: \(code)"; state.apply(.failure("Host disconnected (\(code)).")); message = state.error; teardown()
+        case .failed(let stage, let code): diagnosticFailure = "Transport stage \(stage), code \(code)"; state.apply(.failure("Connection failed at \(stage) (\(code)).")); message = state.error; teardown()
         case .rumble(let controller, let low, let high): ControllerHub.shared.rumble(index: Int(controller), low: low, high: high)
         case .audioFailure(let code): message = "Audio output failed (\(code)). Check the selected output device."
         case .qualityPoor(let poor): if poor { message = "Network quality is poor. Try a lower bitrate." }
@@ -355,6 +364,7 @@ import SwiftlightVideo
     func disconnect() { intentGate.retire(); state.apply(.disconnect); teardown() }
     private func teardown() {
         guard stoppingTask == nil else { return }
+        finishStreamDiagnostics()
         connectionTask?.cancel(); transport?.releaseAllInputs(); transport?.cancelStart()
         let oldTransport = transport, oldPipeline = pipeline
         oldPipeline?.closeAdmission(); transport = nil; pipeline = nil; inputCaptured = false
@@ -416,6 +426,7 @@ import SwiftlightVideo
     }
     private func updateStatistics() {
         if let error = pipeline?.error ?? pipeline?.statistics?.failureDescription ?? renderFailure, isSessionActive {
+            diagnosticFailure = "Video pipeline failure; inspect decoder and renderer counters"
             message = error; state.apply(.failure(error)); teardown(); return
         }
         if let pipeline {

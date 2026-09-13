@@ -20,6 +20,9 @@ struct SwiftlightApp: App {
                     .disabled(model.busy || model.selectedHost == nil || model.isSessionActive)
             }
             CommandMenu("Stream") {
+                Button("Export Last Stream Diagnostics…") { model.exportLastStreamDiagnostics() }
+                    .disabled(model.lastStreamDiagnostics == nil)
+                Divider()
                 Button("Video Validation…") { openWindow(id: "replay") }
                 Divider()
                 Button("Disconnect") { model.disconnect() }.keyboardShortcut("q", modifiers: [.control, .option, .shift]).disabled(!model.isSessionActive)

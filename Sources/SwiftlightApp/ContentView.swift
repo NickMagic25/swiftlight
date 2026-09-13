@@ -98,6 +98,9 @@ struct ContentView: View {
                         }
                         Spacer()
                         Menu {
+                            Button("Export Last Stream Diagnostics…") { model.exportLastStreamDiagnostics() }
+                                .disabled(model.lastStreamDiagnostics == nil)
+                            Divider()
                             Button("Pair Computer") { model.showingPairing = true }.disabled(model.hostInfo?.isPaired == true)
                             Button("Unpair and Pair Again") { model.unpair() }
                             Button("Remove Computer…", role: .destructive) { confirmingRemove = true }

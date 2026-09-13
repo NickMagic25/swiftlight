@@ -44,6 +44,7 @@ extension ClientModel {
             snapshot.hostProcessingAndClientPresentation = summarize(renderer.hostProcessingAndClientPresentation)
         }
         streamStatisticsSnapshot = snapshot
+        diagnosticTimeline?.record(snapshot, phase: state.phase.rawValue, uptime: now)
         guard showingStreamStatistics else { return }
         if statisticsPreferences.detail == .simple {
             // Sample the latest presented frame every five seconds. Detailed rows and exported

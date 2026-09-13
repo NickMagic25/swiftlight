@@ -52,6 +52,10 @@ Relative mouse mode is for games; Absolute mode maps the pointer through the sam
 
 Client private keys and certificate pins live in Keychain. The macOS development app explicitly uses the login Keychain; iOS/tvOS core defaults to the data-protection Keychain. There is no fallback after arbitrary credential errors. Apollo one-time secrets are not retained. See [manual pairing tests](docs/host-manual-test.md).
 
+## Export a stream for debugging
+
+After disconnecting, choose **Stream → Export Last Stream Diagnostics…** or the same action in the library's computer-options menu. Save the JSON file wherever you want. It contains the completed connection attempt's settings, outcome, recent statistics timeline, and decoder/renderer/network/audio counters. Failed connection attempts are included. The last report is retained in memory until replaced by the next completed attempt or Swiftlight quits; export it before closing the app. Pairing credentials, host addresses, application names and media are excluded. See [diagnostic exports](docs/diagnostic-exports.md) for the schema and measurement limits.
+
 ## Offline validation
 
 ```sh
@@ -60,7 +64,7 @@ scripts/validate-offline.sh
 
 This runs unit/protocol/ownership tests, the native ASan/UBSan harness, independent OTP vectors, real HEVC/AV1 hardware decode and production Metal render/readback for all eight fixture sets, and the sole-decoder audit. It requires an Apple GPU and HEVC/AV1 hardware; a sandbox or unsupported device can block these checks and must not be called a pass. Outputs are written to `artifacts/` and `.build/native-transport-tests/`.
 
-The latest full Swift suite passed 69 tests (44 XCTest and 25 host tests), including artwork protocol/image bounds, statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. The integrated macOS app built and signed successfully. Native ASan, UBSan and TSan checks passed. Ten isolated window-lifecycle groups and nineteen packaging checks also pass. The initial live checks are partial functional evidence; they do not replace the remaining acceptance gates.
+The latest full Swift suite passed 72 tests (47 XCTest and 25 host tests), including artwork protocol/image bounds, statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. The integrated macOS app built and signed successfully. Native ASan, UBSan and TSan checks passed. Ten isolated window-lifecycle groups and nineteen packaging checks also pass. The initial live checks are partial functional evidence; they do not replace the remaining acceptance gates.
 
 ```sh
 .build/debug/swiftlight-replay --fixture fixtures/av1-accounting-10/manifest.json \
