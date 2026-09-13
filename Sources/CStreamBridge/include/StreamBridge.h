@@ -17,6 +17,8 @@ typedef struct {
     bool has_permissions;
     uint32_t permissions;
     int display_refresh_rate_x100;
+    int audio_channels;
+    bool spatial_audio;
 } SFStreamConfiguration;
 typedef struct { uint32_t format; int width, height, fps; } SFVideoDescription;
 typedef struct {
@@ -77,6 +79,10 @@ typedef struct {
 } SFTransportDiagnostics;
 bool sf_stream_diagnostics(SFStream *stream, SFTransportDiagnostics *diagnostics);
 const char *sf_stream_launch_query(void);
+// Both RTSP and HTTPS launch/resume use this single channel-mask mapping.
+// Unsupported channel counts return zero.
+int sf_stream_audio_configuration(int channels);
+uint32_t sf_stream_surround_audio_info(int channels);
 // Server-free seam runs the exact frame flattener, callback, and exactly-once completion owner.
 // A valid acquired frame is completed once even if malformed, cancelled, or rejected.
 bool sf_stream_validate_keyboard_wire_codes(void);

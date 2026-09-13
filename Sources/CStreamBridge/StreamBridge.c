@@ -186,9 +186,11 @@ static void video_stop(void) {
 static void video_cleanup(void) { }
 static void audio_failure(void *context, int error) { (void)context; emit(SF_AUDIO_ERROR, error, 0, 0, NULL); }
 static int audio_init(int configuration, OPUS_MULTISTREAM_CONFIGURATION *const opus, void *context, int flags) {
-    (void)configuration; (void)flags;
+    (void)flags;
     SFStream *s = context; int error;
-    s->audio = sf_audio_create(opus, &error, audio_failure, s);
+    if (!opus || configuration != sf_stream_audio_configuration(s->configuration.audio_channels) ||
+        opus->channelCount != s->configuration.audio_channels) return -1;
+    s->audio = sf_audio_create(opus, s->configuration.spatial_audio, &error, audio_failure, s);
     return s->audio ? 0 : error;
 }
 static void audio_start(void) {
@@ -202,11 +204,24 @@ static int send_key_common(SFStream *s, uint16_t key, char action, char modifier
     (void)s; return LiSendKeyboardEvent2((short)key, action, modifiers, flags);
 }
 static char *copy_string(const char *s) { return s ? strdup(s) : NULL; }
+int sf_stream_audio_configuration(int channels) {
+    switch (channels) {
+        case 2: return AUDIO_CONFIGURATION_STEREO;
+        case 6: return AUDIO_CONFIGURATION_51_SURROUND;
+        case 8: return AUDIO_CONFIGURATION_71_SURROUND;
+        default: return 0;
+    }
+}
+uint32_t sf_stream_surround_audio_info(int channels) {
+    int configuration = sf_stream_audio_configuration(channels);
+    return configuration ? (uint32_t)SURROUNDAUDIOINFO_FROM_AUDIO_CONFIGURATION(configuration) : 0;
+}
 SFStream *sf_stream_create(const SFStreamConfiguration *c, SFStreamCallbacks callbacks, void *context) {
     const unsigned allowed = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10;
     if (!c || !c->address || !c->app_version || !c->video_formats || (c->video_formats & ~allowed) ||
         c->width < 16 || c->width > 16384 || c->height < 16 || c->height > 16384 ||
-        c->fps < 1 || c->fps > 1000 || c->bitrate_kbps < 500 || c->bitrate_kbps > 500000) return NULL;
+        c->fps < 1 || c->fps > 1000 || c->bitrate_kbps < 500 || c->bitrate_kbps > 500000 ||
+        !sf_stream_audio_configuration(c->audio_channels) || (c->spatial_audio && c->audio_channels == 2)) return NULL;
     SFStream *s = calloc(1, sizeof(*s));
     if (!s) return NULL;
     pthread_mutex_init(&s->api_mutex, NULL);
@@ -232,7 +247,8 @@ int sf_stream_start(SFStream *s) {
     STREAM_CONFIGURATION config; LiInitializeStreamConfiguration(&config);
     config.width = s->configuration.width; config.height = s->configuration.height; config.fps = s->configuration.fps;
     config.bitrate = s->configuration.bitrate_kbps; config.packetSize = 1392;
-    config.streamingRemotely = STREAM_CFG_AUTO; config.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
+    config.streamingRemotely = STREAM_CFG_AUTO;
+    config.audioConfiguration = sf_stream_audio_configuration(s->configuration.audio_channels);
     config.supportedVideoFormats = (int)s->configuration.video_formats; config.clientRefreshRateX100 = s->configuration.display_refresh_rate_x100;
     config.colorSpace = s->configuration.hdr ? COLORSPACE_REC_2020 : COLORSPACE_REC_709;
     config.colorRange = COLOR_RANGE_LIMITED; config.encryptionFlags = ENCFLG_ALL;

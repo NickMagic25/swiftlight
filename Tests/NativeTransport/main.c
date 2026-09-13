@@ -39,7 +39,7 @@ int main(void) {
     CHECK(strstr(sf_stream_launch_query(), "&") != NULL);
     SFStreamConfiguration config = { .address = "localhost", .app_version = "7.1.431.0",
         .video_formats = 0x100, .width = 1920, .height = 1080, .fps = 60, .bitrate_kbps = 20000,
-        .has_permissions = true, .permissions = 0 };
+        .has_permissions = true, .permissions = 0, .audio_channels = 2 };
     SFStream *denied = sf_stream_create(&config, (SFStreamCallbacks){0}, NULL); CHECK(denied);
     CHECK(sf_stream_key(denied, 0x8041, true, 0) == -2);
     CHECK(sf_stream_mouse_move(denied, 1, 1) == -2);

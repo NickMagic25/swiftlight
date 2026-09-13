@@ -2,6 +2,8 @@
 
 A native macOS Moonlight client built with SwiftUI, Metal, Core Audio, GameController, and a shared Apple streaming core. Every compressed video frame goes through the separately pinned **MoonlightAppleVideo** package with hardware decoding required. Sunshine and Apollo are the hosts.
 
+Supported macOS audio features include **Stereo**, **5.1 Surround**, **7.1 Surround**, and **Apple System Spatial Audio for compatible AirPods**, with Direct output and optional playback on the host. Audio settings save per computer or as global defaults. See [audio setup and validation](docs/audio.md).
+
 macOS is the first application target. iOS, iPadOS and tvOS adapters are future work. The macOS implementation builds and passes server-free hardware validation. Live Vibepollo checks have verified saved pairing, authenticated library access, a short HEVC 10-bit Desktop stream, input capture/release, and local disconnect. A presentation deadlock found during live testing was corrected; see the [stream follow-up](docs/stream-deadlock-validation.md). The [statistics follow-up](docs/stream-statistics-validation.md) verifies the disconnect/statistics shortcuts and movable Liquid Glass panel against a live host. The final full-screen viewport matched the 3440 × 1440 external display; broader display, pairing/input/audio/HDR coverage and sustained performance are **not yet release-validated**. See the [acceptance matrix](docs/acceptance-matrix.md).
 
 ## Build and run
@@ -50,6 +52,10 @@ In **Settings → Stream Statistics**, choose **Simple** or **Detailed** and **T
 
 Relative mouse mode is for games; Absolute mode maps the pointer through the same clean-aperture/fit/fill viewport and rejects letterbox input. Physical controllers support analog controls and available haptics. Stream request changes require reconnect; display movement/resize changes presentation immediately, while a new native pixel request needs reconnect. HDR On fails clearly if unavailable; Auto intersects host codec/10-bit support, hardware decoder candidates and display capability.
 
+In **Settings → Audio**, choose **Stereo + Direct** for a game's headphone/binaural mix. For surround virtualization on compatible AirPods, set the host and game to surround speakers, choose matching **5.1** or **7.1** channels, and select **System Spatial Audio**. Save for the computer or as global defaults, then reconnect. Use the macOS AirPods menu for **Off**, **Fixed** and **Head Tracked**, when available. Defaults remain Stereo and Direct, with **Play audio on host** disabled.
+
+Live AirPods testing verified audible 7.1 playback and recovery through repeated Off/Fixed/Head Tracked changes. Buffering adapts to the output device; recovery can replace the audio renderer once per stream without reconnecting video. Channel isolation, head-tracking quality, other devices, physical latency and sustained playback still need broader validation. See [audio behavior, buffering and acceptance checks](docs/audio.md).
+
 Client private keys and certificate pins live in Keychain. The macOS development app explicitly uses the login Keychain; iOS/tvOS core defaults to the data-protection Keychain. There is no fallback after arbitrary credential errors. Apollo one-time secrets are not retained. See [manual pairing tests](docs/host-manual-test.md).
 
 ## Export a stream for debugging
@@ -70,7 +76,7 @@ scripts/validate-offline.sh
 
 This runs unit/protocol/ownership tests, the native ASan/UBSan harness, independent OTP vectors, real HEVC/AV1 hardware decode and production Metal render/readback for all eight fixture sets, and the sole-decoder audit. It requires an Apple GPU and HEVC/AV1 hardware; a sandbox or unsupported device can block these checks and must not be called a pass. Outputs are written to `artifacts/` and `.build/native-transport-tests/`.
 
-The latest full Swift suite passed 95 tests (70 XCTest and 25 host tests), including hardware readbacks for statistics overlay color/placement/lifetime, artwork protocol/image bounds, statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. The integrated macOS debug app built and signed successfully, and the release product compiled. Native ASan, UBSan and TSan checks passed. Ten isolated window-lifecycle groups and nineteen packaging checks also pass. The initial live checks are partial functional evidence; they do not replace the remaining acceptance gates.
+The latest full Swift suite passed 102 tests (77 XCTest and 25 Swift Testing tests), including audio settings migration and negotiation, hardware readbacks for statistics overlay color/placement/lifetime, artwork protocol/image bounds, statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. The updated macOS debug app built and signed successfully. Native audio ASan/UBSan playback, renderer-replacement and teardown checks passed. Earlier branch validation includes release compilation, TSan, ten isolated window-lifecycle groups and nineteen packaging checks. The live checks provide functional evidence for the tested devices; they do not replace the remaining acceptance gates.
 
 ```sh
 .build/debug/swiftlight-replay --fixture fixtures/av1-accounting-10/manifest.json \
@@ -90,4 +96,5 @@ For a host-free visual check, open **Stream → Video Validation** in the app an
 - [Compatibility matrix](docs/compatibility-matrix.md)
 - [Video validation](docs/video-validation.md)
 - [Transport and audio](docs/transport.md)
+- [Audio settings and Spatial Audio](docs/audio.md)
 - [Licensing and distribution](docs/licensing.md)

@@ -1,5 +1,6 @@
 import Foundation
 import CStreamBridge
+import SwiftlightCore
 
 public struct TransportConfiguration: Sendable {
     public let address: String
@@ -14,14 +15,19 @@ public struct TransportConfiguration: Sendable {
     public let hdr: Bool
     public let permissions: UInt32?
     public let displayRefreshHz: Double
+    public let audioChannels: AudioChannelConfiguration
+    public let audioOutput: AudioOutputMode
     public init(address: String, appVersion: String, gfeVersion: String? = nil, rtspURL: String?,
                 serverCodecSupport: UInt32, width: Int, height: Int, fps: Int, bitrateKbps: Int,
-                supportedVideoFormats: UInt32, inputKey: Data, inputKeyID: UInt32, hdr: Bool = false, permissions: UInt32? = nil, displayRefreshHz: Double = 0) {
+                supportedVideoFormats: UInt32, inputKey: Data, inputKeyID: UInt32, hdr: Bool = false, permissions: UInt32? = nil, displayRefreshHz: Double = 0,
+                audioChannels: AudioChannelConfiguration = .stereo, audioOutput: AudioOutputMode = .direct) {
         self.address = address; self.appVersion = appVersion; self.gfeVersion = gfeVersion; self.rtspURL = rtspURL
         self.serverCodecSupport = serverCodecSupport; self.width = width; self.height = height; self.fps = fps
         self.bitrateKbps = bitrateKbps; self.supportedVideoFormats = supportedVideoFormats
         self.inputKey = inputKey; self.inputKeyID = inputKeyID; self.hdr = hdr
         self.permissions = permissions; self.displayRefreshHz = displayRefreshHz
+        self.audioChannels = audioChannels
+        self.audioOutput = audioChannels == .stereo ? .direct : audioOutput
     }
 }
 
@@ -74,7 +80,7 @@ public enum TransportError: Error, LocalizedError {
     case connectionFailed(Int32)
     public var errorDescription: String? {
         switch self {
-        case .invalidConfiguration: "Invalid HEVC/AV1 stream configuration or input encryption key."
+        case .invalidConfiguration: "Invalid video or audio stream configuration, or input encryption key."
         case .connectionFailed(let code): "Streaming connection failed (code \(code)). Check the host and network."
         }
     }
@@ -95,6 +101,9 @@ public final class StreamTransport: @unchecked Sendable {
     private let lifecycleQueue = DispatchQueue(label: "net.swiftlight.transport.lifecycle", qos: .userInitiated)
 
     public static var launchQueryParameters: String { String(cString: sf_stream_launch_query()) }
+    public static func surroundAudioInfo(for channels: AudioChannelConfiguration) -> UInt32 {
+        sf_stream_surround_audio_info(Int32(channels.rawValue))
+    }
 
     public init(configuration: TransportConfiguration, callbacks: TransportCallbacks) throws {
         let allowed: UInt32 = 0x3300
@@ -116,6 +125,8 @@ public final class StreamTransport: @unchecked Sendable {
         c.has_permissions = configuration.permissions != nil; c.permissions = configuration.permissions ?? 0
         c.display_refresh_rate_x100 = configuration.displayRefreshHz.isFinite ? Int32(clamping: Int(max(0, min(1000, configuration.displayRefreshHz)) * 100)) : 0
         c.bitrate_kbps = Int32(configuration.bitrateKbps); c.input_key_id = configuration.inputKeyID; c.hdr = configuration.hdr
+        c.audio_channels = Int32(configuration.audioChannels.rawValue)
+        c.spatial_audio = configuration.audioOutput == .systemSpatial
         _ = withUnsafeMutableBytes(of: &c.input_key) { destination in configuration.inputKey.copyBytes(to: destination) }
         var cCallbacks = SFStreamCallbacks()
         cCallbacks.setup = { context, raw in

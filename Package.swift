@@ -27,21 +27,23 @@ let package = Package(
         .target(name: "SwiftlightHost", dependencies: ["CHostCrypto"]),
         // bootstrap-dependencies.sh prepares these sources from the pinned common-c submodule
         // and the explicit patch series. The upstream checkout remains pristine.
-        .target(name: "CStreamBridge", sources: ["StreamBridge.c", "AudioOutput.c", "AudioRing.c", "vendor/common-c/src",
+        .target(name: "CStreamBridge", sources: ["StreamBridge.c", "AudioOutput.c", "AudioRing.c", "AudioFormat.c", "AudioSpatialOutput.m", "vendor/common-c/src",
                 "vendor/common-c/enet/callbacks.c", "vendor/common-c/enet/compress.c", "vendor/common-c/enet/host.c",
                 "vendor/common-c/enet/list.c", "vendor/common-c/enet/packet.c", "vendor/common-c/enet/peer.c",
                 "vendor/common-c/enet/protocol.c", "vendor/common-c/enet/unix.c", "vendor/common-c/nanors/rs.c",
                 "vendor/common-c/nanors/deps/obl/oblas_common.c", "vendor/common-c/nanors/deps/obl/oblas_lite.c"],
                 publicHeadersPath: "include", cSettings: [
-                    .unsafeFlags(["-fblocks"]), .headerSearchPath("vendor/common-c/src"), .headerSearchPath("vendor/common-c/enet/include"),
+                    // The native audio wrapper explicitly owns its Objective-C objects and dispatch sources.
+                    .unsafeFlags(["-fblocks", "-fno-objc-arc"]), .headerSearchPath("vendor/common-c/src"), .headerSearchPath("vendor/common-c/enet/include"),
                     .headerSearchPath("vendor/common-c/nanors"), .headerSearchPath("vendor/common-c/nanors/deps"),
                     .headerSearchPath("vendor/common-c/nanors/deps/obl"), .unsafeFlags(["-I", nativeInclude]),
                     .define("__APPLE_USE_RFC_3542"), .define("HAS_SOCKLEN_T"), .define("HAS_FCNTL"), .define("HAS_POLL"), .define("HAS_GETADDRINFO"),
                     .define("HAS_GETNAMEINFO"), .define("HAS_INET_PTON"), .define("HAS_INET_NTOP"),
                     .define("HAS_MSGHDR_FLAGS"), .define("NDEBUG")
                 ], linkerSettings: [.unsafeFlags(["-L", nativeLibrary]), .linkedLibrary("crypto"), .linkedLibrary("opus"),
-                    .linkedFramework("AudioToolbox"), .linkedFramework("CoreAudio")]),
-        .target(name: "SwiftlightTransport", dependencies: ["CStreamBridge"]),
+                    .linkedFramework("AudioToolbox"), .linkedFramework("CoreAudio"), .linkedFramework("CoreMedia"),
+                    .linkedFramework("AVFoundation")]),
+        .target(name: "SwiftlightTransport", dependencies: ["CStreamBridge", "SwiftlightCore"]),
         .target(name: "SwiftlightVideo", dependencies: [.product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")]),
         .executableTarget(name: "SwiftlightApp", dependencies: ["SwiftlightCore", "SwiftlightVideo", "SwiftlightHost", "SwiftlightTransport"]),
         .executableTarget(name: "SwiftlightReplay", dependencies: ["SwiftlightVideo", .product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")]),

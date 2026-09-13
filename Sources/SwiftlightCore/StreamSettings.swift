@@ -23,6 +23,25 @@ public enum VideoPacing: String, Codable, CaseIterable, Sendable {
     case displayLink, immediate
     public var label: String { self == .displayLink ? "Display paced" : "On decoded frame (lowest latency)" }
 }
+public enum AudioChannelConfiguration: Int, Codable, CaseIterable, Sendable {
+    case stereo = 2, surround51 = 6, surround71 = 8
+    public var label: String {
+        switch self {
+        case .stereo: "Stereo"
+        case .surround51: "5.1 Surround"
+        case .surround71: "7.1 Surround"
+        }
+    }
+}
+public enum AudioOutputMode: String, Codable, CaseIterable, Sendable {
+    case direct, systemSpatial
+    public var label: String {
+        switch self {
+        case .direct: "Direct"
+        case .systemSpatial: "System Spatial Audio"
+        }
+    }
+}
 public struct PixelSize: Codable, Equatable, Sendable {
     public var width: Int
     public var height: Int
@@ -45,11 +64,18 @@ public struct StreamSettings: Codable, Equatable, Sendable {
     public var videoPacing: VideoPacing = .immediate
     public var displaySyncEnabled = false
     public var maximumDrawableCount = 3
+    public var audioChannels: AudioChannelConfiguration = .stereo
+    public var audioOutput: AudioOutputMode = .direct
+    public var playAudioOnHost = false
+    /// Stereo may already contain a host-rendered binaural mix. Do not apply a
+    /// second spatial effect, including when decoding an inconsistent saved value.
+    public var effectiveAudioOutput: AudioOutputMode { audioChannels == .stereo ? .direct : audioOutput }
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case resolution, customSize, framesPerSecond, bitrateMbps, automaticBitrate
         case codec, hdr, scaling, pointerMode, launchInFullScreen
         case videoPacing, displaySyncEnabled, maximumDrawableCount
+        case audioChannels, audioOutput, playAudioOnHost
     }
     public init(from decoder: any Decoder) throws {
         self.init()
@@ -69,6 +95,9 @@ public struct StreamSettings: Codable, Equatable, Sendable {
         videoPacing = try values.decodeIfPresent(VideoPacing.self, forKey: .videoPacing) ?? videoPacing
         displaySyncEnabled = try values.decodeIfPresent(Bool.self, forKey: .displaySyncEnabled) ?? displaySyncEnabled
         maximumDrawableCount = try values.decodeIfPresent(Int.self, forKey: .maximumDrawableCount) ?? maximumDrawableCount
+        audioChannels = try values.decodeIfPresent(AudioChannelConfiguration.self, forKey: .audioChannels) ?? audioChannels
+        audioOutput = try values.decodeIfPresent(AudioOutputMode.self, forKey: .audioOutput) ?? audioOutput
+        playAudioOnHost = try values.decodeIfPresent(Bool.self, forKey: .playAudioOnHost) ?? playAudioOnHost
     }
     public func resolvedSize(display: DisplayGeometry) -> PixelSize {
         switch resolution {

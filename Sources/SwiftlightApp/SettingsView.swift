@@ -41,6 +41,36 @@ struct SettingsView: View {
                 }
             } header: { Text("Video") }
             Section {
+                Picker("Audio channels", selection: $model.settings.audioChannels) {
+                    ForEach(AudioChannelConfiguration.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .onChange(of: model.settings.audioChannels) { _, channels in
+                    if channels == .stereo { model.settings.audioOutput = .direct }
+                }
+                Picker("Audio output", selection: Binding(
+                    get: { model.settings.effectiveAudioOutput },
+                    set: { model.settings.audioOutput = $0 }
+                )) {
+                    ForEach(AudioOutputMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                            .disabled(mode == .systemSpatial && model.settings.audioChannels == .stereo)
+                    }
+                }
+                if model.settings.audioChannels == .stereo {
+                    Text("Use Stereo and Direct for a game's headphone or binaural mix. Choose 5.1 or 7.1 to enable System Spatial Audio.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if model.settings.effectiveAudioOutput == .systemSpatial {
+                    Text("Set the host and game to surround speakers. With compatible AirPods, use the macOS AirPods menu to choose Off, Fixed or Head Tracked when available. macOS controls whether spatial playback is active. This mode uses additional audio buffering.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Set the host and game to surround speakers. Direct sends the surround mix to the selected macOS output; speaker playback depends on its channel configuration. Choose System Spatial Audio for Apple-managed surround virtualization on compatible AirPods.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Toggle("Play audio on host", isOn: $model.settings.playAudioOnHost)
+                Text("Audio changes apply on the next connection. Save for this computer or use as global defaults below.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } header: { Text("Audio") }
+            Section {
                 Toggle("Start streams in full screen", isOn: $model.settings.launchInFullScreen)
                 Picker("Frame pacing", selection: $model.settings.videoPacing) {
                     ForEach(VideoPacing.allCases, id: \.self) { Text($0.label).tag($0) }
@@ -65,7 +95,7 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             } header: { Text("Stream Statistics") }
             Section {
-                Text("Stream quality, video and presentation changes apply on the next connection. Sunshine uses the host's configured display modes; Apollo may provide a virtual display when permitted.").font(.caption).foregroundStyle(.secondary)
+                Text("Stream quality, video, audio and presentation changes apply on the next connection. Sunshine uses the host's configured display modes; Apollo may provide a virtual display when permitted.").font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("Save for This Computer") { model.saveSettings() }.swiftlightGlassButton(prominent: true).disabled(model.selectedHost == nil)
                     Button("Use as Global Defaults") { model.saveSettings(asDefault: true) }.swiftlightGlassButton()

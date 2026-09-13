@@ -97,8 +97,16 @@ import Testing
     let operations = await server.operations
     #expect(operations == ["http:serverinfo", "http:serverinfo", "http:getservercert", "http:clientchallenge", "http:serverchallengeresp", "http:clientpairingsecret", "https:pairchallenge", "https:serverinfo"])
     #expect(try await client.apps().first?.name == "Desktop")
-    let launch = try StreamLaunchRequest(appID: 17, width: 2560, height: 1600, fps: 120, inputKey: Data(repeating: 42, count: 16), inputKeyID: 0x80000001)
-    #expect(try await client.launch(launch).sessionURL == "rtsp://fixture.invalid:48010")
+    var launch = try StreamLaunchRequest(appID: 17, width: 2560, height: 1600, fps: 120, inputKey: Data(repeating: 42, count: 16), inputKeyID: 0x80000001)
+    for surround: UInt32 in [0x00030002, 0x003F0006, 0x063F0008] {
+        launch.surroundAudioInfo = surround
+        launch.playAudioOnHost = surround != 0x00030002
+        #expect(try await client.launch(launch).sessionURL == "rtsp://fixture.invalid:48010")
+        #expect(await server.launchAudioInfo == String(surround))
+        #expect(await server.launchHostAudio == (launch.playAudioOnHost ? "1" : "0"))
+        #expect(try await client.resume(launch).sessionURL == "rtsp://fixture.invalid:48010")
+        #expect(await server.launchAudioInfo == String(surround))
+    }
     #expect(await server.launchMode == "2560x1600x120")
     #expect(await server.launchKeyID == "-2147483647")
     #expect(await server.operations.contains("https:cancel") == false)
@@ -225,7 +233,7 @@ private actor FixtureServer: HostHTTPTransport {
     let tamperSignature: Bool
     let waitForPIN: Bool
     var operations: [String] = []
-    var launchMode: String?, launchKeyID: String?
+    var launchMode: String?, launchKeyID: String?, launchAudioInfo: String?, launchHostAudio: String?
     var key = Data(), clientCertificate = Data(), clientHash = Data()
     let secret = Data(repeating: 0x42, count: 16), challenge = Data(repeating: 0x17, count: 16)
     var paired = false, running = false
@@ -281,6 +289,7 @@ private actor FixtureServer: HostHTTPTransport {
         case "applist": return xml("<App><ID>17</ID><AppTitle>Desktop</AppTitle></App>")
         case "launch", "resume":
             running = true; launchMode = query["mode"]; launchKeyID = query["rikeyid"]
+            launchAudioInfo = query["surroundAudioInfo"]; launchHostAudio = query["localAudioPlayMode"]
             return xml("<sessionUrl0>rtsp://fixture.invalid:48010</sessionUrl0>")
         case "cancel": running = false; return xml("<cancel>1</cancel>")
         default: throw HostError.invalidResponse

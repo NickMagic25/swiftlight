@@ -304,6 +304,10 @@ import SwiftlightVideo
                     throw SettingsError.invalid("Another application is running on this host. Resume it or explicitly quit it before launching \(app.name).")
                 }
                 activeStreamSettings = settings
+                // Snapshot before awaiting launch so host and transport always request
+                // the same audio layout even if settings change while connecting.
+                let audioChannels = settings.audioChannels
+                let audioOutput = settings.effectiveAudioOutput
                 let request = try settings.request(display: display)
                 let hostHDR = info.codecSupport & (settings.codec == .av1 ? 0x20000 : settings.codec == .hevc ? 0x200 : 0x20200) != 0
                 let selection = try CodecSelection.negotiate(preference: settings.codec, hdr: settings.hdr,
@@ -319,6 +323,8 @@ import SwiftlightVideo
                 var launchRequest = try StreamLaunchRequest(appID: app.id, width: request.size.width, height: request.size.height,
                     fps: request.fps, inputKey: inputKey, inputKeyID: keyID)
                 launchRequest.hdr = selection.hdr
+                launchRequest.surroundAudioInfo = StreamTransport.surroundAudioInfo(for: audioChannels)
+                launchRequest.playAudioOnHost = settings.playAudioOnHost
                 launchRequest.controllerMask = info.permissions.map { $0 & 0x100 != 0 ? 1 : 0 } ?? 1
                 let extensionQuery = StreamTransport.launchQueryParameters.trimmingCharacters(in: CharacterSet(charactersIn: "&?"))
                 if !extensionQuery.isEmpty {
@@ -332,7 +338,8 @@ import SwiftlightVideo
                 let config = TransportConfiguration(address: host.address.host, appVersion: info.appVersion, gfeVersion: info.gfeVersion,
                     rtspURL: launchResponse.sessionURL, serverCodecSupport: info.codecSupport, width: request.size.width,
                     height: request.size.height, fps: request.fps, bitrateKbps: request.bitrateKbps, supportedVideoFormats: formats,
-                    inputKey: inputKey, inputKeyID: keyID, hdr: selection.hdr, permissions: info.permissions, displayRefreshHz: display.refreshHz)
+                    inputKey: inputKey, inputKeyID: keyID, hdr: selection.hdr, permissions: info.permissions, displayRefreshHz: display.refreshHz,
+                    audioChannels: audioChannels, audioOutput: audioOutput)
                 let transport = try StreamTransport(configuration: config, callbacks: .init(setup: { pipeline.setup($0) }, video: { pipeline.receive($0) },
                     event: { [weak self] event in Task { @MainActor [weak self] in self?.handle(event, generation: generation) } }))
                 self.pipeline = pipeline; self.transport = transport
