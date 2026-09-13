@@ -1,14 +1,26 @@
 # Swiftlight
 
-A native macOS Moonlight client built with SwiftUI, Metal, Core Audio, GameController, and a shared Apple streaming core. Every compressed video frame goes through the separately pinned **MoonlightAppleVideo** package with hardware decoding required. Sunshine and Apollo are the hosts.
+Swiftlight is a native macOS client for Moonlight game streaming. It connects to Sunshine and Apollo hosts, uses Apple hardware video decoding, and presents your games in a SwiftUI and Metal interface designed for the Mac.
 
-Supported macOS audio features include **Stereo**, **5.1 Surround**, **7.1 Surround**, and **Apple System Spatial Audio for compatible AirPods**, with Direct output and optional playback on the host. Audio settings save per computer or as global defaults. See [audio setup and validation](docs/audio.md).
+## What you can do
 
-macOS is the first application target. iOS, iPadOS and tvOS adapters are future work. The macOS implementation builds and passes server-free hardware validation. Live Vibepollo checks have verified saved pairing, authenticated library access, a short HEVC 10-bit Desktop stream, input capture/release, and local disconnect. A presentation deadlock found during live testing was corrected; see the [stream follow-up](docs/stream-deadlock-validation.md). The [statistics follow-up](docs/stream-statistics-validation.md) verifies the disconnect/statistics shortcuts and movable Liquid Glass panel against a live host. The final full-screen viewport matched the 3440 × 1440 external display; broader display, pairing/input/audio/HDR coverage and sustained performance are **not yet release-validated**. See the [acceptance matrix](docs/acceptance-matrix.md).
+- Pair with a Sunshine or Apollo computer and browse its applications with cover artwork.
+- Stream in native full screen or in a resizable window.
+- Choose HEVC or AV1 when the host and Mac support it, with HDR available when the complete host, decoder, and display path supports HDR.
+- Use keyboard, mouse, and physical controllers, including relative and absolute mouse modes.
+- Choose Stereo, 5.1, or 7.1 audio, with Direct output or System Spatial Audio on compatible AirPods.
+- View optional stream statistics and export the last completed stream's privacy-filtered diagnostics.
 
-## Build and run
+macOS is the current application target. iOS, iPadOS, and tvOS adapters are future work. Swiftlight is still under active development; see the [compatibility guide](docs/compatibility-matrix.md) and [acceptance status](docs/dev/acceptance-matrix.md) for the current validation boundary.
 
-Requires macOS14+, Xcode26.6/Swift6.3.3, command-line developer tools, CMake, Perl, Python3, curl and a C/C++ build toolchain. Validated on arm64 macOS26.6.2 using SDK26.5. Internet access is needed for the first bootstrap and SwiftPM resolution.
+## Requirements
+
+- macOS 14 or later (validated on arm64 macOS 26.6.2).
+- A Sunshine or Apollo host on the same network or an accessible network path.
+- A Mac with hardware support for the codec and HDR mode you select.
+- Xcode 26.6 / Swift 6.3.3, CMake, Perl, Python 3, curl, and a C/C++ toolchain to build from source.
+
+## Build and launch
 
 ```sh
 git clone --recurse-submodules https://github.com/NickMagic25/swiftlight.git
@@ -17,84 +29,45 @@ scripts/build-app.sh
 open .build/Swiftlight.app
 ```
 
-`moonlight-common-c` is a Git submodule at `Dependencies/moonlight-common-c`, pinned to `62e066388f1a1b133e0bee947b9a374311a3354b`, including upstream's exact ENet/nanors submodules. Bootstrap initializes missing submodules, verifies their revisions and pristine state, then applies the explicit [patch series](patches/moonlight-common-c/README.md) to an ignored generated source tree compiled by `CStreamBridge`. Upstream source is never edited during a build. See [dependency maintenance](docs/dependencies.md).
+The first build downloads and builds pinned dependencies, so internet access is required. For build, signing, and dependency details, see [development documentation](docs/dev/README.md).
 
-Bootstrap also downloads SHA-256-pinned Opus1.5.2/OpenSSL3.6.4 sources and builds static libraries. SwiftPM fetches decoder revision `8d92ee039dc19fe50dc0158d5098d4c5646c6a56`. No Homebrew dynamic library is shipped. The bundle includes dependency notices. Debug builds select the sole available Apple Development or Developer ID Application identity, or accept an explicit `SIGNING_IDENTITY`. With no certificate available they use ad-hoc signing, which can trigger Keychain authorization after rebuilding. Release builds require an explicit real signing identity. See [signing and safe bundle replacement](docs/signing.md); distribution and notarization are separate.
+## Connect to a computer
 
-Run `scripts/bootstrap-dependencies.sh` before opening `Package.swift` in Xcode or invoking SwiftPM directly. The bundle script adds the actual application's Info.plist, native privacy/Game Mode declarations, notices and signature. Running the bare SwiftPM executable is not the normal app installation/permission flow.
+1. Select **Add Computer** and enter the host address, or choose a Bonjour-discovered host. Custom ports and IPv6 addresses are supported.
+2. Select **Start PIN Pairing**, then enter the PIN in Sunshine or Apollo. Apollo also supports its one-time `art://` pairing link.
+3. Choose stream settings and select an application. If it is already running, Swiftlight offers to resume it.
+4. Start the stream. Streams default to native full screen; turn off **Start streams in full screen** in Presentation settings for windowed playback.
 
-For work on the sibling decoder package, use an explicit local package override without copying its source:
+During a stream, **Control–Option–Shift–Z** releases input capture and shows the stream controls; click the video to capture input again. **Control–Option–Shift–Q** disconnects while leaving the remote application running. **Control–Command–F** toggles native full screen.
 
-```sh
-SWIFTLIGHT_DECODER_PATH=../moonlight-apple-decoder scripts/build-app.sh
-```
+See the [pairing and host guide](docs/host-protocol.md) for connection behavior and [appearance and library guide](docs/appearance.md) for artwork and accessibility behavior.
 
-The scripts use `--manifest-cache none` so SwiftPM reevaluates the override. Omit the environment variable for the immutable remote dependency. No decoder-package changes were needed for this client.
+## Configure streaming
 
-## First connection
+Stream settings apply when the next connection starts. Presentation settings—frame pacing, VSync, and drawable buffers—can be changed in Settings and apply on reconnect. HDR **Auto** selects a compatible mode; HDR **On** reports an incompatibility instead of silently falling back when the full path is unavailable.
 
-1. Choose **Add Computer**, then enter an address or choose a Bonjour-discovered host. Custom ports and `[IPv6]:port` are supported.
-2. Choose **Start PIN Pairing** and enter the displayed PIN in Sunshine/Apollo. Apollo also accepts an `art://` link or separate address/OTP/passphrase fields.
-3. Choose stream settings, then an application. If the application is already running, Swiftlight resumes it.
-4. Streams start in native full screen by default; disable **Start streams in full screen** in Presentation settings for windowed playback. The first frame captures input when Swiftlight is active; **Control–Option–Shift–Z** releases capture and shows the stream controls. Click the video to capture again.
-5. **Disconnect** leaves the remote application running. **Quit Remote Application** is a separate confirmed action.
+In **Settings → Stream Statistics**, choose **Simple** or **Detailed** and a panel position. **Control–Option–Shift–S** toggles the panel without releasing input capture. The [statistics guide](docs/stream-statistics.md) explains each value and its limitations.
 
-The library loads real covers from the paired host into a 3:4 grid. Hover or focus a cover to reveal its title and Play/Resume action; unavailable artwork uses a titled fallback. Native controls and floating panels share Liquid Glass on macOS 26 and later, with material and accessibility fallbacks. Artwork stays in a bounded memory-only cache. See [appearance and covers](docs/appearance.md) for behavior, resource limits and the pending live visual checks.
+In **Settings → Audio**, choose the host channel layout and local output mode, then save it for the current computer or as a global default. Reconnect after changing audio settings. For AirPods spatialization, request 5.1 or 7.1 from the host, select **System Spatial Audio**, and use the macOS AirPods menu for Off, Fixed, or Head Tracked when available. See the [audio guide](docs/audio.md).
 
-| Shortcut | Action |
-| --- | --- |
-| Control–Option–Shift–Q | Disconnect locally; leave the remote application running. |
-| Control–Option–Shift–S | Show or hide stream statistics while preserving input capture. |
-| Control–Option–Shift–Z | Release input capture and show stream controls. |
-| Control–Command–F | Toggle native full screen. |
+## Troubleshooting
 
-In **Settings → Stream Statistics**, choose **Simple** or **Detailed** and **Top Left**, **Top Center** or **Top Right**. Defaults are **Simple** and **Top Center**. Detail and position save immediately for every computer, persist across launches, and take effect during the current stream without reconnecting. The statistics panel uses an opaque background and is drawn into the video’s existing Metal pass. Its cached text updates independently of video frames, and accessible rows remain available without overlapping visual layers. See the [statistics rendering investigation](docs/statistics-metal-overlay-2026-09-13.md) for implementation and measured limits. See [stream statistics](docs/stream-statistics.md) for measurement definitions and limits.
+- If a host is not discovered, use **Add Computer** with its address and confirm that Sunshine/Apollo is reachable and pairing is enabled.
+- If pairing fails after rebuilding, allow the development app to access its login Keychain and pair again if the stored identity was removed.
+- If HDR or AV1 is unavailable, use **Auto** or select HEVC/SDR; support depends on the Mac, host, codec, and display together.
+- If audio is silent after changing output devices, reconnect the stream and confirm macOS has selected the intended output device.
+- To provide useful diagnostics, disconnect and choose **Stream → Export Last Stream Diagnostics…** before quitting Swiftlight. The export excludes credentials, host addresses, application names, and media. See [diagnostic exports](docs/diagnostic-exports.md).
 
-Relative mouse mode is for games; Absolute mode maps the pointer through the same clean-aperture/fit/fill viewport and rejects letterbox input. Physical controllers support analog controls and available haptics. Stream request changes require reconnect; display movement/resize changes presentation immediately, while a new native pixel request needs reconnect. HDR On fails clearly if unavailable; Auto intersects host codec/10-bit support, hardware decoder candidates and display capability.
+## Development
 
-In **Settings → Audio**, choose **Stereo + Direct** for a game's headphone/binaural mix. For surround virtualization on compatible AirPods, set the host and game to surround speakers, choose matching **5.1** or **7.1** channels, and select **System Spatial Audio**. Save for the computer or as global defaults, then reconnect. Use the macOS AirPods menu for **Off**, **Fixed** and **Head Tracked**, when available. Defaults remain Stereo and Direct, with **Play audio on host** disabled.
-
-Live AirPods testing verified audible 7.1 playback and recovery through repeated Off/Fixed/Head Tracked changes. Buffering adapts to the output device; recovery can replace the audio renderer once per stream without reconnecting video. Channel isolation, head-tracking quality, other devices, physical latency and sustained playback still need broader validation. See [audio behavior, buffering and acceptance checks](docs/audio.md).
-
-Client private keys and certificate pins live in Keychain. The macOS development app explicitly uses the login Keychain; iOS/tvOS core defaults to the data-protection Keychain. There is no fallback after arbitrary credential errors. Apollo one-time secrets are not retained. See [manual pairing tests](docs/host-manual-test.md).
-
-## Export a stream for debugging
-
-Presentation defaults are **On decoded frame**, **VSync off**, and **3 drawable buffers**. Decoded-frame pacing submits the newest available frame without a display-link wait; disabling VSync permits tearing. HDR configuration and layer-placement experiments remain opt-in because they regressed throughput in live comparisons. Existing explicitly saved presentation settings remain in effect. **Frame pacing**, **VSync**, and **Drawable buffers** can be changed in Settings and apply on reconnect. See [latency debugging and measured results](docs/stream-latency-debugging.md) for measurements and remaining presentation variance.
-
-After disconnecting, choose **Stream → Export Last Stream Diagnostics…** or the same action in the library's computer-options menu. Save the JSON file wherever you want. It contains the completed connection attempt's settings, outcome, recent statistics timeline, and decoder/renderer/network/audio counters. Failed connection attempts are included. The last report is retained in memory until replaced by the next completed attempt or Swiftlight quits; export it before closing the app. Pairing credentials, host addresses, application names and media are excluded. See [diagnostic exports](docs/diagnostic-exports.md) for the schema and measurement limits.
-
-Schema 5 separates completed GPU submissions from confirmed display presentations. `completedFrameTimings` remains available when a drawable has no usable presentation timestamp; `presentationTimings` joins completion and confirmed presentation for the same submission. These bounded recent windows distinguish CPU scheduling, GPU execution and the wait after GPU completion. GPU completion is not display latency.
-
-Debug builds save finalized reports locally and expose **Stream → Run Latency Comparison (Short/Full)**. The selected host's Desktop stream is captured at 10, 30 and 50 seconds per case under `~/Library/Application Support/Swiftlight/LatencyExperiments/`. **Cancel Latency Comparison** stops the sequence. Settings are restored afterward and Desktop remains running remotely. Native PQ output is a debug-only comparison: its nonlinear PQ layer uses nil EDR metadata under Apple's API contract, so its highlight handling requires separate validation before adoption.
-
-## Offline validation
+Run the offline checks with:
 
 ```sh
 scripts/validate-offline.sh
 ```
 
-This runs unit/protocol/ownership tests, the native ASan/UBSan harness, independent OTP vectors, real HEVC/AV1 hardware decode and production Metal render/readback for all eight fixture sets, and the sole-decoder audit. It requires an Apple GPU and HEVC/AV1 hardware; a sandbox or unsupported device can block these checks and must not be called a pass. Outputs are written to `artifacts/` and `.build/native-transport-tests/`.
+Engineering notes, validation records, benchmark methodology, dependency maintenance, and release signing instructions are collected in [`docs/dev/`](docs/dev/README.md). The project keeps the reusable Apple decoder in the pinned **MoonlightAppleVideo** package; it does not use FFmpeg or a software fallback.
 
-The latest full Swift suite passed 102 tests (77 XCTest and 25 Swift Testing tests), including audio settings migration and negotiation, hardware readbacks for statistics overlay color/placement/lifetime, artwork protocol/image bounds, statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. The updated macOS debug app built and signed successfully. Native audio ASan/UBSan playback, renderer-replacement and teardown checks passed. Earlier branch validation includes release compilation, TSan, ten isolated window-lifecycle groups and nineteen packaging checks. The live checks provide functional evidence for the tested devices; they do not replace the remaining acceptance gates.
+## License
 
-```sh
-.build/debug/swiftlight-replay --fixture fixtures/av1-accounting-10/manifest.json \
-  --mode paced --output artifacts/av1-paced.json
-SWIFTLIGHT_SANITIZERS=thread scripts/validate-transport-native.sh
-python3 scripts/acceptance-report.py
-```
-
-Correctness and paced offscreen modes are distinct. Offscreen GPU completion is never reported as display latency. Short small fixtures are not a 4K60 benchmark. Real display, network and sustained-load methodology is in [benchmarking](docs/benchmarking.md); exact executed evidence and remaining gates are in [implementation report](docs/implementation-report.md).
-
-For a host-free visual check, open **Stream → Video Validation** in the app and choose a fixture manifest. The window uses the production decoder and Metal renderer. Its separate lifecycle regression is `python3 scripts/validate-preview-lifecycle.py`; that automated check opens no window and does not measure visible presentation.
-
-- [Architecture and lifetime](docs/architecture.md)
-- [Appearance and application covers](docs/appearance.md)
-- [Authenticated host artwork](docs/host-artwork.md)
-- [Verified API/protocol assumptions](docs/verified-assumptions.md)
-- [Compatibility matrix](docs/compatibility-matrix.md)
-- [Video validation](docs/video-validation.md)
-- [Transport and audio](docs/transport.md)
-- [Audio settings and Spatial Audio](docs/audio.md)
-- [Licensing and distribution](docs/licensing.md)
+See [dependency licensing and distribution](docs/licensing.md).

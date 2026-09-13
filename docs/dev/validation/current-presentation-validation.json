@@ -49,6 +49,6 @@
     "Sources/SwiftlightVideo/MetalVideoRenderer.swift": "c85e9a5289a76468e5195a8005ac2a4c8121316f01c797f8a53f7a422dc2f1c5",
     "Tests/SwiftlightCoreTests/StreamStatisticsTests.swift": "ff0f2508bba7083c2f42a152f9810f5502215dba98f1ae18a6734e76480214b2",
     "Tests/SwiftlightVideoTests/TimingStatisticsTests.swift": "61922a162b9e85fcf73c84102b69b49af1a8957fece932a57591155c514defa8",
-    "docs/stream-statistics.md": "87f0628a00ef9e3d64b0da9c6287fce5f51183db86f87ed8cd7b87e6e7ff30a9"
+    "docs/dev/stream-statistics-implementation.md": "87f0628a00ef9e3d64b0da9c6287fce5f51183db86f87ed8cd7b87e6e7ff30a9"
   }
 }

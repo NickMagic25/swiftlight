@@ -4,7 +4,7 @@ from collections import Counter
 import json
 root = Path(__file__).resolve().parents[1]
 rows = []
-for line in (root / 'docs/acceptance-matrix.md').read_text().splitlines():
+for line in (root / 'docs/dev/acceptance-matrix.md').read_text().splitlines():
     cells = [part.strip() for part in line.split('|')[1:-1]]
     if len(cells) != 7 or cells[5] not in {'PASS','FAIL','SKIP','BLOCKED','TODO'}: continue
     rows.append(dict(zip(['id','classification','implementation','automated','manual','status','evidence'], cells)))

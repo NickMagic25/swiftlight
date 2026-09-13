@@ -6,7 +6,7 @@ export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
 export SWIFTLIGHT_RUN_HARDWARE_TESTS=1
 scripts/bootstrap-dependencies.sh
 swift test --disable-sandbox --manifest-cache none
-python3 docs/host-otp-vectors.py
+python3 docs/dev/host-otp-vectors.py
 python3 -m unittest discover -s Tests/DependencyPreparation -v
 scripts/validate-transport-native.sh
 for fixture in hevc-sdr8 hevc-hdr10 av1-sdr8 av1-hdr10 av1-accounting-8 av1-accounting-10 hevc-reconfigure av1-reconfigure; do

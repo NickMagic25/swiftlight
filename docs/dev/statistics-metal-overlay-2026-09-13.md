@@ -62,10 +62,10 @@ milliseconds. The p95 uses linear interpolation at `(n - 1) × 0.95`.
 
 | Case / 30-second capture | First packet → presentation mean | p95 | GPU end → presentation mean | GPU execution mean |
 |---|---:|---:|---:|---:|
-| [1. Statistics hidden, baseline](../artifacts/statistics-metal-overlay-2026-09-13/controlled/statistics-overlay-1789315181254-8200771B-1-hidden-baseline-legacy-hdr-hud-30s-stats-hidden-1789315214183.json) | 8.910 | 15.354 | 4.553 | 1.077 |
-| [2. Old SwiftUI statistics](../artifacts/statistics-metal-overlay-2026-09-13/controlled/statistics-overlay-1789315181254-8200771B-2-swiftui-stats-legacy-hdr-hud-30s-stats-visible-1789315247657.json) | 6.370 | 9.803 | 2.178 | 1.137 |
-| [3. New Metal statistics](../artifacts/statistics-metal-overlay-2026-09-13/controlled/statistics-overlay-1789315181254-8200771B-3-metal-stats-legacy-hdr-hud-30s-stats-visible-1789315281215.json) | 6.959 | 9.408 | 2.911 | 0.910 |
-| [4. Statistics hidden, repeat](../artifacts/statistics-metal-overlay-2026-09-13/controlled/statistics-overlay-1789315181254-8200771B-4-hidden-repeat-legacy-hdr-hud-30s-stats-hidden-1789315315045.json) | 6.777 | 9.129 | 2.590 | 1.080 |
+| [1. Statistics hidden, baseline](../../artifacts/statistics-metal-overlay-2026-09-13/controlled/statistics-overlay-1789315181254-8200771B-1-hidden-baseline-legacy-hdr-hud-30s-stats-hidden-1789315214183.json) | 8.910 | 15.354 | 4.553 | 1.077 |
+| [2. Old SwiftUI statistics](../../artifacts/statistics-metal-overlay-2026-09-13/controlled/statistics-overlay-1789315181254-8200771B-2-swiftui-stats-legacy-hdr-hud-30s-stats-visible-1789315247657.json) | 6.370 | 9.803 | 2.178 | 1.137 |
+| [3. New Metal statistics](../../artifacts/statistics-metal-overlay-2026-09-13/controlled/statistics-overlay-1789315181254-8200771B-3-metal-stats-legacy-hdr-hud-30s-stats-visible-1789315281215.json) | 6.959 | 9.408 | 2.911 | 0.910 |
+| [4. Statistics hidden, repeat](../../artifacts/statistics-metal-overlay-2026-09-13/controlled/statistics-overlay-1789315181254-8200771B-4-hidden-repeat-legacy-hdr-hud-30s-stats-hidden-1789315315045.json) | 6.777 | 9.129 | 2.590 | 1.080 |
 
 The other checkpoints show why a single before/after pair is insufficient:
 
@@ -104,7 +104,7 @@ dropped frames. Different confirmed populations further limit direct comparisons
 physical scanout or photon latency.
 
 All twelve snapshots are retained under
-[`artifacts/statistics-metal-overlay-2026-09-13/controlled/`](../artifacts/statistics-metal-overlay-2026-09-13/controlled/).
+[`artifacts/statistics-metal-overlay-2026-09-13/controlled/`](../../artifacts/statistics-metal-overlay-2026-09-13/controlled/).
 Artifacts are local investigation files ignored by Git.
 
 ## Repeat the comparison
@@ -133,10 +133,10 @@ output and ownership, not the physical display's tone mapping or scanout.
 
 The final debug bundle was built, code-signed, and verified. Release compilation
 also passed, and `git diff --check` was clean. Validation records are
-[initial hardware tests](../artifacts/statistics-metal-overlay-2026-09-13/hardware-tests.log),
-[final hardware tests](../artifacts/statistics-metal-overlay-2026-09-13/hardware-tests-final.log),
-[final debug build](../artifacts/statistics-metal-overlay-2026-09-13/build-final.log), and
-[release build](../artifacts/statistics-metal-overlay-2026-09-13/release-build.log).
+[initial hardware tests](../../artifacts/statistics-metal-overlay-2026-09-13/hardware-tests.log),
+[final hardware tests](../../artifacts/statistics-metal-overlay-2026-09-13/hardware-tests-final.log),
+[final debug build](../../artifacts/statistics-metal-overlay-2026-09-13/build-final.log), and
+[release build](../../artifacts/statistics-metal-overlay-2026-09-13/release-build.log).
 
 The signed debug executable SHA-256 is `09c7ab4bf25f525b248ea21f063220acf8376058e8af1f0ca14133227365895b`.
 

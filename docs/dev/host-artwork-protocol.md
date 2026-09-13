@@ -24,4 +24,4 @@ The complete integrated Swift suite passed 69 tests (44 XCTest and 25 host tests
 swift test --disable-sandbox --manifest-cache none --filter SwiftlightHostTests
 ```
 
-These tests use synthetic covers and in-memory identity stores; only the pre-existing TLS fixture opens a loopback connection. They do not access a real host, user Keychain, remote app state or GUI. Real-host cover availability and the final library appearance are separate application checks; live visual validation of this artwork update is pending. See [appearance](appearance.md) for the UI and cache behavior.
+These tests use synthetic covers and in-memory identity stores; only the pre-existing TLS fixture opens a loopback connection. They do not access a real host, user Keychain, remote app state or GUI. Real-host cover availability and the final library appearance are separate application checks; live visual validation of this artwork update is pending. See [appearance](../appearance.md) for the UI and cache behavior.

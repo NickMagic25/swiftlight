@@ -1,7 +1,7 @@
 """Independent Python 3 oracle for Swift's Artemis-compatible OTP test vectors.
 
 Synthetic credentials only. The production app does not invoke Python.
-Run: python3 docs/host-otp-vectors.py
+Run: python3 docs/dev/host-otp-vectors.py
 """
 from hashlib import sha256
 

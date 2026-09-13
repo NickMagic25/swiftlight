@@ -8,7 +8,7 @@ diff --git a/src/Connection.c b/src/Connection.c
 -static bool alreadyTerminated;
 +static _Atomic bool alreadyTerminated;
  static PLT_THREAD terminationCallbackThread;
-+// Swiftlight: keep termination delivery joinable until teardown; see docs/transport.md.
++// Swiftlight: keep termination delivery joinable until teardown; see docs/dev/transport.md.
 +static bool terminationCallbackThreadStarted;
  static int terminationCallbackErrorCode;
  

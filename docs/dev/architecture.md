@@ -6,7 +6,7 @@ Swiftlight is a native macOS SwiftUI application built on a shared Apple streami
 
 - `SwiftlightApp`: MainActor host/library/settings/pairing/session orchestration; AppKit Metal surface, native full screen, scoped keyboard/mouse capture, GameController and power activity.
 - `SwiftlightCore`: Foundation/CoreGraphics value types for requested settings, host/device capability intersection, safe-area/viewport transforms, session generations and held-input state. No decoder, network socket or UI dependencies.
-- `SwiftlightHost`: Bonjour, host HTTP/XML, Keychain identity and certificate pins, standard PIN and Apollo OTP pairing, app control and nonsecret host persistence. Its C crypto helper uses OpenSSL for established GameStream RSA/certificate operations. See `host-protocol.md`.
+- `SwiftlightHost`: Bonjour, host HTTP/XML, Keychain identity and certificate pins, standard PIN and Apollo OTP pairing, app control and nonsecret host persistence. Its C crypto helper uses OpenSSL for established GameStream RSA/certificate operations. See `host-protocol-details.md`.
 - `SwiftlightTransport` / `CStreamBridge`: pinned moonlight-common-c transport, pull video ownership, Opus and CoreAudio stereo output, protocol input. No video decoder.
 - `SwiftlightVideo`: the sole `MoonlightAppleVideo` adapter, latest decoded-frame mailbox, production CoreVideo/Metal importer/shader, bounded instrumentation and offscreen readback validation.
 - `SwiftlightReplay`: same production decoder and renderer, deterministic correctness and explicitly labeled paced offscreen workloads.

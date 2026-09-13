@@ -31,7 +31,7 @@ def main():
     generator = (args.generator or decoder / "build/mav-fixture").resolve()
     aomenc = (args.aomenc or decoder / ".local/aom-build/aomenc").resolve()
     if not generator.is_file() or not aomenc.is_file():
-        raise SystemExit("Build mav-fixture and run the decoder's scripts/bootstrap-aom.sh first; see docs/video-validation.md")
+        raise SystemExit("Build mav-fixture and run the decoder's scripts/bootstrap-aom.sh first; see docs/dev/video-validation.md")
     commands = []
     configurations = [(codec, variant, 128, 72, f"{codec}-{variant}") for codec in ("hevc", "av1") for variant in ("sdr8", "hdr10")]
     configurations += [(codec, "hdr10", 192, 104, f"{codec}-reconfigure") for codec in ("hevc", "av1")]

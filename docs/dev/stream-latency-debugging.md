@@ -47,12 +47,12 @@ refer to local investigation artifacts, which are ignored by Git.
 
 | Run / capture | Actual pacing / VSync / drawables | Final mean | Final p95 | Rolling means at 20–45 s: min / median / max |
 |---|---|---:|---:|---:|
-| A [D3A65082](../artifacts/latency-investigation-2026-09-13/stream-1789278067569-D3A65082.json) | Display link / on / 3 | 22.904 ms | 23.877 ms | 21.329 / 22.631 / 23.059 ms |
-| B [AEFEF676](../artifacts/latency-investigation-2026-09-13/stream-1789278171664-AEFEF676.json) | Immediate / on / 3 | 19.588 ms | 24.275 ms | 17.421 / 18.479 / 19.837 ms |
-| C [A5DF3A08](../artifacts/latency-investigation-2026-09-13/stream-1789278245964-A5DF3A08.json) | Immediate / off / 3 | 9.333 ms | 14.064 ms | 9.017 / 10.890 / 14.410 ms |
-| D [14CA8FE4](../artifacts/latency-investigation-2026-09-13/stream-1789278333211-14CA8FE4.json) | Immediate / off / 2 | 13.948 ms | 21.753 ms | 9.764 / 10.013 / 10.428 ms |
-| A2 [08ED9371](../artifacts/latency-investigation-2026-09-13/stream-1789278446738-08ED9371.json) | Display link / on / 3 | 23.495 ms | 24.315 ms | 20.914 / 21.634 / 22.577 ms |
-| C2 [C704CE71](../artifacts/latency-investigation-2026-09-13/stream-1789278569737-C704CE71.json) | Immediate / off / 3 | 16.859 ms | 17.949 ms | 14.453 / 15.040 / 15.498 ms |
+| A [D3A65082](../../artifacts/latency-investigation-2026-09-13/stream-1789278067569-D3A65082.json) | Display link / on / 3 | 22.904 ms | 23.877 ms | 21.329 / 22.631 / 23.059 ms |
+| B [AEFEF676](../../artifacts/latency-investigation-2026-09-13/stream-1789278171664-AEFEF676.json) | Immediate / on / 3 | 19.588 ms | 24.275 ms | 17.421 / 18.479 / 19.837 ms |
+| C [A5DF3A08](../../artifacts/latency-investigation-2026-09-13/stream-1789278245964-A5DF3A08.json) | Immediate / off / 3 | 9.333 ms | 14.064 ms | 9.017 / 10.890 / 14.410 ms |
+| D [14CA8FE4](../../artifacts/latency-investigation-2026-09-13/stream-1789278333211-14CA8FE4.json) | Immediate / off / 2 | 13.948 ms | 21.753 ms | 9.764 / 10.013 / 10.428 ms |
+| A2 [08ED9371](../../artifacts/latency-investigation-2026-09-13/stream-1789278446738-08ED9371.json) | Display link / on / 3 | 23.495 ms | 24.315 ms | 20.914 / 21.634 / 22.577 ms |
+| C2 [C704CE71](../../artifacts/latency-investigation-2026-09-13/stream-1789278569737-C704CE71.json) | Immediate / off / 3 | 16.859 ms | 17.949 ms | 14.453 / 15.040 / 15.498 ms |
 
 The last column describes overlapping timeline snapshots whose individual means
 cover recent 1,024-frame windows. Its median is a median of rolling means, not

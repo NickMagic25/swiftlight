@@ -20,9 +20,9 @@
     "final_manifest_sha256": "066b70ac1bee4c86a0a64fbd09fb6cb45944c2d5ef26dcab06bfceac28b8f21a",
     "post_suite_changes": [
       "README.md",
-      "docs/implementation-report.md",
-      "docs/video-lifetime.md",
-      "docs/video-validation.md",
+      "docs/dev/implementation-report.md",
+      "docs/dev/video-lifetime.md",
+      "docs/dev/video-validation.md",
       "scripts/preview-lifecycle-harness.swift",
       "scripts/validate-preview-lifecycle.py"
     ],
@@ -36,7 +36,7 @@
       ".DS_Store",
       "Dependencies/moonlight-common-c (Git pins separately verified)",
       "Sources/CStreamBridge/vendor/common-c (generated and stamped)",
-      "docs/validation-summary.json (derived self-reference)"
+      "docs/dev/validation/validation-summary.json (derived self-reference)"
     ]
   },
   "dependencies": {

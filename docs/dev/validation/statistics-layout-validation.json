@@ -29,6 +29,6 @@
     "Sources/SwiftlightApp/ClientModel.swift": "b67bc578f0542319fb7e183c7bb12d29fe76a8ec6789cb68953f8470e8230b70",
     "Sources/SwiftlightApp/StreamStatistics.swift": "dbf21914660d3f850383cab2408dca432b02ca364fd6b1e516040f0f1fbc7fba",
     "Sources/SwiftlightCore/StreamStatisticsSnapshot.swift": "1ce2bce154be664aa00ee9de7dbe3277601c1f20424394ca482f2e409ef5211d",
-    "docs/stream-statistics.md": "fb0721c4255c4f3880dab5a508739e1bfbaa49b9966ceffd38fc9903aa5e60aa"
+    "docs/dev/stream-statistics-implementation.md": "fb0721c4255c4f3880dab5a508739e1bfbaa49b9966ceffd38fc9903aa5e60aa"
   }
 }
