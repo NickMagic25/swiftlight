@@ -1,0 +1,349 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* AppArtworkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* AppArtworkStore.swift */; };
+		A10000000000000000000002 /* AppLibraryGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppLibraryGrid.swift */; };
+		A10000000000000000000003 /* ClientModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* ClientModel.swift */; };
+		A10000000000000000000004 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* ContentView.swift */; };
+		A10000000000000000000005 /* ControllerHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* ControllerHub.swift */; };
+		A10000000000000000000006 /* Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* Diagnostics.swift */; };
+		A10000000000000000000007 /* GlassStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* GlassStyle.swift */; };
+		A10000000000000000000008 /* KeyMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* KeyMapping.swift */; };
+		A10000000000000000000009 /* LatencyExperiments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* LatencyExperiments.swift */; };
+		A10000000000000000000010 /* MacStreamSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* MacStreamSurface.swift */; };
+		A10000000000000000000011 /* NetworkStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* NetworkStatus.swift */; };
+		A10000000000000000000012 /* ReplayPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* ReplayPreview.swift */; };
+		A10000000000000000000013 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* SettingsView.swift */; };
+		A10000000000000000000014 /* StatisticsOverlayRasterizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* StatisticsOverlayRasterizer.swift */; };
+		A10000000000000000000015 /* StreamStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* StreamStatistics.swift */; };
+		A10000000000000000000016 /* StreamStatisticsOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* StreamStatisticsOverlay.swift */; };
+		A10000000000000000000017 /* StreamWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* StreamWindowController.swift */; };
+		A10000000000000000000018 /* StreamingPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* StreamingPipeline.swift */; };
+		A10000000000000000000019 /* SwiftlightApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* SwiftlightApp.swift */; };
+		A10000000000000000000020 /* SwiftlightCore in Frameworks */ = {isa = PBXBuildFile; productRef = A60000000000000000000001 /* SwiftlightCore */; };
+		A10000000000000000000021 /* SwiftlightHost in Frameworks */ = {isa = PBXBuildFile; productRef = A60000000000000000000002 /* SwiftlightHost */; };
+		A10000000000000000000022 /* SwiftlightTransport in Frameworks */ = {isa = PBXBuildFile; productRef = A60000000000000000000003 /* SwiftlightTransport */; };
+		A10000000000000000000023 /* SwiftlightVideo in Frameworks */ = {isa = PBXBuildFile; productRef = A60000000000000000000004 /* SwiftlightVideo */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000001 /* AppArtworkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppArtworkStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* AppLibraryGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLibraryGrid.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* ClientModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* ControllerHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerHub.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* GlassStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassStyle.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* KeyMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyMapping.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* LatencyExperiments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyExperiments.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* MacStreamSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacStreamSurface.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* NetworkStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkStatus.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* ReplayPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayPreview.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* StatisticsOverlayRasterizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatisticsOverlayRasterizer.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* StreamStatistics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamStatistics.swift; sourceTree = "<group>"; };
+		A20000000000000000000016 /* StreamStatisticsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamStatisticsOverlay.swift; sourceTree = "<group>"; };
+		A20000000000000000000017 /* StreamWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamWindowController.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* StreamingPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingPipeline.swift; sourceTree = "<group>"; };
+		A20000000000000000000019 /* SwiftlightApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftlightApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000020 /* Swiftlight.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Swiftlight.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A30000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000020 /* SwiftlightCore in Frameworks */,
+				A10000000000000000000021 /* SwiftlightHost in Frameworks */,
+				A10000000000000000000022 /* SwiftlightTransport in Frameworks */,
+				A10000000000000000000023 /* SwiftlightVideo in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A40000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A40000000000000000000002 /* SwiftlightApp */,
+				A40000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A40000000000000000000002 /* SwiftlightApp */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* AppArtworkStore.swift */,
+				A20000000000000000000002 /* AppLibraryGrid.swift */,
+				A20000000000000000000003 /* ClientModel.swift */,
+				A20000000000000000000004 /* ContentView.swift */,
+				A20000000000000000000005 /* ControllerHub.swift */,
+				A20000000000000000000006 /* Diagnostics.swift */,
+				A20000000000000000000007 /* GlassStyle.swift */,
+				A20000000000000000000008 /* KeyMapping.swift */,
+				A20000000000000000000009 /* LatencyExperiments.swift */,
+				A20000000000000000000010 /* MacStreamSurface.swift */,
+				A20000000000000000000011 /* NetworkStatus.swift */,
+				A20000000000000000000012 /* ReplayPreview.swift */,
+				A20000000000000000000013 /* SettingsView.swift */,
+				A20000000000000000000014 /* StatisticsOverlayRasterizer.swift */,
+				A20000000000000000000015 /* StreamStatistics.swift */,
+				A20000000000000000000016 /* StreamStatisticsOverlay.swift */,
+				A20000000000000000000017 /* StreamWindowController.swift */,
+				A20000000000000000000018 /* StreamingPipeline.swift */,
+				A20000000000000000000019 /* SwiftlightApp.swift */,
+			);
+			path = Sources/SwiftlightApp;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000020 /* Swiftlight.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A50000000000000000000001 /* Swiftlight */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000001 /* Build configuration list for PBXNativeTarget "Swiftlight" */;
+			buildPhases = (
+				A90000000000000000000001 /* Sources */,
+				A30000000000000000000001 /* Frameworks */,
+				A90000000000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Swiftlight;
+			packageProductDependencies = (
+				A60000000000000000000001 /* SwiftlightCore */,
+				A60000000000000000000002 /* SwiftlightHost */,
+				A60000000000000000000003 /* SwiftlightTransport */,
+				A60000000000000000000004 /* SwiftlightVideo */,
+			);
+			productName = Swiftlight;
+			productReference = A20000000000000000000020 /* Swiftlight.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					A50000000000000000000001 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+				};
+			};
+			buildConfigurationList = A80000000000000000000002 /* Build configuration list for PBXProject "Swiftlight" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A40000000000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A40000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A50000000000000000000001 /* Swiftlight */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A90000000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A90000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* AppArtworkStore.swift in Sources */,
+				A10000000000000000000002 /* AppLibraryGrid.swift in Sources */,
+				A10000000000000000000003 /* ClientModel.swift in Sources */,
+				A10000000000000000000004 /* ContentView.swift in Sources */,
+				A10000000000000000000005 /* ControllerHub.swift in Sources */,
+				A10000000000000000000006 /* Diagnostics.swift in Sources */,
+				A10000000000000000000007 /* GlassStyle.swift in Sources */,
+				A10000000000000000000008 /* KeyMapping.swift in Sources */,
+				A10000000000000000000009 /* LatencyExperiments.swift in Sources */,
+				A10000000000000000000010 /* MacStreamSurface.swift in Sources */,
+				A10000000000000000000011 /* NetworkStatus.swift in Sources */,
+				A10000000000000000000012 /* ReplayPreview.swift in Sources */,
+				A10000000000000000000013 /* SettingsView.swift in Sources */,
+				A10000000000000000000014 /* StatisticsOverlayRasterizer.swift in Sources */,
+				A10000000000000000000015 /* StreamStatistics.swift in Sources */,
+				A10000000000000000000016 /* StreamStatisticsOverlay.swift in Sources */,
+				A10000000000000000000017 /* StreamWindowController.swift in Sources */,
+				A10000000000000000000018 /* StreamingPipeline.swift in Sources */,
+				A10000000000000000000019 /* SwiftlightApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AC00000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AC00000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		AC00000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = net.edrisil.swiftlight;
+				PRODUCT_NAME = Swiftlight;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		AC00000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = net.edrisil.swiftlight;
+				PRODUCT_NAME = Swiftlight;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A80000000000000000000001 /* Build configuration list for PBXNativeTarget "Swiftlight" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC00000000000000000000003 /* Debug */,
+				AC00000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80000000000000000000002 /* Build configuration list for PBXProject "Swiftlight" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC00000000000000000000001 /* Debug */,
+				AC00000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A60000000000000000000001 /* SwiftlightCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = SwiftlightCore;
+		};
+		A60000000000000000000002 /* SwiftlightHost */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = SwiftlightHost;
+		};
+		A60000000000000000000003 /* SwiftlightTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = SwiftlightTransport;
+		};
+		A60000000000000000000004 /* SwiftlightVideo */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = SwiftlightVideo;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AA00000000000000000000001 /* Project object */;
+}

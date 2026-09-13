@@ -5,6 +5,7 @@ This directory contains engineering notes, implementation references, validation
 ## Engineering references
 
 - [Release CI, signing secrets, and DMG distribution](releases.md)
+- [Xcode Cloud and App Store Connect migration](xcode-cloud.md)
 - [Architecture](architecture.md)
 - [Transport and ownership](transport.md)
 - [Video lifetime](video-lifetime.md)
