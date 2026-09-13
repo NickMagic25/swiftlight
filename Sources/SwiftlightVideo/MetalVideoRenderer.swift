@@ -14,6 +14,134 @@ public struct RenderStatistics: Codable, Sendable {
     public var inFlightHighWater = 0
     public var gpuMilliseconds: [Double] = []
     public var actualPresentationNanoseconds: [UInt64] = []
+    /// At most 1024 distinct frames with a confirmed drawable presentation. Redraws
+    /// update an earlier timestamp, if one arrives out of order, instead of counting twice.
+    public var presentationTimings: [FramePresentationTiming] = []
+    public var firstPacketToPresentation: TimingSummary {
+        TimingSummary(milliseconds: presentationTimings.compactMap(\.firstPacketToPresentationMilliseconds))
+    }
+    /// The newest distinct frame by actual presentation time, not ring position
+    /// or callback arrival order. Never substitute an older frame's valid timing.
+    public func currentFirstPacketToPresentationMilliseconds(at presentationTime: TimeInterval = CACurrentMediaTime()) -> Double? {
+        guard presentationTime.isFinite,
+              let latest = presentationTimings.max(by: { $0.actualPresentationNanoseconds < $1.actualPresentationNanoseconds }) else { return nil }
+        let age = presentationTime - Double(latest.actualPresentationNanoseconds) / 1_000_000_000
+        guard age >= 0, age <= 5 else { return nil }
+        return latest.firstPacketToPresentationMilliseconds
+    }
+    /// Host duration and client interval are paired on the same frame. Adding half
+    /// an independently sampled RTT remains an estimate, not host/display clock sync.
+    public var hostProcessingAndClientPresentation: TimingSummary {
+        TimingSummary(milliseconds: presentationTimings.compactMap { sample in
+            guard let client = sample.firstPacketToPresentationMilliseconds, let host = sample.hostProcessingMilliseconds else { return nil }
+            return client + host
+        })
+    }
+    public var presentationTimingUnavailableCount: Int {
+        presentationTimings.filter { $0.firstPacketToPresentationMilliseconds == nil }.count
+    }
+    public var presentationClockUncertaintyNanoseconds: UInt64? {
+        presentationTimings.compactMap(\.calibrationUncertaintyNanoseconds).max()
+    }
+}
+
+/// Public clock-domain bridge for diagnostics. Bracketing CACurrentMediaTime with
+/// decoder-clock reads measures the local offset; the half bracket is uncertainty
+/// from sampling only, not physical display accuracy. Both clocks must remain
+/// locally unit-rate. A fresh calibration is taken for each presentation callback.
+public struct PresentationClockCalibration: Codable, Sendable {
+    public let sampledAtDecoderNanoseconds: UInt64
+    public let coreAnimationSeconds: Double
+    public let uncertaintyNanoseconds: UInt64
+
+    public static func measure() -> Self? {
+        var best: Self?
+        for _ in 0..<3 {
+            let before = VideoDecoder.monotonicNanoseconds
+            let ca = CACurrentMediaTime()
+            let after = VideoDecoder.monotonicNanoseconds
+            guard after >= before, before != 0, ca.isFinite, ca > 0 else { continue }
+            let span = after - before
+            let candidate = Self(sampledAtDecoderNanoseconds: before + span / 2, coreAnimationSeconds: ca,
+                uncertaintyNanoseconds: span / 2 + span % 2)
+            if best == nil || candidate.uncertaintyNanoseconds < best!.uncertaintyNanoseconds { best = candidate }
+        }
+        return best
+    }
+
+    func milliseconds(from decoderNanoseconds: UInt64, toPresentedSeconds presented: Double) -> Double? {
+        guard decoderNanoseconds != 0, sampledAtDecoderNanoseconds != 0, uncertaintyNanoseconds <= 1_000_000,
+              coreAnimationSeconds.isFinite, coreAnimationSeconds > 0, presented.isFinite, presented > 0 else { return nil }
+        // Subtract integer clock values before converting to Double to preserve
+        // precision after long uptimes; never subtract uncalibrated clock epochs.
+        let decoderDelta = sampledAtDecoderNanoseconds >= decoderNanoseconds ?
+            Double(sampledAtDecoderNanoseconds - decoderNanoseconds) : -Double(decoderNanoseconds - sampledAtDecoderNanoseconds)
+        let delta = decoderDelta + (presented - coreAnimationSeconds) * 1_000_000_000
+        guard delta.isFinite, delta >= 0 else { return nil }
+        return delta / 1_000_000
+    }
+}
+
+public struct FramePresentationTiming: Codable, Sendable {
+    public let frameID: UInt64
+    public let generation: UInt64
+    public let callbackNanoseconds: UInt64
+    public let actualPresentationNanoseconds: UInt64
+    public let firstPacketToPresentationMilliseconds: Double?
+    public let hostProcessingMilliseconds: Double?
+    public let calibrationUncertaintyNanoseconds: UInt64?
+}
+
+/// Scalar-only metadata prevents presentation notifications from retaining decoder
+/// buffers after GPU completion. The callback may arrive after a subsequent redraw.
+struct FramePresentationMetadata: Sendable {
+    let frameID: UInt64
+    let generation: UInt64
+    let callbackNanoseconds: UInt64
+    let firstPacketNanoseconds: UInt64
+    let hostProcessingMilliseconds: Double?
+    init(_ frame: DecodedFrame) {
+        frameID = frame.id; generation = frame.generation; callbackNanoseconds = frame.callbackNanoseconds
+        firstPacketNanoseconds = frame.firstPacketNanoseconds; hostProcessingMilliseconds = frame.hostProcessingMilliseconds
+    }
+    init(frameID: UInt64, generation: UInt64 = 0, callbackNanoseconds: UInt64,
+         firstPacketNanoseconds: UInt64, hostProcessingMilliseconds: Double? = nil) {
+        self.frameID = frameID; self.generation = generation; self.callbackNanoseconds = callbackNanoseconds
+        self.firstPacketNanoseconds = firstPacketNanoseconds; self.hostProcessingMilliseconds = hostProcessingMilliseconds
+    }
+}
+
+/// Caller holds the renderer metrics lock. Ring indices and identity map never
+/// exceed 1024 entries; no API calls or externally supplied closures run here.
+struct PresentationTimingWindow {
+    private struct Identity: Hashable {
+        let frameID: UInt64
+        let generation: UInt64
+        let callbackNanoseconds: UInt64
+    }
+    private(set) var samples: [FramePresentationTiming] = []
+    private var indices: [Identity: Int] = [:]
+    private var nextIndex = 0
+    mutating func record(_ frame: FramePresentationMetadata, presented: Double, calibration: PresentationClockCalibration?) {
+        guard presented.isFinite, presented > 0, presented * 1_000_000_000 < Double(UInt64.max) else { return }
+        let actual = UInt64(presented * 1_000_000_000)
+        let key = Identity(frameID: frame.frameID, generation: frame.generation, callbackNanoseconds: frame.callbackNanoseconds)
+        if let index = indices[key], samples[index].actualPresentationNanoseconds <= actual { return }
+        let latency = frame.callbackNanoseconds >= frame.firstPacketNanoseconds && frame.callbackNanoseconds != 0 ?
+            calibration?.milliseconds(from: frame.firstPacketNanoseconds, toPresentedSeconds: presented) : nil
+        let host = frame.hostProcessingMilliseconds.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let sample = FramePresentationTiming(frameID: frame.frameID, generation: frame.generation,
+            callbackNanoseconds: frame.callbackNanoseconds, actualPresentationNanoseconds: actual,
+            firstPacketToPresentationMilliseconds: latency, hostProcessingMilliseconds: host,
+            calibrationUncertaintyNanoseconds: latency == nil ? nil : calibration?.uncertaintyNanoseconds)
+        if let index = indices[key] { samples[index] = sample }
+        else if samples.count < 1024 { indices[key] = samples.count; samples.append(sample) }
+        else {
+            let old = samples[nextIndex]
+            indices.removeValue(forKey: Identity(frameID: old.frameID, generation: old.generation, callbackNanoseconds: old.callbackNanoseconds))
+            samples[nextIndex] = sample; indices[key] = nextIndex; nextIndex = (nextIndex + 1) % 1024
+        }
+    }
 }
 public struct RenderResult: Sendable {
     public let succeeded: Bool
@@ -67,6 +195,7 @@ public final class MetalVideoRenderer: @unchecked Sendable {
     private let encodingLock = NSLock()
     private let lock = NSLock()
     private var counters = RenderStatistics()
+    private var presentationWindow = PresentationTimingWindow()
     private let maximumInFlight: Int
     private let idle = DispatchGroup()
 
@@ -79,7 +208,10 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         guard status == kCVReturnSuccess, let textureCache else { throw RendererFailure.unavailable("CVMetalTextureCacheCreate: \(status)") }
         cache = textureCache
     }
-    public var statistics: RenderStatistics { lock.lock(); defer { lock.unlock() }; return counters }
+    public var statistics: RenderStatistics {
+        lock.lock(); defer { lock.unlock() }
+        var result = counters; result.presentationTimings = presentationWindow.samples; return result
+    }
     /// Correctness/teardown diagnostic only; the display path never calls this.
     public func waitUntilIdleForValidation(timeoutSeconds: Double = 10) throws {
         guard idle.wait(timeout: .now() + timeoutSeconds) == .success else { throw RendererFailure.unavailable("GPU completion timeout") }
@@ -213,16 +345,21 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         command.enqueue()
         encodingLock.unlock(); encodingLocked = false
         if let drawable {
+            let timing = FramePresentationMetadata(frame)
             drawable.addPresentedHandler { [weak self] presented in
                 guard let self else { return }
                 let presentedTime = presented.presentedTime
+                // Core Animation owns callback invocation. Read all clocks and API
+                // properties before taking our metrics lock (the live lock-cycle fix).
+                let calibration = presentedTime.isFinite && presentedTime > 0 ? PresentationClockCalibration.measure() : nil
                 self.lock.lock(); defer { self.lock.unlock() }
-                guard presentedTime.isFinite, presentedTime > 0 else {
+                guard presentedTime.isFinite, presentedTime > 0, presentedTime * 1_000_000_000 < Double(UInt64.max) else {
                     self.counters.unconfirmedPresentation += 1; return
                 }
                 self.counters.presented += 1
                 if self.counters.actualPresentationNanoseconds.count == 1024 { self.counters.actualPresentationNanoseconds.removeFirst() }
                 self.counters.actualPresentationNanoseconds.append(UInt64(presentedTime * 1_000_000_000))
+                self.presentationWindow.record(timing, presented: presentedTime, calibration: calibration)
             }
             present?(command)
         }

@@ -2,7 +2,7 @@
 
 A native macOS Moonlight client built with SwiftUI, Metal, Core Audio, GameController, and a shared Apple streaming core. Every compressed video frame goes through the separately pinned **MoonlightAppleVideo** package with hardware decoding required. Sunshine and Apollo are the hosts.
 
-macOS is the first application target. iOS, iPadOS and tvOS adapters are future work. The macOS implementation builds and passes server-free hardware validation. Live Vibepollo checks have verified saved pairing, authenticated library access, a short HEVC 10-bit Desktop stream, input capture/release, and local disconnect. A presentation deadlock found during live testing was corrected; see the [stream follow-up](docs/stream-deadlock-validation.md). The final full-screen viewport matched the 3440 × 1440 external display; broader display, pairing/input/audio/HDR coverage and sustained performance are **not yet release-validated**. See the [acceptance matrix](docs/acceptance-matrix.md).
+macOS is the first application target. iOS, iPadOS and tvOS adapters are future work. The macOS implementation builds and passes server-free hardware validation. Live Vibepollo checks have verified saved pairing, authenticated library access, a short HEVC 10-bit Desktop stream, input capture/release, and local disconnect. A presentation deadlock found during live testing was corrected; see the [stream follow-up](docs/stream-deadlock-validation.md). The [statistics follow-up](docs/stream-statistics-validation.md) verifies the disconnect/statistics shortcuts and movable Liquid Glass panel against a live host. The final full-screen viewport matched the 3440 × 1440 external display; broader display, pairing/input/audio/HDR coverage and sustained performance are **not yet release-validated**. See the [acceptance matrix](docs/acceptance-matrix.md).
 
 ## Build and run
 
@@ -34,10 +34,19 @@ The scripts use `--manifest-cache none` so SwiftPM reevaluates the override. Omi
 1. Choose **Add Computer**, then enter an address or choose a Bonjour-discovered host. Custom ports and `[IPv6]:port` are supported.
 2. Choose **Start PIN Pairing** and enter the displayed PIN in Sunshine/Apollo. Apollo also accepts an `art://` link or separate address/OTP/passphrase fields.
 3. Choose stream settings, then an application. If the application is already running, Swiftlight resumes it.
-4. Streams start in native full screen by default; disable **Start streams in full screen** in Presentation settings for windowed playback. The first frame captures input when Swiftlight is active; after releasing it, click the video to capture again. **Control–Option–Shift–Q** releases capture and shows the overlay. **Control–Command–F** toggles native full screen.
+4. Streams start in native full screen by default; disable **Start streams in full screen** in Presentation settings for windowed playback. The first frame captures input when Swiftlight is active; **Control–Option–Shift–Z** releases capture and shows the stream controls. Click the video to capture again.
 5. **Disconnect** leaves the remote application running. **Quit Remote Application** is a separate confirmed action.
 
-Relative mouse mode is for games; Absolute mode maps the pointer through the same clean-aperture/fit/fill viewport and rejects letterbox input. Physical controllers support analog controls and available haptics. Settings changes require reconnect; display movement/resize changes presentation immediately, while a new native pixel request needs reconnect. HDR On fails clearly if unavailable; Auto intersects host codec/10-bit support, hardware decoder candidates and display capability.
+| Shortcut | Action |
+| --- | --- |
+| Control–Option–Shift–Q | Disconnect locally; leave the remote application running. |
+| Control–Option–Shift–S | Show or hide stream statistics while preserving input capture. |
+| Control–Option–Shift–Z | Release input capture and show stream controls. |
+| Control–Command–F | Toggle native full screen. |
+
+In **Settings → Stream Statistics**, choose **Simple** or **Detailed** and **Top Left**, **Top Center** or **Top Right**. Defaults are **Simple** and **Top Center**. Detail and position save immediately for every computer, persist across launches, and take effect during the current stream without reconnecting. The panel uses native Liquid Glass on macOS 26 and later, a native material on earlier supported macOS versions, and an opaque background when Reduce Transparency is enabled. See [stream statistics](docs/stream-statistics.md) for measurement definitions and limits.
+
+Relative mouse mode is for games; Absolute mode maps the pointer through the same clean-aperture/fit/fill viewport and rejects letterbox input. Physical controllers support analog controls and available haptics. Stream request changes require reconnect; display movement/resize changes presentation immediately, while a new native pixel request needs reconnect. HDR On fails clearly if unavailable; Auto intersects host codec/10-bit support, hardware decoder candidates and display capability.
 
 Client private keys and certificate pins live in Keychain. The macOS development app explicitly uses the login Keychain; iOS/tvOS core defaults to the data-protection Keychain. There is no fallback after arbitrary credential errors. Apollo one-time secrets are not retained. See [manual pairing tests](docs/host-manual-test.md).
 
@@ -49,7 +58,7 @@ scripts/validate-offline.sh
 
 This runs unit/protocol/ownership tests, the native ASan/UBSan harness, independent OTP vectors, real HEVC/AV1 hardware decode and production Metal render/readback for all eight fixture sets, and the sole-decoder audit. It requires an Apple GPU and HEVC/AV1 hardware; a sandbox or unsupported device can block these checks and must not be called a pass. Outputs are written to `artifacts/` and `.build/native-transport-tests/`.
 
-The latest full Swift suite passed 48 tests, including presentation-policy and Keychain-cache checks and a deterministic regression for the drawable callback deadlock. Ten isolated window-lifecycle groups and nineteen packaging checks also pass. The initial live checks are partial functional evidence; they do not replace the remaining acceptance gates.
+The latest full Swift suite passed 62 tests (43 XCTest and 19 host tests), including statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. Native ASan, UBSan and TSan checks passed. Ten isolated window-lifecycle groups and nineteen packaging checks also pass. The initial live checks are partial functional evidence; they do not replace the remaining acceptance gates.
 
 ```sh
 .build/debug/swiftlight-replay --fixture fixtures/av1-accounting-10/manifest.json \

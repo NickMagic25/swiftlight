@@ -95,13 +95,16 @@ struct StreamSurface: NSViewRepresentable {
     let onDisplay: @MainActor (DisplayGeometry, Double) -> Void
     let onError: @MainActor (String) -> Void
     let onCapture: @MainActor (Bool) -> Void
+    let onShortcut: @MainActor (StreamShortcutAction) -> Void
     func makeNSView(context: Context) -> MacStreamView {
         let view = MacStreamView(pipeline: pipeline, transport: transport)
         view.onDisplay = onDisplay; view.onError = onError; view.onCapture = onCapture; view.settings = settings
+        view.onShortcut = onShortcut
         return view
     }
     func updateNSView(_ view: MacStreamView, context: Context) {
         view.onDisplay = onDisplay; view.onError = onError; view.onCapture = onCapture
+        view.onShortcut = onShortcut
         if view.settings != settings { view.settings = settings; view.needsLayout = true }
     }
     static func dismantleNSView(_ view: MacStreamView, coordinator: ()) { view.stop() }
@@ -122,6 +125,8 @@ struct StreamSurface: NSViewRepresentable {
     private var resignObserver: NSObjectProtocol?
     private var destination = CGRect.zero
     private var frameObserver: NSObjectProtocol?
+    private var localKeyMonitor: Any?
+    private var shortcuts = StreamShortcutState()
     private let displayChanges = DisplayChangePublisher()
     private let geometryLogger = Logger(subsystem: "net.edrisil.swiftlight", category: "DisplayGeometry")
     private var geometryLogTask: Task<Void, Never>?
@@ -132,6 +137,7 @@ struct StreamSurface: NSViewRepresentable {
     var onDisplay: ((DisplayGeometry, Double) -> Void)?
     var onError: ((String) -> Void)?
     var onCapture: ((Bool) -> Void)?
+    var onShortcut: ((StreamShortcutAction) -> Void)?
     private var capsLockState = false
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
@@ -152,7 +158,15 @@ struct StreamSurface: NSViewRepresentable {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         displayLink?.invalidate(); displayLink = nil
+        if let localKeyMonitor { NSEvent.removeMonitor(localKeyMonitor); self.localKeyMonitor = nil }
         if let window {
+            localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+                let handled = MainActor.assumeIsolated {
+                    guard let self, let window = self.window, window.isKeyWindow, event.window === window else { return false }
+                    return self.handleLocalShortcut(event)
+                }
+                return handled ? nil : event
+            }
             previousAcceptsMouseMovedEvents = window.acceptsMouseMovedEvents
             window.acceptsMouseMovedEvents = true
             let link = CAMetalDisplayLink(metalLayer: metalLayer)
@@ -248,6 +262,7 @@ struct StreamSurface: NSViewRepresentable {
     }
     func stop() {
         releaseCapture(); displayLink?.invalidate(); displayLink = nil; lastFrame = nil
+        if let localKeyMonitor { NSEvent.removeMonitor(localKeyMonitor); self.localKeyMonitor = nil }
         displayChanges.clear()
         geometryLogTask?.cancel(); geometryLogTask = nil; pendingGeometryDiagnostic = nil
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver); self.resignObserver = nil }
@@ -265,6 +280,7 @@ struct StreamSurface: NSViewRepresentable {
         if settings.pointerMode == .relative { CGAssociateMouseAndMouseCursorPosition(0); NSCursor.hide(); cursorHidden = true }
     }
     func releaseCapture(cancelInitialCapture: Bool = true) {
+        shortcuts = StreamShortcutState()
         if cancelInitialCapture { initialCapturePending = false }
         ControllerHub.shared.stop(); transport.releaseAllInputs()
         guard captured else { return }; captured = false
@@ -278,14 +294,28 @@ struct StreamSurface: NSViewRepresentable {
         keyDown(with: event); return true
     }
     override func keyDown(with event: NSEvent) {
-        let escapeModifiers: NSEvent.ModifierFlags = [.control, .option, .shift]
-        if event.keyCode == 12 && event.modifierFlags.intersection(escapeModifiers) == escapeModifiers { releaseCapture(); return }
         guard captured, let key = KeyMapping.windowsVirtualKey[event.keyCode] else { super.keyDown(with: event); return }
         transport.key(key, pressed: true, modifiers: modifiers(event))
     }
     override func keyUp(with event: NSEvent) {
         guard captured, let key = KeyMapping.windowsVirtualKey[event.keyCode] else { return }
         transport.key(key, pressed: false, modifiers: modifiers(event))
+    }
+    private func handleLocalShortcut(_ event: NSEvent) -> Bool {
+        // Match the physical Q/S/Z keys used by Moonlight's shortcut defaults;
+        // Option changes charactersIgnoringModifiers on many keyboard layouts.
+        guard let key = [UInt16(12): "q", 1: "s", 6: "z"][event.keyCode] else { return false }
+        let flags = event.modifierFlags.intersection([.control, .option, .shift, .command])
+        let decision = event.type == .keyUp ? shortcuts.keyUp(key) :
+            shortcuts.keyDown(key, chordMatches: flags == [.control, .option, .shift], isRepeat: event.isARepeat)
+        guard case .consume(let action) = decision else { return false }
+        if let action {
+            // Release held remote inputs before disconnecting. Stats preserve
+            // capture so showing the panel never steals focus from the game.
+            if action == .disconnect || action == .releaseInput { releaseCapture() }
+            onShortcut?(action)
+        }
+        return true
     }
     override func flagsChanged(with event: NSEvent) {
         guard captured else { return }

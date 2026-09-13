@@ -8,6 +8,8 @@ The selected common-c revision includes three upstream frame-loss recovery fixes
 
 `Package.swift` explicitly compiles the generated common-c C files, its bundled ENet and nanors into `CStreamBridge`, alongside Swiftlight's ownership/input/audio adapters. The app statically links this target through `SwiftlightTransport`. The native sanitizer harness compiles the same generated sources. Common-c owns RTSP/SDP negotiation, encrypted streaming, video depacketization/FEC/recovery, audio transport and input transmission. The HTTP host certificate/PIN pairing flow remains in `SwiftlightHost`, following upstream clients; see `host-protocol.md`.
 
+The current series contains four focused patches: cancellation/termination lifetime, Darwin clock epoch, bound video socket address, and confirmed RTP frame-outcome counters. The last observes existing receive/recovery decisions without changing them; its exact accounting and no-host packet-path tests are in [stream statistics](stream-statistics.md).
+
 The generated `.swiftlight-source.json` records the pins, patch order and SHA-256 source/preparation digests. An unchanged bootstrap verifies those digests and preserves file modification times. A changed patch set regenerates the complete tree only after every patch applies; failures leave the previous output in place and stop the build. Never edit generated files to implement a fix.
 
 ## Updating common-c

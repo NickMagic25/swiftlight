@@ -17,3 +17,12 @@ xcrun clang -std=gnu11 -fblocks -g -O1 -fsanitize="${SWIFTLIGHT_SANITIZERS:-addr
  .build/dependencies/lib/libopus.a -framework AudioToolbox -framework CoreAudio \
  -o .build/native-transport-tests/validate
 .build/native-transport-tests/validate | tee .build/native-transport-tests/results.json
+# Independently link the real RTP queue against no-host callbacks so packet-loss
+# scenarios cannot mutate common-c's process-global live connection state.
+xcrun clang -std=gnu11 -g -O1 -fsanitize="${SWIFTLIGHT_SANITIZERS:-address,undefined}" \
+ -D__APPLE_USE_RFC_3542 -DNDEBUG -I"$common/src" -I"$common/enet/include" \
+ -I"$common/nanors" -I"$common/nanors/deps" -I"$common/nanors/deps/obl" -I.build/dependencies/include \
+ "$common/src/RtpVideoQueue.c" "$common/nanors/rs.c" \
+ "$common/nanors/deps/obl/oblas_common.c" "$common/nanors/deps/obl/oblas_lite.c" \
+ Tests/NativeTransport/network_frames.c -o .build/native-transport-tests/network-frames
+.build/native-transport-tests/network-frames | tee .build/native-transport-tests/network-frames-results.json

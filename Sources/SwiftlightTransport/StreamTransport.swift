@@ -38,6 +38,9 @@ public struct CompressedVideoFrame: Sendable {
     public let rtpTimestamp: UInt32
     /// Exact CLOCK_UPTIME_RAW domain used by mav_monotonic_time_ns, rounded down by <1us.
     public let receiveUptimeNanoseconds, enqueueUptimeNanoseconds: UInt64
+    /// Host capture/processing duration reported in 0.1 ms ticks. Repeated frames or
+    /// hosts without this extension return nil, rather than a fabricated zero.
+    public let hostProcessingLatencyMilliseconds: Double?
     public let isIDR: Bool
 }
 
@@ -130,7 +133,9 @@ public final class StreamTransport: @unchecked Sendable {
             let frame = CompressedVideoFrame(data: Data(bytes: bytes, count: f.length), frameID: f.frame_id,
                 receiveTimeUs: f.receive_time_us, enqueueTimeUs: f.enqueue_time_us,
                 presentationTimeUs: f.presentation_time_us, rtpTimestamp: f.rtp_timestamp, receiveUptimeNanoseconds: f.receive_uptime_ns,
-                enqueueUptimeNanoseconds: f.enqueue_uptime_ns, isIDR: f.is_idr)
+                enqueueUptimeNanoseconds: f.enqueue_uptime_ns,
+                hostProcessingLatencyMilliseconds: f.host_processing_latency_tenths_ms == 0 ? nil : Double(f.host_processing_latency_tenths_ms) / 10,
+                isIDR: f.is_idr)
             return callbacks.video(frame) ? 0 : -1
         }
         cCallbacks.event = { context, kind, a, b, c, message in
@@ -187,7 +192,8 @@ public final class StreamTransport: @unchecked Sendable {
             rttVarianceMilliseconds: value.rtt_available ? value.rtt_variance_ms : nil,
             pendingVideoFrames: Int(value.pending_video_frames), pendingAudioMilliseconds: Int(value.pending_audio_ms),
             audioQueuedFrames: value.audio_queued_frames, audioUnderrunFrames: value.audio_underrun_frames,
-            audioOverrunFrames: value.audio_overrun_frames, localAddress: local, interfaceName: interface)
+            audioOverrunFrames: value.audio_overrun_frames, localAddress: local, interfaceName: interface,
+            video: VideoTransportStatistics(value.video))
     }
     public func requestKeyFrame() { sf_stream_request_idr(pointer) }
     public func releaseAllInputs() { sf_stream_release_inputs(pointer) }
@@ -205,8 +211,54 @@ public final class StreamTransport: @unchecked Sendable {
 /// Read at a low rate outside real-time callbacks. `interfaceName` is matched to the
 /// actual bound video socket address; it is not inferred from a global path monitor.
 public struct TransportDiagnostics: Sendable {
+    /// ENet smoothed RTT and its smoothed mean absolute deviation, both in ms.
+    /// The historical variance name does not mean squared variance or video jitter.
     public let rttMilliseconds, rttVarianceMilliseconds: UInt32?
     public let pendingVideoFrames, pendingAudioMilliseconds: Int
     public let audioQueuedFrames, audioUnderrunFrames, audioOverrunFrames: UInt64
     public let localAddress, interfaceName: String
+    public let video: VideoTransportStatistics
+}
+
+/// The most recent 1024 valid measurements of this kind; absent values do not
+/// enter the window. These summaries are not averages over the entire session.
+public struct TimingSummary: Sendable, Equatable {
+    public let sampleCount: UInt64
+    public let minimumMilliseconds, maximumMilliseconds, averageMilliseconds: Double
+    init?(_ raw: SFTimingSummary) {
+        guard raw.sample_count > 0 else { return nil }
+        sampleCount = raw.sample_count
+        minimumMilliseconds = Double(raw.minimum_us) / 1000
+        maximumMilliseconds = Double(raw.maximum_us) / 1000
+        averageMilliseconds = Double(raw.total_us) / Double(raw.sample_count) / 1000
+    }
+}
+
+/// Cumulative values for this connection. Derive interval rates using counter
+/// deltas and the sampling clock; FPS is not the requested stream frame rate.
+public struct VideoTransportStatistics: Sendable {
+    /// Complete RTP frames, including FEC recovery, before depacketizer filtering.
+    public let receivedFrames: UInt64
+    /// Irrecoverable RTP frames: missing packets/FEC blocks or entirely missing
+    /// frames. Excludes decoder queue overflow, IDR/recovery filtering, and speculation.
+    public let networkLostFrames: UInt64
+    public var totalFrames: UInt64 { receivedFrames + networkLostFrames }
+    /// Acquired decode units and compressed payload bytes; excludes RTP/FEC overhead.
+    public let acquiredFrames, acquiredBytes: UInt64
+    public let firstReceiveUptimeNanoseconds, lastReceiveUptimeNanoseconds: UInt64?
+    public let hostProcessingLatency, reassemblyTime: TimingSummary?
+    /// EWMA /16 of |first-packet interarrival minus RTP timestamp interval|.
+    /// Includes host capture/encode pacing; not a one-way network delay measurement.
+    public let frameArrivalJitterMilliseconds: Double?
+    public let frameArrivalSampleCount: UInt64
+    init(_ raw: SFVideoTransportStatistics) {
+        receivedFrames = raw.received_frames; networkLostFrames = raw.network_lost_frames
+        acquiredFrames = raw.acquired_frames; acquiredBytes = raw.acquired_bytes
+        firstReceiveUptimeNanoseconds = raw.first_receive_uptime_ns == 0 ? nil : raw.first_receive_uptime_ns
+        lastReceiveUptimeNanoseconds = raw.last_receive_uptime_ns == 0 ? nil : raw.last_receive_uptime_ns
+        hostProcessingLatency = TimingSummary(raw.host_processing_latency)
+        reassemblyTime = TimingSummary(raw.reassembly_time)
+        frameArrivalSampleCount = raw.frame_arrival_sample_count
+        frameArrivalJitterMilliseconds = raw.frame_arrival_sample_count == 0 ? nil : raw.frame_arrival_jitter_us / 1000
+    }
 }

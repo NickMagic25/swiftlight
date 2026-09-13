@@ -28,6 +28,31 @@ final class TransportTests: XCTestCase {
         XCTAssertEqual(sf_audio_ring_queued(ring), 0)
         XCTAssertEqual(sf_audio_ring_underruns(ring), 1)
     }
+    func testVideoTelemetryUnitsWindowsAndConcurrentSnapshots() { XCTAssertTrue(sf_stream_validate_video_telemetry()) }
+    func testTelemetrySwiftUnitsAndMissingMeasurements() throws {
+        var raw = SFVideoTransportStatistics()
+        let absent = VideoTransportStatistics(raw)
+        XCTAssertNil(absent.hostProcessingLatency)
+        XCTAssertNil(absent.reassemblyTime)
+        XCTAssertNil(absent.frameArrivalJitterMilliseconds)
+        XCTAssertNil(absent.firstReceiveUptimeNanoseconds)
+        XCTAssertEqual(absent.totalFrames, 0)
+        raw.received_frames = 98; raw.network_lost_frames = 2
+        raw.host_processing_latency = SFTimingSummary(sample_count: 2, minimum_us: 8700, maximum_us: 12300, total_us: 21000)
+        raw.reassembly_time = SFTimingSummary(sample_count: 1, minimum_us: 0, maximum_us: 0, total_us: 0)
+        raw.frame_arrival_sample_count = 1; raw.frame_arrival_jitter_us = 250
+        raw.first_receive_uptime_ns = 1_000_000_000
+        let value = VideoTransportStatistics(raw)
+        let host = try XCTUnwrap(value.hostProcessingLatency)
+        XCTAssertEqual(value.totalFrames, 100)
+        XCTAssertEqual(host.sampleCount, 2)
+        XCTAssertEqual(host.minimumMilliseconds, 8.7, accuracy: 0.000001)
+        XCTAssertEqual(host.maximumMilliseconds, 12.3, accuracy: 0.000001)
+        XCTAssertEqual(host.averageMilliseconds, 10.5, accuracy: 0.000001)
+        XCTAssertEqual(value.reassemblyTime?.averageMilliseconds, 0) // A measured zero is available.
+        XCTAssertEqual(value.frameArrivalJitterMilliseconds, 0.25)
+        XCTAssertEqual(value.firstReceiveUptimeNanoseconds, 1_000_000_000)
+    }
     func testKeyboardWireMarkerAndHeldRelease() { XCTAssertTrue(sf_stream_validate_keyboard_wire_codes()) }
     func testCancellationAcrossPublishedLifecycleStates() { XCTAssertTrue(sf_stream_validate_cancel_state_race()) }
     func testCommonClockAndLaunchExtensions() {

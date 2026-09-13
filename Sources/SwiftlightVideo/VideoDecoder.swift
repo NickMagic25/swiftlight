@@ -27,10 +27,14 @@ public struct CompressedFrame: Sendable {
     /// These timestamps MUST already be in mav_monotonic_time_ns's clock domain.
     public var arrivalNanoseconds: UInt64
     public var firstPacketNanoseconds: UInt64
+    /// Optional host-reported duration, not a timestamp in the host's clock domain.
+    public var hostProcessingMilliseconds: Double?
     public init(bytes: Data, id: UInt64, presentationTimeNanoseconds: Int64 = 0, randomAccess: Bool = false,
-                arrivalNanoseconds: UInt64 = 0, firstPacketNanoseconds: UInt64 = 0) {
+                arrivalNanoseconds: UInt64 = 0, firstPacketNanoseconds: UInt64 = 0,
+                hostProcessingMilliseconds: Double? = nil) {
         self.bytes = bytes; self.id = id; self.presentationTimeNanoseconds = presentationTimeNanoseconds
         self.randomAccess = randomAccess; self.arrivalNanoseconds = arrivalNanoseconds; self.firstPacketNanoseconds = firstPacketNanoseconds
+        self.hostProcessingMilliseconds = hostProcessingMilliseconds
     }
 }
 
@@ -38,7 +42,7 @@ public enum SubmissionResult: Sendable, Equatable {
     case accepted, wouldBlock, needsRandomAccess, rejected(UInt32)
 }
 
-public struct VideoColor: Sendable, Equatable {
+public struct VideoColor: Codable, Sendable, Equatable {
     public var primaries: UInt16
     public var transfer: UInt16
     public var matrix: UInt16
@@ -46,19 +50,37 @@ public struct VideoColor: Sendable, Equatable {
     public var chromaLocation: UInt8
     public var mastering: [UInt8]
     public var contentLight: [UInt8]
+    public var hasColorDescription: Bool
+    public var hasRange: Bool
     public init(primaries: UInt16 = 1, transfer: UInt16 = 1, matrix: UInt16 = 1, fullRange: Bool = false,
-                chromaLocation: UInt8 = 0, mastering: [UInt8] = [], contentLight: [UInt8] = []) {
+                chromaLocation: UInt8 = 0, mastering: [UInt8] = [], contentLight: [UInt8] = [],
+                hasColorDescription: Bool = true, hasRange: Bool = true) {
         self.primaries = primaries; self.transfer = transfer; self.matrix = matrix; self.fullRange = fullRange
         self.chromaLocation = chromaLocation; self.mastering = mastering; self.contentLight = contentLight
+        self.hasColorDescription = hasColorDescription; self.hasRange = hasRange
     }
     init(_ value: mav_color) {
         let described = value.valid & UInt32(MAV_COLOR_DESCRIPTION) != 0
+        hasColorDescription = described; hasRange = value.valid & UInt32(MAV_COLOR_RANGE) != 0
         primaries = described ? value.primaries : 1; transfer = described ? value.transfer : 1
         matrix = described ? value.matrix : 1; fullRange = value.valid & UInt32(MAV_COLOR_RANGE) != 0 && value.full_range != 0
         chromaLocation = value.valid & UInt32(MAV_COLOR_CHROMA_LOCATION) != 0 ? value.chroma_location : 0
         var source = value
         mastering = value.valid & UInt32(MAV_COLOR_MASTERING) != 0 ? withUnsafeBytes(of: &source.mastering) { Array($0) } : []
         contentLight = value.valid & UInt32(MAV_COLOR_CONTENT_LIGHT) != 0 ? withUnsafeBytes(of: &source.content_light) { Array($0) } : []
+    }
+}
+
+/// Decoder-confirmed output format. Width/height describe the decoded image, while
+/// negotiated frame rate and dimensions remain separate transport information.
+public struct DecodedVideoFormat: Codable, Sendable, Equatable {
+    public let codec: VideoCodec
+    public let width: Int
+    public let height: Int
+    public let bitDepth: Int
+    public let color: VideoColor
+    public init(codec: VideoCodec, frame: DecodedFrame) {
+        self.codec = codec; width = frame.width; height = frame.height; bitDepth = frame.bitDepth; color = frame.color
     }
 }
 
@@ -75,6 +97,10 @@ public final class DecodedFrame: @unchecked Sendable {
     public let bitDepth: Int
     public let color: VideoColor
     public let callbackNanoseconds: UInt64
+    /// Zero means unavailable. These share mav_monotonic_time_ns's clock domain.
+    public let firstPacketNanoseconds: UInt64
+    public let admissionNanoseconds: UInt64
+    public let hostProcessingMilliseconds: Double?
     public let hardwareAccelerated: Bool
     /// Visible source pixels, with top-left origin to match input coordinates and Metal.
     public var contentRect: CGRect {
@@ -88,9 +114,13 @@ public final class DecodedFrame: @unchecked Sendable {
         return clipped.isEmpty || clipped.isNull || clipped == physical ? fallback : clipped
     }
     public init(pixelBuffer: CVPixelBuffer, id: UInt64, generation: UInt64 = 0, width: Int, height: Int,
-                bitDepth: Int, color: VideoColor, callbackNanoseconds: UInt64 = 0, hardwareAccelerated: Bool = false) {
+                bitDepth: Int, color: VideoColor, callbackNanoseconds: UInt64 = 0, hardwareAccelerated: Bool = false,
+                firstPacketNanoseconds: UInt64 = 0, admissionNanoseconds: UInt64 = 0,
+                hostProcessingMilliseconds: Double? = nil) {
         self.pixelBuffer = pixelBuffer; self.id = id; self.generation = generation; self.width = width; self.height = height
         self.bitDepth = bitDepth; self.color = color; self.callbackNanoseconds = callbackNanoseconds; self.hardwareAccelerated = hardwareAccelerated
+        self.firstPacketNanoseconds = firstPacketNanoseconds; self.admissionNanoseconds = admissionNanoseconds
+        self.hostProcessingMilliseconds = hostProcessingMilliseconds
         Self.ownership.acquire()
     }
     deinit { Self.ownership.release() }
@@ -110,6 +140,20 @@ private final class FrameOwnership: @unchecked Sendable {
     func acquire() { lock.lock(); state.acquired += 1; state.live += 1; state.highWater = max(state.highWater, state.live); lock.unlock() }
     func release() { lock.lock(); state.released += 1; state.live -= 1; lock.unlock() }
     var snapshot: FrameOwnershipStatistics { lock.lock(); defer { lock.unlock() }; return state }
+}
+
+/// A recent bounded sample window. Empty or invalid-only windows have no duration.
+/// Durations are never substituted with zero when the corresponding clock is absent.
+public struct TimingSummary: Codable, Sendable, Equatable {
+    public let count: Int
+    public let minimumMilliseconds: Double?
+    public let maximumMilliseconds: Double?
+    public let averageMilliseconds: Double?
+    public init(milliseconds: [Double]) {
+        let valid = milliseconds.suffix(1024).filter { $0.isFinite && $0 >= 0 }
+        count = valid.count; minimumMilliseconds = valid.min(); maximumMilliseconds = valid.max()
+        averageMilliseconds = valid.isEmpty ? nil : valid.reduce(0) { $0 + $1 / Double(valid.count) }
+    }
 }
 
 public struct DecoderStatistics: Codable, Sendable {
@@ -140,6 +184,17 @@ public struct DecoderStatistics: Codable, Sendable {
     public var terminalIDs: [UInt64] = []
     public var admissionToTerminalMilliseconds: [Double] = []
     public var singleSampleVTSubmitToCallbackMilliseconds: [Double] = []
+    /// Last 1024 single-sample VT submit→callback intervals. AV1 show-existing and
+    /// multi-sample aggregate completions are excluded; this is not GPU/display time.
+    public var decodeTime: TimingSummary { TimingSummary(milliseconds: singleSampleVTSubmitToCallbackMilliseconds) }
+}
+
+/// One extra retain is transferred to the C terminal callback only for accepted AUs.
+/// Synchronous rejection releases it in submit. No buffer or compressed bytes live
+/// here, and the decoder's bounded admission limits pending instances.
+private final class SubmissionMetadata: Sendable {
+    let hostProcessingMilliseconds: Double?
+    init(_ value: Double?) { hostProcessingMilliseconds = value.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } }
 }
 
 /// Callback state has a single lock, held only while manipulating fixed/bounded data.
@@ -150,11 +205,16 @@ private final class CompletionMailbox: @unchecked Sendable {
     var statistics = DecoderStatistics()
     var suppressOutput = false
     func complete(_ value: mav_completion) {
+        let metadata = value.caller_context.map { Unmanaged<SubmissionMetadata>.fromOpaque($0).takeRetainedValue() }
         // takeUnretainedValue does not consume decoder ownership. DecodedFrame's strong
         // property performs ARC retention before returning through the C callback.
         let frame = value.pixel_buffer.map { DecodedFrame(pixelBuffer: $0.takeUnretainedValue(), id: value.frame_id,
             generation: value.generation, width: Int(value.width), height: Int(value.height), bitDepth: Int(value.bit_depth),
-            color: VideoColor(value.color), callbackNanoseconds: value.trace.callback_ns, hardwareAccelerated: value.hardware_accelerated != 0) }
+            color: VideoColor(value.color),
+            callbackNanoseconds: value.trace.valid & UInt32(MAV_TRACE_CALLBACK) != 0 ? value.trace.callback_ns : 0,
+            hardwareAccelerated: value.hardware_accelerated != 0,
+            firstPacketNanoseconds: value.trace.valid & UInt32(MAV_TRACE_FIRST_PACKET) != 0 ? value.trace.first_packet_ns : 0,
+            admissionNanoseconds: value.trace.admission_ns, hostProcessingMilliseconds: metadata?.hostProcessingMilliseconds) }
         lock.lock(); defer { lock.unlock() }
         statistics.completed += 1
         if value.result != MAV_OK || value.backend_status != 0 {
@@ -225,17 +285,20 @@ public final class VideoDecoder: @unchecked Sendable {
                 mailbox.lock.lock(); mailbox.statistics.rejected += 1; mailbox.lock.unlock()
                 return .rejected(MAV_INVALID_ARGUMENT.rawValue)
             }
+            let metadata = Unmanaged.passRetained(SubmissionMetadata(frame.hostProcessingMilliseconds))
             let result = frame.bytes.withUnsafeBytes { bytes -> mav_result in
                 var span = mav_span(data: bytes.bindMemory(to: UInt8.self).baseAddress, size: bytes.count)
                 return withUnsafePointer(to: &span) { pointer in
                     var unit = mav_access_unit(); mav_access_unit_default(&unit, codec.native)
                     unit.spans = pointer; unit.span_count = 1; unit.frame_id = frame.id
+                    unit.caller_context = metadata.toOpaque()
                     unit.pts = mav_time(value: frame.presentationTimeNanoseconds, timescale: 1_000_000_000, valid: 1)
                     unit.flags = frame.randomAccess ? UInt32(MAV_INPUT_RANDOM_ACCESS) : 0
                     unit.scheduled_arrival_ns = frame.arrivalNanoseconds; unit.first_packet_ns = frame.firstPacketNanoseconds
                     return mav_decoder_submit_copy(handle, &unit)
                 }
             }
+            if result != MAV_OK { metadata.release() }
             // An inline terminal may already be recorded. Never hold the mailbox lock
             // across submit; update accepted after return and reconcile under the lock.
             var nativeMetrics = mav_metrics()

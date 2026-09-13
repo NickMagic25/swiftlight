@@ -1,0 +1,90 @@
+--- a/src/RtpVideoQueue.h
++++ b/src/RtpVideoQueue.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "Video.h"
++#include <stdatomic.h>
+ 
+ typedef struct _RTPV_QUEUE_ENTRY {
+     struct _RTPV_QUEUE_ENTRY* next;
+@@ -47,6 +48,11 @@
+     uint64_t lastOosFramePresentationTimestamp;
+     bool receivedOosData;
+ 
++    // Single RTP receive writer; snapshots may run concurrently. Reset at queue init.
++    // Loss is counted only when a frame becomes irrecoverable, never speculative RFI.
++    _Atomic uint64_t receivedFrameCount;
++    _Atomic uint64_t networkLostFrameCount;
++
+     RTP_VIDEO_STATS stats; // the above values are short-lived, this tracks stats for the life of the queue
+ } RTP_VIDEO_QUEUE, *PRTP_VIDEO_QUEUE;
+ 
+--- a/src/RtpVideoQueue.c
++++ b/src/RtpVideoQueue.c
+@@ -21,6 +21,8 @@
+     reed_solomon_init();
+     memset(queue, 0, sizeof(*queue));
+ 
++    atomic_init(&queue->receivedFrameCount, 0);
++    atomic_init(&queue->networkLostFrameCount, 0);
+     queue->currentFrameNumber = 1;
+     queue->multiFecCapable = APP_VERSION_AT_LEAST(7, 1, 431);
+ }
+@@ -619,6 +621,9 @@
+                         notifyFrameLost(queue->currentFrameNumber, false);
+                     }
+ 
++                    // This frame cannot be recovered, even if speculative RFI already ran.
++                    atomic_fetch_add_explicit(&queue->networkLostFrameCount, 1, memory_order_relaxed);
++
+                     // NB: We reset reportedLostFrame here because we don't want to suppress
+                     // the reporting of the _next_ frame if it's lost.
+                     queue->currentFrameNumber++;
+@@ -656,6 +661,12 @@
+             if (!queue->reportedLostFrame) {
+                 notifyFrameLost(nvPacket->frameIndex, false);
+             }
++
++            // Count the current incomplete frame, any entirely missing intervening
++            // frames, and this frame whose earlier FEC blocks never arrived.
++            atomic_fetch_add_explicit(&queue->networkLostFrameCount,
++                (uint32_t)(nvPacket->frameIndex - queue->currentFrameNumber) + (uint64_t)1,
++                memory_order_relaxed);
+ 
+             // We dropped a block of this frame, so we must skip to the next one.
+             //
+@@ -680,6 +691,8 @@
+         // after successfully processing a frame.
+         if (queue->currentFrameNumber != nvPacket->frameIndex) {
+             LC_ASSERT_VT(queue->currentFrameNumber < nvPacket->frameIndex);
++            atomic_fetch_add_explicit(&queue->networkLostFrameCount,
++                (uint32_t)(nvPacket->frameIndex - queue->currentFrameNumber), memory_order_relaxed);
+ 
+             // If the frame immediately preceding this one was lost, we may have already
+             // reported it using our speculative RFI logic. Don't report it again.
+@@ -791,6 +804,10 @@
+                 queue->multiFecCurrentBlockNumber++;
+             }
+             else {
++                // Full RTP reassembly succeeded, including FEC recovery if needed.
++                // Depacketizer recovery/IDR filtering and local queue overflow are separate.
++                atomic_fetch_add_explicit(&queue->receivedFrameCount, 1, memory_order_relaxed);
++
+                 // Submit all FEC blocks to the depacketizer
+                 submitCompletedFrame(queue);
+ 
+--- a/src/VideoStream.c
++++ b/src/VideoStream.c
+@@ -423,3 +423,11 @@
+ bool sf_common_video_local_address(struct sockaddr_storage* address, socklen_t* length) {
+     return rtpSocket != INVALID_SOCKET && getsockname(rtpSocket, (struct sockaddr*)address, length) == 0;
+ }
++
++// Swiftlight internal telemetry accessor. The caller serializes with start/stop;
++// each relaxed load is a cumulative counter sampled during this call, not a
++// promise that both counters were captured at the exact same receive instant.
++void sf_common_video_frame_counts(uint64_t* received, uint64_t* networkLost) {
++    *received = atomic_load_explicit(&rtpQueue.receivedFrameCount, memory_order_relaxed);
++    *networkLost = atomic_load_explicit(&rtpQueue.networkLostFrameCount, memory_order_relaxed);
++}

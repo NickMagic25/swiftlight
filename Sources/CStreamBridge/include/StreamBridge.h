@@ -25,6 +25,8 @@ typedef struct {
     uint64_t frame_id, receive_time_us, enqueue_time_us, presentation_time_us;
     uint32_t rtp_timestamp;
     uint64_t receive_uptime_ns, enqueue_uptime_ns;
+    // Tenths of a millisecond. Zero means unavailable/repeated frame, not zero latency.
+    uint16_t host_processing_latency_tenths_ms;
     bool is_idr;
 } SFVideoFrame;
 enum { SF_STAGE = 1, SF_STARTED, SF_TERMINATED, SF_FAILED, SF_QUALITY, SF_HDR, SF_AUDIO_ERROR, SF_RUMBLE };
@@ -53,17 +55,32 @@ int sf_stream_controller(SFStream *, uint8_t index, uint16_t active_mask, uint32
                          uint8_t left_trigger, uint8_t right_trigger,
                          int16_t left_x, int16_t left_y, int16_t right_x, int16_t right_y);
 typedef struct {
+    uint64_t sample_count, minimum_us, maximum_us, total_us;
+} SFTimingSummary;
+typedef struct {
+    // RTP reassembly outcomes, before depacketizer recovery or local decode-queue drops.
+    uint64_t received_frames, network_lost_frames;
+    // Decode units acquired by the pull worker, and their declared compressed payload bytes.
+    uint64_t acquired_frames, acquired_bytes;
+    uint64_t first_receive_uptime_ns, last_receive_uptime_ns;
+    SFTimingSummary host_processing_latency, reassembly_time;
+    uint64_t frame_arrival_sample_count;
+    double frame_arrival_jitter_us;
+} SFVideoTransportStatistics;
+typedef struct {
     bool rtt_available;
     uint32_t rtt_ms, rtt_variance_ms;
     int pending_video_frames, pending_audio_ms;
     uint64_t audio_queued_frames, audio_underrun_frames, audio_overrun_frames;
     char local_address[128], interface_name[64];
+    SFVideoTransportStatistics video;
 } SFTransportDiagnostics;
 bool sf_stream_diagnostics(SFStream *stream, SFTransportDiagnostics *diagnostics);
 const char *sf_stream_launch_query(void);
 // Server-free seam runs the exact frame flattener, callback, and exactly-once completion owner.
 // A valid acquired frame is completed once even if malformed, cancelled, or rejected.
 bool sf_stream_validate_keyboard_wire_codes(void);
+bool sf_stream_validate_video_telemetry(void);
 bool sf_stream_validate_cancel_state_race(void);
 bool sf_stream_validate_clock_mapping(void);
 bool sf_stream_validate_event_retirement(void);

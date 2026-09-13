@@ -22,7 +22,10 @@ struct SwiftlightApp: App {
             CommandMenu("Stream") {
                 Button("Video Validation…") { openWindow(id: "replay") }
                 Divider()
-                Button("Disconnect") { model.disconnect() }.keyboardShortcut("d", modifiers: [.command, .shift]).disabled(!model.isSessionActive)
+                Button("Disconnect") { model.disconnect() }.keyboardShortcut("q", modifiers: [.control, .option, .shift]).disabled(!model.isSessionActive)
+                Button(model.showingStreamStatistics ? "Hide Stream Statistics" : "Show Stream Statistics") {
+                    model.handleStreamShortcut(.toggleStatistics)
+                }.keyboardShortcut("s", modifiers: [.control, .option, .shift]).disabled(!model.isSessionActive)
                 Button("Full Screen") { model.streamWindow.toggleFullScreen() }.keyboardShortcut("f", modifiers: [.command, .control])
             }
         }

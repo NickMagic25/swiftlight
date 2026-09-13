@@ -30,6 +30,16 @@ import SwiftlightVideo
     @Published var transport: StreamTransport?
     @Published var renderFailure: String?
     @Published var inputCaptured = false
+    @Published var statisticsPreferences = StreamStatisticsPreferences()
+    @Published var showingStreamStatistics = false
+    @Published var streamStatisticRows: [StreamStatisticRow] = []
+    var statisticsRequest: StreamRequest?
+    var statisticsSelection: CodecSelection?
+    private var activeStreamSettings: StreamSettings?
+    var statisticsNetworkWindow = StreamTimingWindow()
+    var statisticsRateWindow = StreamFrameRateWindow()
+    var streamStatisticsSnapshot = StreamStatisticsSnapshot()
+    var simplePresentationSample: (time: TimeInterval, milliseconds: Double?)?
     let discovery = BonjourHostDiscovery()
     let network = NetworkStatus()
     let streamWindow = StreamWindowController()
@@ -50,6 +60,8 @@ import SwiftlightVideo
     var selectedHost: SavedHost? { hosts.first { $0.id == selectedHostID } }
     var isSessionActive: Bool { [.connecting, .negotiating, .streaming, .reconfiguring, .disconnecting].contains(state.phase) }
     init() {
+        if let data = UserDefaults.standard.data(forKey: "streamStatisticsPreferences"),
+           let saved = try? JSONDecoder().decode(StreamStatisticsPreferences.self, from: data) { statisticsPreferences = saved }
         if let data = UserDefaults.standard.data(forKey: "defaultSettings"), let saved = try? JSONDecoder().decode(StreamSettings.self, from: data) { settings = saved }
         hardwareDetail = "Hardware candidates: HEVC \(VideoCodec.hevc.hardwareCandidate ? "available" : "unavailable"), AV1 \(VideoCodec.av1.hardwareCandidate ? "available" : "unavailable")"
         timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect().sink { [weak self] _ in self?.updateStatistics() }
@@ -75,8 +87,24 @@ import SwiftlightVideo
             let valid = try settings.validated(); let data = try JSONEncoder().encode(valid)
             if asDefault || selectedHostID == nil { UserDefaults.standard.set(data, forKey: "defaultSettings") }
             if let selectedHostID { UserDefaults.standard.set(data, forKey: "profile." + selectedHostID) }
-            if state.phase == .streaming { message = "Settings saved. Reconnect to apply the new stream request." }
+            if state.phase == .streaming && valid != activeStreamSettings { message = "Settings saved. Reconnect to apply the new stream request." }
         } catch { message = error.localizedDescription }
+    }
+    func saveStatisticsPreferences() {
+        if let data = try? JSONEncoder().encode(statisticsPreferences) {
+            UserDefaults.standard.set(data, forKey: "streamStatisticsPreferences")
+        }
+        refreshStreamStatistics()
+    }
+    func handleStreamShortcut(_ action: StreamShortcutAction) {
+        guard isSessionActive else { return }
+        switch action {
+        case .disconnect: disconnect()
+        case .toggleStatistics:
+            showingStreamStatistics.toggle()
+            refreshStreamStatistics()
+        case .releaseInput: break // The native surface releases before calling us.
+        }
     }
     func selectHost(_ host: SavedHost) {
         guard !isSessionActive, !quittingRemote, !busy else { return }
@@ -235,6 +263,11 @@ import SwiftlightVideo
         guard let client, let host = selectedHost, !isSessionActive, !busy, !quittingRemote, stoppingTask == nil else { return }
         state.apply(.connect); let generation = state.generation
         activeApp = app; message = nil; renderFailure = nil; hostStatus = "Connecting stream…"
+        statisticsRequest = nil; statisticsSelection = nil
+        statisticsNetworkWindow = StreamTimingWindow(); statisticsRateWindow = StreamFrameRateWindow()
+        streamStatisticsSnapshot = StreamStatisticsSnapshot()
+        simplePresentationSample = nil
+        streamStatisticRows = []
         connectionTask = Task {
             do {
                 let launchDisplay = try await streamWindow.prepare(settings: settings)
@@ -244,6 +277,7 @@ import SwiftlightVideo
                 if info.currentAppID > 0 && info.currentAppID != app.id {
                     throw SettingsError.invalid("Another application is running on this host. Resume it or explicitly quit it before launching \(app.name).")
                 }
+                activeStreamSettings = settings
                 let request = try settings.request(display: display)
                 let hostHDR = info.codecSupport & (settings.codec == .av1 ? 0x20000 : settings.codec == .hevc ? 0x200 : 0x20200) != 0
                 let selection = try CodecSelection.negotiate(preference: settings.codec, hdr: settings.hdr,
@@ -276,6 +310,7 @@ import SwiftlightVideo
                 let transport = try StreamTransport(configuration: config, callbacks: .init(setup: { pipeline.setup($0) }, video: { pipeline.receive($0) },
                     event: { [weak self] event in Task { @MainActor [weak self] in self?.handle(event, generation: generation) } }))
                 self.pipeline = pipeline; self.transport = transport
+                statisticsRequest = request; statisticsSelection = selection
                 streamDetail = "Requested \(request.size.width) × \(request.size.height) · \(request.fps) FPS · \(Double(request.bitrateKbps) / 1000) Mbps · \(selection.codec.rawValue.uppercased()) \(selection.hdr ? "HDR10" : "SDR")"
                 state.apply(.negotiated, generation: generation)
                 activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled, .idleDisplaySleepDisabled], reason: "Streaming a game")
@@ -306,6 +341,8 @@ import SwiftlightVideo
         connectionTask?.cancel(); transport?.releaseAllInputs(); transport?.cancelStart()
         let oldTransport = transport, oldPipeline = pipeline
         oldPipeline?.closeAdmission(); transport = nil; pipeline = nil; inputCaptured = false
+        showingStreamStatistics = false; streamStatisticRows = []
+        simplePresentationSample = nil
         streamWindow.endSession()
         if let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
         stoppingTask = Task {
@@ -364,6 +401,7 @@ import SwiftlightVideo
             message = error; state.apply(.failure(error)); teardown(); return
         }
         if let pipeline {
+            refreshStreamStatistics()
             let decoded = pipeline.decodedDetail
             if decodedDetail != decoded { decodedDetail = decoded }
             if state.phase == .negotiating, let stats = pipeline.statistics, stats.output > 0 {

@@ -44,7 +44,19 @@ struct SettingsView: View {
                 Toggle("Start streams in full screen", isOn: $model.settings.launchInFullScreen)
             } header: { Text("Presentation") }
             Section {
-                Text("Changes apply on the next connection. Sunshine uses the host's configured display modes; Apollo may provide a virtual display when permitted.").font(.caption).foregroundStyle(.secondary)
+                Picker("Detail", selection: $model.statisticsPreferences.detail) {
+                    ForEach(StreamStatisticsDetail.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .onChange(of: model.statisticsPreferences.detail) { _, _ in model.saveStatisticsPreferences() }
+                Picker("Position", selection: $model.statisticsPreferences.position) {
+                    ForEach(StreamStatisticsPosition.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .onChange(of: model.statisticsPreferences.position) { _, _ in model.saveStatisticsPreferences() }
+                Text("Press Control–Option–Shift–S to show or hide statistics. These preferences save immediately and apply to every computer.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } header: { Text("Stream Statistics") }
+            Section {
+                Text("Stream quality, video and presentation changes apply on the next connection. Sunshine uses the host's configured display modes; Apollo may provide a virtual display when permitted.").font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("Save for This Computer") { model.saveSettings() }.disabled(model.selectedHost == nil)
                     Button("Use as Global Defaults") { model.saveSettings(asDefault: true) }

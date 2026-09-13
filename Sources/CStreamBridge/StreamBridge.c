@@ -12,18 +12,29 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <dispatch/dispatch.h>
+#include <math.h>
 extern uint64_t PltGetMicroseconds(void);
 extern _Atomic bool ConnectionInterrupted;
 extern uint64_t sf_common_clock_epoch_ns(void);
 extern bool sf_common_video_local_address(struct sockaddr_storage*, socklen_t*);
+extern void sf_common_video_frame_counts(uint64_t*, uint64_t*);
 
 #define MAX_COMPRESSED_FRAME (32u * 1024u * 1024u)
+#define TIMING_WINDOW 1024u
+typedef struct { uint64_t samples[TIMING_WINDOW], total_us; unsigned count, next; } TimingWindow;
 enum { CREATED, STARTING, STREAMING, STOPPING, STOPPED };
 struct SFStream {
     SFStreamConfiguration configuration;
     SFStreamCallbacks callbacks;
     void *context;
     pthread_mutex_t api_mutex;
+    // Only bounded arithmetic/copies occur under this lock. The pull worker never
+    // acquires api_mutex or calls Swift/common-c while holding telemetry_mutex.
+    pthread_mutex_t telemetry_mutex;
+    SFVideoTransportStatistics telemetry;
+    TimingWindow host_timings, reassembly_timings;
+    uint64_t previous_receive_us;
+    uint32_t previous_rtp_timestamp;
     // State is read under two independent gates, so publication is atomic.
     // api_mutex gates media/input lifetime; active_mutex gates callback identity.
     // Never acquire either gate while holding the other.
@@ -63,8 +74,58 @@ static void log_message(const char *format, ...) { (void)format; /* Do not leak 
 // This owner is deliberately shared by the real worker and deterministic harness.
 // Every successful Wait/Poll acquisition enters here once; all paths converge on complete.
 typedef void (*CompleteFrame)(void *handle, int status);
+static void record_timing(TimingWindow *window, uint64_t us) {
+    if (window->count == TIMING_WINDOW) window->total_us -= window->samples[window->next];
+    else ++window->count;
+    window->samples[window->next] = us; window->total_us += us;
+    window->next = (window->next + 1) % TIMING_WINDOW;
+}
+static SFTimingSummary timing_snapshot(const TimingWindow *window) {
+    SFTimingSummary value = { .sample_count = window->count, .total_us = window->total_us };
+    for (unsigned i = 0; i < window->count; ++i) {
+        uint64_t us = window->samples[i];
+        if (!i || us < value.minimum_us) value.minimum_us = us;
+        if (!i || us > value.maximum_us) value.maximum_us = us;
+    }
+    return value;
+}
+static void record_video_telemetry(SFStream *s, const DECODE_UNIT *du) {
+    if (!du) return;
+    uint64_t receive_ns = du->receiveTimeUs ? sf_common_clock_epoch_ns() + du->receiveTimeUs * 1000 : 0;
+    pthread_mutex_lock(&s->telemetry_mutex);
+    SFVideoTransportStatistics *v = &s->telemetry;
+    ++v->acquired_frames;
+    if (du->fullLength > 0 && (unsigned)du->fullLength <= MAX_COMPRESSED_FRAME) v->acquired_bytes += du->fullLength;
+    if (receive_ns) {
+        if (!v->first_receive_uptime_ns) v->first_receive_uptime_ns = receive_ns;
+        if (receive_ns > v->last_receive_uptime_ns) v->last_receive_uptime_ns = receive_ns;
+    }
+    if (du->frameHostProcessingLatency) record_timing(&s->host_timings, (uint64_t)du->frameHostProcessingLatency * 100);
+    if (du->receiveTimeUs && du->enqueueTimeUs >= du->receiveTimeUs)
+        record_timing(&s->reassembly_timings, du->enqueueTimeUs - du->receiveTimeUs);
+    uint32_t rtp_delta = du->rtpTimestamp - s->previous_rtp_timestamp;
+    if (s->previous_receive_us && du->receiveTimeUs > s->previous_receive_us && rtp_delta && rtp_delta < 0x80000000u) {
+        // RFC 3550-style EWMA, using first-packet arrival per complete decode unit.
+        // Variation also includes host capture/encode pacing, not just the network.
+        double variation_us = fabs((double)(du->receiveTimeUs - s->previous_receive_us) - (double)rtp_delta * 1000000.0 / 90000.0);
+        v->frame_arrival_jitter_us += (variation_us - v->frame_arrival_jitter_us) / 16.0;
+        ++v->frame_arrival_sample_count;
+    }
+    s->previous_receive_us = du->receiveTimeUs;
+    s->previous_rtp_timestamp = du->rtpTimestamp;
+    pthread_mutex_unlock(&s->telemetry_mutex);
+}
+static SFVideoTransportStatistics video_telemetry_snapshot(SFStream *s) {
+    pthread_mutex_lock(&s->telemetry_mutex);
+    SFVideoTransportStatistics value = s->telemetry;
+    value.host_processing_latency = timing_snapshot(&s->host_timings);
+    value.reassembly_time = timing_snapshot(&s->reassembly_timings);
+    pthread_mutex_unlock(&s->telemetry_mutex);
+    return value;
+}
 static int consume_frame(SFStream *s, VIDEO_FRAME_HANDLE handle, PDECODE_UNIT du, CompleteFrame complete) {
     int result = DR_NEED_IDR;
+    record_video_telemetry(s, du);
     if (!atomic_load_explicit(&s->video_stopping, memory_order_acquire) && du &&
         du->fullLength > 0 && (unsigned)du->fullLength <= MAX_COMPRESSED_FRAME) {
         size_t copied = 0;
@@ -83,6 +144,7 @@ static int consume_frame(SFStream *s, VIDEO_FRAME_HANDLE handle, PDECODE_UNIT du
                 .rtp_timestamp = du->rtpTimestamp,
                 .receive_uptime_ns = du->receiveTimeUs ? sf_common_clock_epoch_ns() + du->receiveTimeUs * 1000 : 0,
                 .enqueue_uptime_ns = du->enqueueTimeUs ? sf_common_clock_epoch_ns() + du->enqueueTimeUs * 1000 : 0,
+                .host_processing_latency_tenths_ms = du->frameHostProcessingLatency,
                 .is_idr = du->frameType == FRAME_TYPE_IDR };
             result = s->callbacks.video(s->context, &frame) == DR_OK ? DR_OK : DR_NEED_IDR;
         }
@@ -148,6 +210,7 @@ SFStream *sf_stream_create(const SFStreamConfiguration *c, SFStreamCallbacks cal
     SFStream *s = calloc(1, sizeof(*s));
     if (!s) return NULL;
     pthread_mutex_init(&s->api_mutex, NULL);
+    pthread_mutex_init(&s->telemetry_mutex, NULL);
     s->configuration = *c;
     s->configuration.address = copy_string(c->address); s->configuration.app_version = copy_string(c->app_version);
     s->configuration.gfe_version = copy_string(c->gfe_version); s->configuration.rtsp_url = copy_string(c->rtsp_url);
@@ -233,7 +296,7 @@ void sf_stream_destroy(SFStream *s) {
     sf_stream_stop(s);
     free((void *)s->configuration.address); free((void *)s->configuration.app_version);
     free((void *)s->configuration.gfe_version); free((void *)s->configuration.rtsp_url);
-    free(s->frame_buffer); pthread_mutex_destroy(&s->api_mutex); free(s);
+    free(s->frame_buffer); pthread_mutex_destroy(&s->api_mutex); pthread_mutex_destroy(&s->telemetry_mutex); free(s);
 }
 void sf_stream_request_idr(SFStream *s) {
     pthread_mutex_lock(&s->api_mutex); if (atomic_load_explicit(&s->state, memory_order_acquire) == STREAMING) LiRequestIdrFrame(); pthread_mutex_unlock(&s->api_mutex);
@@ -281,6 +344,8 @@ bool sf_stream_diagnostics(SFStream *s, SFTransportDiagnostics *d) {
     d->pending_video_frames = LiGetPendingVideoFrames();
     d->pending_audio_ms = LiGetPendingAudioDuration();
     sf_audio_stats(s->audio, &d->audio_queued_frames, &d->audio_underrun_frames, &d->audio_overrun_frames);
+    d->video = video_telemetry_snapshot(s);
+    sf_common_video_frame_counts(&d->video.received_frames, &d->video.network_lost_frames);
     struct sockaddr_storage address; socklen_t length = sizeof(address);
     if (sf_common_video_local_address(&address, &length)) {
         getnameinfo((struct sockaddr *)&address, length, d->local_address, sizeof(d->local_address), NULL, 0, NI_NUMERICHOST);
@@ -312,6 +377,7 @@ static int test_submit(void *context, const SFVideoFrame *frame) {
 int sf_stream_validate_frame_ownership(unsigned scenario, unsigned *completions, unsigned *submissions) {
     TestFrameContext c = { .result = scenario == 1 ? DR_NEED_IDR : DR_OK };
     SFStream s = { .context = &c, .callbacks.video = test_submit };
+    pthread_mutex_init(&s.telemetry_mutex, NULL);
     uint8_t buffer[8]; s.frame_buffer = buffer;
     LENTRY second = { .data = "def", .length = 3 };
     LENTRY first = { .data = "abc", .length = 3, .next = &second };
@@ -322,6 +388,7 @@ int sf_stream_validate_frame_ownership(unsigned scenario, unsigned *completions,
     if (scenario == 5) second.next = &first;
     int result = consume_frame(&s, &c, &du, test_complete);
     *completions = c.completions; *submissions = c.submissions;
+    pthread_mutex_destroy(&s.telemetry_mutex);
     return result;
 }
 
@@ -474,5 +541,68 @@ bool sf_stream_validate_cancel_state_race(void) {
     pthread_mutex_lock(&active_mutex); active_stream = NULL; pthread_mutex_unlock(&active_mutex);
     bool valid = atomic_load(&race.valid);
     dispatch_release(race.ready); dispatch_release(race.done); pthread_mutex_destroy(&s.api_mutex);
+    return valid;
+}
+
+typedef struct { SFStream *stream; _Atomic bool done, valid; } TelemetryRace;
+static void *telemetry_test_reader(void *context) {
+    TelemetryRace *race = context; uint64_t previous = 0;
+    do {
+        SFVideoTransportStatistics value = video_telemetry_snapshot(race->stream);
+        if (value.acquired_frames < previous || value.host_processing_latency.sample_count > TIMING_WINDOW ||
+            value.host_processing_latency.total_us != value.host_processing_latency.sample_count * 100 ||
+            value.acquired_bytes != value.acquired_frames * 6)
+            atomic_store(&race->valid, false);
+        previous = value.acquired_frames;
+    } while (!atomic_load(&race->done));
+    return NULL;
+}
+bool sf_stream_validate_video_telemetry(void) {
+    SFStream s = {0}; pthread_mutex_init(&s.telemetry_mutex, NULL);
+    PltGetMicroseconds();
+    SFVideoTransportStatistics v = video_telemetry_snapshot(&s);
+    bool valid = !v.acquired_frames && !v.host_processing_latency.sample_count && !v.frame_arrival_sample_count;
+    DECODE_UNIT du = {.frameNumber = 1, .fullLength = 6, .frameHostProcessingLatency = 123,
+        .receiveTimeUs = 1000000, .enqueueTimeUs = 1000500, .rtpTimestamp = UINT32_MAX - 749};
+    record_video_telemetry(&s, &du);
+    du.frameNumber = 2; du.frameHostProcessingLatency = 87; du.receiveTimeUs = 1020000;
+    du.enqueueTimeUs = 1021500; du.rtpTimestamp += 1500; // Valid 90 kHz wraparound.
+    record_video_telemetry(&s, &du);
+    v = video_telemetry_snapshot(&s);
+    valid = valid && v.acquired_frames == 2 && v.acquired_bytes == 12 &&
+        v.host_processing_latency.sample_count == 2 && v.host_processing_latency.minimum_us == 8700 &&
+        v.host_processing_latency.maximum_us == 12300 && v.host_processing_latency.total_us == 21000 &&
+        v.reassembly_time.sample_count == 2 && v.reassembly_time.minimum_us == 500 &&
+        v.reassembly_time.maximum_us == 1500 && v.reassembly_time.total_us == 2000 &&
+        v.frame_arrival_sample_count == 1 && fabs(v.frame_arrival_jitter_us - 208.3333333333333) < 0.000001 &&
+        v.last_receive_uptime_ns - v.first_receive_uptime_ns == 20000000;
+    du.frameHostProcessingLatency = 0; du.receiveTimeUs = du.enqueueTimeUs = 0; du.rtpTimestamp = 0;
+    record_video_telemetry(&s, &du); // Absent host time and arrival timestamps do not become zero samples.
+    du.receiveTimeUs = 1040000; du.enqueueTimeUs = 1039999;
+    record_video_telemetry(&s, &du); // Invalid enqueue order and absent RTP timestamp do not enter summaries.
+    du.receiveTimeUs = 1060000; du.enqueueTimeUs = 1059999;
+    record_video_telemetry(&s, &du); // Old hosts with constant zero RTP timestamps have no jitter samples.
+    v = video_telemetry_snapshot(&s);
+    valid = valid && v.acquired_frames == 5 && v.host_processing_latency.sample_count == 2 &&
+        v.reassembly_time.sample_count == 2 && v.frame_arrival_sample_count == 1;
+    memset(&s.host_timings, 0, sizeof(s.host_timings));
+    for (unsigned i = 1; i <= 1500; ++i) { du.frameHostProcessingLatency = i; record_video_telemetry(&s, &du); }
+    v = video_telemetry_snapshot(&s);
+    valid = valid && v.host_processing_latency.sample_count == TIMING_WINDOW &&
+        v.host_processing_latency.minimum_us == 47700 && v.host_processing_latency.maximum_us == 150000 &&
+        v.host_processing_latency.total_us == 98850 * (uint64_t)TIMING_WINDOW;
+    memset(&s.telemetry, 0, sizeof(s.telemetry)); memset(&s.host_timings, 0, sizeof(s.host_timings));
+    memset(&s.reassembly_timings, 0, sizeof(s.reassembly_timings));
+    s.previous_receive_us = 0; s.previous_rtp_timestamp = 0;
+    TelemetryRace race = {.stream = &s, .valid = true}; pthread_t reader;
+    if (pthread_create(&reader, NULL, telemetry_test_reader, &race)) { pthread_mutex_destroy(&s.telemetry_mutex); return false; }
+    du.frameHostProcessingLatency = 1; du.receiveTimeUs = du.enqueueTimeUs = 0;
+    for (unsigned i = 0; i < 100000; ++i) record_video_telemetry(&s, &du);
+    atomic_store(&race.done, true); pthread_join(reader, NULL);
+    v = video_telemetry_snapshot(&s);
+    valid = valid && atomic_load(&race.valid) && v.acquired_frames == 100000 &&
+        v.host_processing_latency.sample_count == TIMING_WINDOW && !v.reassembly_time.sample_count &&
+        !v.frame_arrival_sample_count;
+    pthread_mutex_destroy(&s.telemetry_mutex);
     return valid;
 }

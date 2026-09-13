@@ -9,7 +9,11 @@ final class VideoTests: XCTestCase {
     func testDrawableCallbackCanFinishDuringHandlerRegistration() throws {
         try requireHardware()
         let renderer = try MetalVideoRenderer()
-        let frame = try synthetic(depth: 10, full: false, location: 0)
+        let source = try synthetic(depth: 10, full: false, location: 0)
+        let now = VideoDecoder.monotonicNanoseconds
+        let frame = DecodedFrame(pixelBuffer: source.pixelBuffer, id: 77, width: source.width, height: source.height,
+            bitDepth: source.bitDepth, color: source.color, callbackNanoseconds: now,
+            firstPacketNanoseconds: now - 10_000_000, hostProcessingMilliseconds: 2.5)
         let target = try renderer.makeReadbackTarget(width: 64, height: 36)
         let drawable = CallbackDuringRegistrationDrawable()
         XCTAssertTrue(try renderer.encode(frame, target: target, drawable: drawable, present: nil, scaleMode: .fit, completion: nil))
@@ -18,6 +22,11 @@ final class VideoTests: XCTestCase {
         XCTAssertEqual(renderer.statistics.completed, 1)
         XCTAssertEqual(renderer.statistics.inFlight, 0)
         XCTAssertEqual(renderer.statistics.presented, 1)
+        XCTAssertEqual(renderer.statistics.firstPacketToPresentation.count, 1)
+        XCTAssertEqual(renderer.statistics.hostProcessingAndClientPresentation.count, 1)
+        let latency = try XCTUnwrap(renderer.statistics.firstPacketToPresentation.averageMilliseconds)
+        XCTAssertGreaterThan(latency, 0)
+        XCTAssertEqual(try XCTUnwrap(renderer.statistics.hostProcessingAndClientPresentation.averageMilliseconds), latency + 2.5, accuracy: 0.000001)
     }
 
     func testLifecycleAndSynchronousRejectionConsumesNothing() throws {
@@ -47,7 +56,10 @@ final class VideoTests: XCTestCase {
     func testConfigurationOnlyInlineCompletionAndRetainedLifetime() throws {
         try requireHardware()
         let inputs = try load("hevc-sdr8")
-        let first = inputs[0]
+        var first = inputs[0]
+        first.firstPacketNanoseconds = VideoDecoder.monotonicNanoseconds
+        first.arrivalNanoseconds = first.firstPacketNanoseconds
+        first.hostProcessingMilliseconds = 3.2
         let bytes = [UInt8](first.bytes)
         var starts: [Int] = []
         for i in 0..<(bytes.count - 3) where bytes[i] == 0 && bytes[i + 1] == 0 && bytes[i + 2] == 0 && bytes[i + 3] == 1 { starts.append(i) }
@@ -69,6 +81,11 @@ final class VideoTests: XCTestCase {
         XCTAssertEqual(decoder.submit(first), .accepted)
         try decoder.drain()
         let frame = try XCTUnwrap(decoder.takeLatestFrame())
+        XCTAssertEqual(frame.firstPacketNanoseconds, first.firstPacketNanoseconds)
+        XCTAssertEqual(frame.hostProcessingMilliseconds, 3.2)
+        XCTAssertGreaterThanOrEqual(frame.callbackNanoseconds, frame.admissionNanoseconds)
+        XCTAssertGreaterThanOrEqual(frame.admissionNanoseconds, frame.firstPacketNanoseconds)
+        XCTAssertEqual(decoder.statistics.decodeTime.count, 1)
         try decoder.reset(); XCTAssertNil(decoder.takeLatestFrame()); try decoder.close()
         let renderer = try MetalVideoRenderer()
         XCTAssertTrue(try VideoReadbackValidator.compare(frame: frame, renderer: renderer).passed)

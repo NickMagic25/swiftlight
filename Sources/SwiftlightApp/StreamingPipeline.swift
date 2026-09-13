@@ -12,7 +12,9 @@ final class StreamingPipeline: @unchecked Sendable {
     private var accepting = true
     private var failure: String?
     private var renderer: MetalVideoRenderer?
-    private var decodedDescription = "Waiting for decoded output"
+    private var latestDecodedFormat: DecodedVideoFormat?
+    private var negotiatedStream: VideoStreamDescription?
+    private var latestViewport = CGSize.zero
     private let signposter = OSSignposter(subsystem: "net.edrisil.swiftlight", category: "Video")
     func setup(_ description: VideoStreamDescription) -> Bool {
         let codec: VideoCodec
@@ -25,7 +27,7 @@ final class StreamingPipeline: @unchecked Sendable {
             let newDecoder = try VideoDecoder(codec: codec, maxFramesInFlight: 2)
             lock.lock()
             guard accepting else { lock.unlock(); try newDecoder.close(); return false }
-            let old = decoder; decoder = newDecoder; lock.unlock()
+            let old = decoder; decoder = newDecoder; negotiatedStream = description; latestDecodedFormat = nil; lock.unlock()
             try old?.close(); return true
         } catch { recordFailure(String(describing: error)); return false }
     }
@@ -41,7 +43,8 @@ final class StreamingPipeline: @unchecked Sendable {
         let frame = CompressedFrame(bytes: input.data, id: input.frameID,
             presentationTimeNanoseconds: Int64(input.presentationTimeUs) * 1000,
             randomAccess: input.isIDR, arrivalNanoseconds: input.enqueueUptimeNanoseconds,
-            firstPacketNanoseconds: input.receiveUptimeNanoseconds)
+            firstPacketNanoseconds: input.receiveUptimeNanoseconds,
+            hostProcessingMilliseconds: input.hostProcessingLatencyMilliseconds)
         var result = owner.submit(frame)
         if result == .wouldBlock {
             do {
@@ -76,9 +79,17 @@ final class StreamingPipeline: @unchecked Sendable {
     func reportRendererFailure() { recordFailure("Metal failed to complete video rendering. Reconnect after checking the display and GPU state.") }
     func attachRenderer(_ renderer: MetalVideoRenderer) { lock.lock(); self.renderer = renderer; lock.unlock() }
     func recordFrame(_ frame: DecodedFrame, viewport: CGSize) {
-        lock.lock(); decodedDescription = "Decoded \(frame.width) × \(frame.height) · \(frame.bitDepth)-bit · viewport \(Int(viewport.width)) × \(Int(viewport.height))"; lock.unlock()
+        lock.lock(); defer { lock.unlock() }
+        if let codec = decoder?.codec { latestDecodedFormat = DecodedVideoFormat(codec: codec, frame: frame) }
+        latestViewport = viewport
     }
-    var decodedDetail: String { lock.lock(); defer { lock.unlock() }; return decodedDescription }
+    var decodedFormat: DecodedVideoFormat? { lock.lock(); defer { lock.unlock() }; return latestDecodedFormat }
+    var streamDescription: VideoStreamDescription? { lock.lock(); defer { lock.unlock() }; return negotiatedStream }
+    var decodedDetail: String {
+        lock.lock(); let format = latestDecodedFormat, viewport = latestViewport; lock.unlock()
+        guard let format else { return "Waiting for decoded output" }
+        return "Decoded \(format.width) × \(format.height) · \(format.bitDepth)-bit · viewport \(Int(viewport.width)) × \(Int(viewport.height))"
+    }
     var renderStatistics: RenderStatistics? { lock.lock(); let renderer = renderer; lock.unlock(); return renderer?.statistics }
     var error: String? { lock.lock(); defer { lock.unlock() }; return failure }
     private func recordFailure(_ message: String) { lock.lock(); if failure == nil { failure = message }; lock.unlock() }

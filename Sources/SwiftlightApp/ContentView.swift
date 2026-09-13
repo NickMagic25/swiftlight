@@ -13,9 +13,19 @@ struct ContentView: View {
             if let pipeline = model.pipeline, let transport = model.transport {
                 ZStack(alignment: .top) {
                     StreamSurface(pipeline: pipeline, transport: transport, settings: model.settings,
-                                  onDisplay: updateDisplay, onError: { model.renderFailure = $0 }, onCapture: { model.inputCaptured = $0 })
-                    if !model.inputCaptured { streamOverlay }
-                }.background(.black).ignoresSafeArea()
+                                  onDisplay: updateDisplay, onError: { model.renderFailure = $0 }, onCapture: { model.inputCaptured = $0 },
+                                  onShortcut: model.handleStreamShortcut)
+                        .ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        if !model.inputCaptured { streamOverlay }
+                        if model.showingStreamStatistics {
+                            StreamStatisticsOverlay(rows: model.streamStatisticRows)
+                                .frame(maxWidth: .infinity, alignment: statisticsAlignment)
+                                .padding(.horizontal, 16)
+                        }
+                        Spacer(minLength: 0)
+                    }.padding(.top, 12)
+                }.background(.black)
             } else {
                 NavigationSplitView {
                     List(selection: Binding(get: { model.selectedHostID }, set: { id in
@@ -136,20 +146,25 @@ struct ContentView: View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(model.activeApp?.name ?? "Stream").font(.headline)
-                Text(model.streamDetail).font(.caption).foregroundStyle(.secondary)
-                Text(model.decodedDetail).font(.caption).foregroundStyle(.secondary)
-                Text(model.diagnosticDetail + " · " + model.powerDetail).font(.caption2).foregroundStyle(.secondary)
-                Text("Control–Option–Shift–Q releases capture · Click video to capture again").font(.caption2).foregroundStyle(.secondary)
+                Text("Click video to capture input · ⌃⌥⇧Q disconnects · ⌃⌥⇧S toggles statistics").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Button { model.streamWindow.toggleFullScreen() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }.help("Toggle full screen")
             Menu {
+                Button(model.showingStreamStatistics ? "Hide Statistics" : "Show Statistics") { model.handleStreamShortcut(.toggleStatistics) }
                 Button("Export Diagnostics…") { model.exportDiagnostics() }
                 Button("Stream Settings…") { showingSettings = true }
             } label: { Image(systemName: "ellipsis.circle") }.help("Stream options")
             Button("Reconnect") { model.reconnect() }
             Button("Disconnect") { model.disconnect() }
         }.padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)).padding(12)
+    }
+    private var statisticsAlignment: Alignment {
+        switch model.statisticsPreferences.position {
+        case .topLeading: .leading
+        case .top: .center
+        case .topTrailing: .trailing
+        }
     }
 }
 struct NetworkFooter: View {

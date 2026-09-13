@@ -1,0 +1,54 @@
+{
+  "generated_at_utc": "2026-09-13T01:47:46.773853+00:00",
+  "status": "PASS",
+  "scope": "Current first-packet-to-presentation metric in Simple, five-second display sampling, and documentation. No new full transport/hardware qualification.",
+  "binary_sha256": "554b318ad7cc597c758201c85d324753e4b84eac77b30d5bb4c0ae84d5af324c",
+  "bundle": ".build/Verified/Swiftlight.app",
+  "focused_tests": {
+    "passed": 10,
+    "failed": 0,
+    "coverage": [
+      "Most recent actual presentation selected across ring wrap and delayed callback",
+      "Latest invalid timing does not fall back to an older valid frame",
+      "Presentation older than five seconds and invalid clock values unavailable",
+      "Simple formats current single-frame sample while Detailed formats rolling min/max/average",
+      "Existing statistics and timing tests"
+    ]
+  },
+  "display_refresh": "Initial Simple sample is held until at least five monotonic seconds pass; next existing250ms UI tick resamples. Reset on session start/teardown. Detailed and diagnostics retain fresh measurements.",
+  "live_check": {
+    "host": "existing paired Vibepollo host",
+    "mode": "Simple",
+    "field_visible": "First packet \u2192 display",
+    "observed_samples_ms": [
+      23.41,
+      22.46,
+      20.48,
+      15.7
+    ],
+    "observation_elapsed_seconds": [
+      0.527,
+      6.931,
+      30.59,
+      36.005
+    ],
+    "exact_timer_cadence_measured": false,
+    "evidence": "Accessibility tree and screenshot; sampled UI observations verify the row is present and updates, not exact tick timing.",
+    "settings_changed": false,
+    "final_state": "Paired library after local disconnect; remote app remains running."
+  },
+  "logs": [
+    "artifacts/current-presentation-tests.log",
+    "artifacts/current-presentation-build.log",
+    "artifacts/current-presentation-bundle.json"
+  ],
+  "source_sha256": {
+    "Sources/SwiftlightCore/StreamStatisticsSnapshot.swift": "c8ba86eb66670eb31bd87d310d2f32cc1cf5c70c8e45acea29f24c94f34bcbff",
+    "Sources/SwiftlightApp/ClientModel.swift": "8bab5cfc2b23b746565e92de83ea7e190835a3ceb8456c91e74227627fa42902",
+    "Sources/SwiftlightApp/StreamStatistics.swift": "a725502deb9517eae60b9b5a2370fccbebaf67295bbeaf491093d681fe185bdb",
+    "Sources/SwiftlightVideo/MetalVideoRenderer.swift": "c85e9a5289a76468e5195a8005ac2a4c8121316f01c797f8a53f7a422dc2f1c5",
+    "Tests/SwiftlightCoreTests/StreamStatisticsTests.swift": "ff0f2508bba7083c2f42a152f9810f5502215dba98f1ae18a6734e76480214b2",
+    "Tests/SwiftlightVideoTests/TimingStatisticsTests.swift": "61922a162b9e85fcf73c84102b69b49af1a8957fece932a57591155c514defa8",
+    "docs/stream-statistics.md": "87f0628a00ef9e3d64b0da9c6287fce5f51183db86f87ed8cd7b87e6e7ff30a9"
+  }
+}

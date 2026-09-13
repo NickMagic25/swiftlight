@@ -34,6 +34,7 @@ int main(void) {
     CHECK(sf_stream_validate_keyboard_wire_codes());
     CHECK(sf_stream_validate_cancel_state_race());
     CHECK(sf_stream_validate_clock_mapping());
+    CHECK(sf_stream_validate_video_telemetry());
     CHECK(sf_stream_validate_event_retirement());
     CHECK(strstr(sf_stream_launch_query(), "&") != NULL);
     SFStreamConfiguration config = { .address = "localhost", .app_version = "7.1.431.0",
@@ -63,6 +64,6 @@ int main(void) {
     Stress s = {.ring = sf_audio_ring_create(128, 2), .count = 100000}; CHECK(s.ring);
     pthread_t p,c; CHECK(!pthread_create(&p,NULL,producer,&s)); CHECK(!pthread_create(&c,NULL,consumer,&s));
     pthread_join(p,NULL); pthread_join(c,NULL); CHECK(sf_audio_ring_queued(s.ring)==0); sf_audio_ring_destroy(s.ring);
-    puts("{\"status\":\"PASS\",\"ownership_scenarios\":6,\"audio_ordered_frames\":100000,\"audio_ring_wrap_overflow_silence\":true,\"clock_mapping\":true,\"permission_gates\":true,\"event_retirements\":1000,\"keyboard_wire_codes\":true,\"cancel_state_phases\":20000,\"cancel_state_race_iterations\":100000}");
+    puts("{\"status\":\"PASS\",\"video_telemetry_units_windows_concurrency\":true,\"ownership_scenarios\":6,\"audio_ordered_frames\":100000,\"audio_ring_wrap_overflow_silence\":true,\"clock_mapping\":true,\"permission_gates\":true,\"event_retirements\":1000,\"keyboard_wire_codes\":true,\"cancel_state_phases\":20000,\"cancel_state_race_iterations\":100000}");
     return 0;
 }
