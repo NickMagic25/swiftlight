@@ -1,0 +1,146 @@
+{
+  "access_units" : [
+    {
+      "discontinuity" : false,
+      "dts" : 0,
+      "duration" : 1,
+      "expected_display_count" : 1,
+      "expected_visible_frame_id" : 0,
+      "frame_id" : 0,
+      "length" : 1630,
+      "offset" : 0,
+      "pts" : 0,
+      "random_access" : true,
+      "sha256" : "cb773868bedfea9e01e4c3fdf061a9785034b3aa7d7b78b9b82f433ea88ca5c8"
+    },
+    {
+      "discontinuity" : false,
+      "dts" : 1,
+      "duration" : 1,
+      "expected_display_count" : 1,
+      "expected_visible_frame_id" : 1,
+      "frame_id" : 1,
+      "length" : 437,
+      "offset" : 1630,
+      "pts" : 1,
+      "random_access" : false,
+      "sha256" : "4e101de0391ab340916601e91cb3e6bc6f7ea4daa0a7940812830b0e4f697dec"
+    },
+    {
+      "discontinuity" : false,
+      "dts" : 2,
+      "duration" : 1,
+      "expected_display_count" : 1,
+      "expected_visible_frame_id" : 2,
+      "frame_id" : 2,
+      "length" : 466,
+      "offset" : 2067,
+      "pts" : 2,
+      "random_access" : false,
+      "sha256" : "ffbac680d1bfd1d449140b99513e4ff45a94c6afd66ef9ef2a7ed0514582fc8a"
+    },
+    {
+      "discontinuity" : false,
+      "dts" : 3,
+      "duration" : 1,
+      "expected_display_count" : 1,
+      "expected_visible_frame_id" : 3,
+      "frame_id" : 3,
+      "length" : 506,
+      "offset" : 2533,
+      "pts" : 3,
+      "random_access" : false,
+      "sha256" : "909867167c59bf9a1695a0e29bbfc0b296a7521b01a0c2449d1c57420115ed72"
+    },
+    {
+      "discontinuity" : false,
+      "dts" : 4,
+      "duration" : 1,
+      "expected_display_count" : 1,
+      "expected_visible_frame_id" : 4,
+      "frame_id" : 4,
+      "length" : 2570,
+      "offset" : 3039,
+      "pts" : 4,
+      "random_access" : true,
+      "sha256" : "4b009934a2d68ad4fe1bdd035e7a0dc6486fb859b52d8685e58916f47b7f259f"
+    },
+    {
+      "discontinuity" : false,
+      "dts" : 5,
+      "duration" : 1,
+      "expected_display_count" : 1,
+      "expected_visible_frame_id" : 5,
+      "frame_id" : 5,
+      "length" : 498,
+      "offset" : 5609,
+      "pts" : 5,
+      "random_access" : false,
+      "sha256" : "0f4dd427063372160ce9ae42b9e0a22bcbf3cec456a90feee3cf18bd86b0a695"
+    },
+    {
+      "discontinuity" : false,
+      "dts" : 6,
+      "duration" : 1,
+      "expected_display_count" : 1,
+      "expected_visible_frame_id" : 6,
+      "frame_id" : 6,
+      "length" : 466,
+      "offset" : 6107,
+      "pts" : 6,
+      "random_access" : false,
+      "sha256" : "62c7c75c2fa4f4b7296522a22999ba35976cc4a0263d9604b58131cedbd0b82c"
+    },
+    {
+      "discontinuity" : false,
+      "dts" : 7,
+      "duration" : 1,
+      "expected_display_count" : 1,
+      "expected_visible_frame_id" : 7,
+      "frame_id" : 7,
+      "length" : 512,
+      "offset" : 6573,
+      "pts" : 7,
+      "random_access" : false,
+      "sha256" : "9c5d1c544ef121a242b6e84bf82a55e3a52cef8f22b977ec9f147430073a4b84"
+    }
+  ],
+  "bit_depth" : 10,
+  "chroma" : "420",
+  "codec" : "hevc",
+  "color" : {
+    "content_light_base64" : "A+gBkA==",
+    "content_light_valid" : true,
+    "full_range" : false,
+    "mastering_base64" : "ITSbqhmWCPyKSDkIPRNAQgCYloAAAAAy",
+    "mastering_valid" : true,
+    "matrix" : 9,
+    "primaries" : 9,
+    "transfer" : 16
+  },
+  "frame_rate" : {
+    "den" : 1,
+    "num" : 60
+  },
+  "framing" : "hevc-annex-b",
+  "generator" : {
+    "encoder" : "Apple VTCompressionSession HEVC (OS-versioned)",
+    "inter_count" : 6,
+    "low_delay_verified" : true,
+    "name" : "mav-fixture",
+    "os" : "Version 26.6.2 (Build 25G83)",
+    "pattern" : "moving-gradient-detail-square-frame-id-v1",
+    "random_access_count" : 2
+  },
+  "height" : 72,
+  "payload_file" : "payload.bin",
+  "payload_sha256" : "5bae9590c19ad81de825fd3ca55c5935dbd239dad5a419b2a9c239fae34b23bc",
+  "profile" : 2,
+  "schema_version" : 1,
+  "timebase" : {
+    "den" : 60,
+    "num" : 1
+  },
+  "variant" : "hdr10",
+  "width" : 128
+}

@@ -60,3 +60,16 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Local dependency builds, diagnostic output and derived app bundles
+.swiftpm/
+artifacts/
+.DS_Store
+
+.build-*/
+
+__pycache__/
+*.pyc
+
+# Generated from the pristine common-c submodule and patches/moonlight-common-c.
+/Sources/CStreamBridge/vendor/common-c/

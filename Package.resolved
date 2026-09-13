@@ -1,0 +1,14 @@
+{
+  "originHash" : "996518747d0692b47d9519851bf6130ff2ca93ad28b3d38305c4dd58a58db138",
+  "pins" : [
+    {
+      "identity" : "moonlight-apple-decoder",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/NickMagic25/moonlight-apple-decoder.git",
+      "state" : {
+        "revision" : "8d92ee039dc19fe50dc0158d5098d4c5646c6a56"
+      }
+    }
+  ],
+  "version" : 3
+}

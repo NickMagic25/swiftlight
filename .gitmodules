@@ -1,0 +1,3 @@
+[submodule "Dependencies/moonlight-common-c"]
+	path = Dependencies/moonlight-common-c
+	url = https://github.com/moonlight-stream/moonlight-common-c.git

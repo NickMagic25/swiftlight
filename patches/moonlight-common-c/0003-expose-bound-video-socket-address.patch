@@ -1,0 +1,13 @@
+diff --git a/src/VideoStream.c b/src/VideoStream.c
+--- a/src/VideoStream.c
++++ b/src/VideoStream.c
+@@ -417,3 +417,9 @@
+ const RTP_VIDEO_STATS* LiGetRTPVideoStats(void) {
+     return &rtpQueue.stats;
+ }
++
++// Swiftlight diagnostic seam. The owner prevents concurrent stream stop/close.
++// Query the actual media socket, not an unrelated NWPathMonitor route.
++bool sf_common_video_local_address(struct sockaddr_storage* address, socklen_t* length) {
++    return rtpSocket != INVALID_SOCKET && getsockname(rtpSocket, (struct sockaddr*)address, length) == 0;
++}

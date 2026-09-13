@@ -1,0 +1,204 @@
+{
+  "generated_at_utc": "2026-09-12T23:31:26.335592+00:00",
+  "status": "PASS",
+  "scope": "Pairing follow-up: rebuilt macOS app, full Swift suite, display publication regression, and live saved pairing with authenticated library access. Streaming release qualification remains separate.",
+  "earlier_clean_export_baseline": "validation-baseline-2026-09-12.json",
+  "toolchain": {
+    "xcode": "Xcode 26.6\nBuild version 17F113",
+    "swift": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+    "sdk_version": "26.5",
+    "sdk_path": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk"
+  },
+  "dependencies": {
+    "decoder": {
+      "url": "https://github.com/NickMagic25/moonlight-apple-decoder.git",
+      "revision": "8d92ee039dc19fe50dc0158d5098d4c5646c6a56"
+    },
+    "moonlight_common_c": {
+      "revision": "62e066388f1a1b133e0bee947b9a374311a3354b",
+      "gitlink_mode": "160000",
+      "pristine_checkout": true,
+      "submodules": {
+        "enet": "aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1",
+        "nanors": "b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a"
+      },
+      "patches": [
+        {
+          "file": "0001-serialize-cancellation-and-termination.patch",
+          "sha256": "36bda18e5aab35fb1cf0a7bf575eea36fff6d4eb4e46a1a841dd7da8e74562c0"
+        },
+        {
+          "file": "0002-expose-darwin-clock-epoch.patch",
+          "sha256": "c64384ad93e303fa69edb45d2a4e0ee17d4a7175fbf6a60997ca972b5825a312"
+        },
+        {
+          "file": "0003-expose-bound-video-socket-address.patch",
+          "sha256": "36c74790c0f6863e18421360a97d5af542ce5433308b68a9579c271a20440473"
+        }
+      ],
+      "generated_source": {
+        "revision": "62e066388f1a1b133e0bee947b9a374311a3354b",
+        "submodules": {
+          "enet": "aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1",
+          "nanors": "b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a"
+        },
+        "patches": [
+          "0001-serialize-cancellation-and-termination.patch",
+          "0002-expose-darwin-clock-epoch.patch",
+          "0003-expose-bound-video-socket-address.patch"
+        ],
+        "preparation_sha256": "ed60dc516ad5766eef11f59dbd1138dec8bd468d42cbefdb5daa69e5322e2f8d",
+        "source_sha256": "80d30bc67f6b7c05e14373fe1fa046aaa80e05e421f2b0974b12fec2b7f16a8f"
+      }
+    },
+    "opus": "1.5.2",
+    "openssl": "3.6.4"
+  },
+  "commands": [
+    {
+      "command": "scripts/build-app.sh",
+      "status": "PASS",
+      "log": "artifacts/pairing-fix-build.log"
+    },
+    {
+      "command": "SWIFTLIGHT_RUN_HARDWARE_TESTS=1 swift test --disable-sandbox --manifest-cache none",
+      "status": "PASS",
+      "log": "artifacts/pairing-fix-tests.log"
+    },
+    {
+      "command": "python3 scripts/validate-display-publication.py",
+      "status": "PASS",
+      "log": "artifacts/display-publication.json"
+    },
+    {
+      "command": "codesign --verify --deep --strict --verbose=2 .build/Verified/Swiftlight.app",
+      "status": "PASS"
+    },
+    {
+      "command": "plutil -lint .build/Verified/Swiftlight.app/Contents/Info.plist",
+      "status": "PASS"
+    }
+  ],
+  "tests": {
+    "swift_total": 39,
+    "core": 11,
+    "host": 15,
+    "transport": 7,
+    "video": 6,
+    "failures": 0,
+    "hardware_tests_enabled": true,
+    "display_publication_checks": 6
+  },
+  "live_validation": {
+    "host_type": "Vibepollo",
+    "network": "Tailscale DNS",
+    "native_status": "Paired",
+    "authenticated_library_launch_buttons": 48,
+    "saved_identity_survived_relaunch": true,
+    "pin_entered_by_agent": false,
+    "pin_exchange": "Completed by the user; agent verified saved pairing and authenticated access after relaunch.",
+    "stream_launched": false
+  },
+  "idle_observations": {
+    "before_cpu_percent": 99,
+    "after_cpu_percent": 0.1,
+    "measurement": "Short read-only process observations and stack samples, not a streaming benchmark.",
+    "after_main_thread": "Waiting in normal AppKit run loop",
+    "artifacts": "artifacts/pairing-fix/"
+  },
+  "display_publication": {
+    "checks": [
+      "duplicate and reentrant suppression",
+      "latest resize coalescing",
+      "headroom-only changes",
+      "superseded change suppression",
+      "detach cancellation",
+      "reattach publication"
+    ],
+    "deliveries": 4,
+    "liveCPUComparisonMeasured": false,
+    "mode": "display-publication-no-window",
+    "sourceSHA256": "a354be8e0b84ecd174baa27a928d620ba3cb3e816e4be430ed937f4737eec4ef",
+    "status": "PASS"
+  },
+  "bundle": {
+    "path": "/Users/nmajkic/git/moonlight-dev/swiftlight/.build/VerifiedPairing-2026-09-12/Swiftlight.app",
+    "running_copy": "/Users/nmajkic/git/moonlight-dev/swiftlight/.build/Swiftlight.app",
+    "binary_sha256": "cc995ee93ca53e54de04d4cda66a429beb65da9bc2e9708180d9ea8ef977c3d1",
+    "signing": "ad-hoc",
+    "signature_verified_after_copy": true,
+    "launched_during_verification": true
+  },
+  "not_repeated_in_follow_up": [
+    "Clean source export and dependency rebuild",
+    "All eight replay fixture commands",
+    "ASan/UBSan/TSan suite"
+  ],
+  "not_performed": [
+    "Live stream launch/resume/quit",
+    "Audio playback and route-switch listening",
+    "Physical input/haptics and network fault recovery",
+    "Physical HDR display validation",
+    "End-to-end input or presentation latency benchmarks",
+    "Thirty-minute streaming soak",
+    "Other Apple platform/device qualification"
+  ],
+  "source_sha256": {
+    "App/Info.plist": "b8b93d0cac38d3bb19208386069375e24fcfcbf9074951d29eac1e925373d33d",
+    "Package.resolved": "89af94b42a2450fbfd85b66879f6b9821ed90e1212e7da9afb85f8ffc1750332",
+    "Package.swift": "6a31bc093064054d6b8df6d7e6654d9dd25c2546a038d9e7713bb9623cad2048",
+    "Sources/CHostCrypto/HostCrypto.c": "15b9583e3436fe797e7c030e047d6084f7a7dcfcd2d60c4defdc7b1f3fca35cb",
+    "Sources/CHostCrypto/include/CHostCrypto.h": "3aa22543133b736fa013b7dcd87a52c7331add44063a321235b6d054a52763aa",
+    "Sources/CStreamBridge/AudioOutput.c": "d78795b498f07192fc87ea59fb35d9e5153540b9338205655fa78f0e709f8b88",
+    "Sources/CStreamBridge/AudioOutput.h": "9590b0e403f2b1ea961c0e8ff1be857b8238805f0c72563607fb1872bfc0003f",
+    "Sources/CStreamBridge/AudioRing.c": "452b95eb31935a05ecfff2f9ac6bc9a8061fbf522fddd9da4daf693abbb2d73c",
+    "Sources/CStreamBridge/StreamBridge.c": "b5cfac22b878ae7713c6bad6adb669fb2aa503dc81e840be8cb8964a40af27e6",
+    "Sources/CStreamBridge/include/AudioRing.h": "85e58f3bb8dc90e1d9d2f8361b9f853280da36383fd86e76142a3390945fd0f2",
+    "Sources/CStreamBridge/include/StreamBridge.h": "5f2c7e106a1c29daf750fe83061ab068584f4570d5376446009d978ff1d4c144",
+    "Sources/SwiftlightApp/ClientModel.swift": "d0b75f24adf3bb48fd794d6eb263c7d147fd77a405623a2682a9954295768820",
+    "Sources/SwiftlightApp/ContentView.swift": "1c5d194eed3ba7e5767abacd3dfc5d36a396db65f72785668c81a97f4a7401c8",
+    "Sources/SwiftlightApp/ControllerHub.swift": "9593f977b3b004156fd25f35e71a7829ff57084d96f198367a663a3c74e517e8",
+    "Sources/SwiftlightApp/Diagnostics.swift": "53ade554456d1a00dd752da61832821472f5f5a044c1a000a9ed5b6601cbfcfa",
+    "Sources/SwiftlightApp/KeyMapping.swift": "5d38d8780829e0b01372c097ca92fa6320252ef8ba7fdf08cd8743ad6300f84d",
+    "Sources/SwiftlightApp/MacStreamSurface.swift": "a354be8e0b84ecd174baa27a928d620ba3cb3e816e4be430ed937f4737eec4ef",
+    "Sources/SwiftlightApp/NetworkStatus.swift": "96692fdd06ec1b30cf0b22f1d89fa9aa6d355fe3e36183a3b4b06dd889710636",
+    "Sources/SwiftlightApp/ReplayPreview.swift": "bb49b1e07d0a6462c8b1f8b6e1b4bdeea5e7f3d95fb7e9412e2fda4870a9624a",
+    "Sources/SwiftlightApp/SettingsView.swift": "de5891831c3155550601a5d92300b253425b5feed6f23eb4a62df7ded827f7a3",
+    "Sources/SwiftlightApp/StreamingPipeline.swift": "5b74f383f99a58b4c214732de6b243e1ba9423e8aea9b251dce85fec95bc8a06",
+    "Sources/SwiftlightApp/SwiftlightApp.swift": "55f8160834089b3d71f4a12f6794a2e4f2393962bb487d59d60a13ead6c577da",
+    "Sources/SwiftlightCore/DisplayGeometry.swift": "179d2859121fc6336802583299f28b48a34b987299a5536819dde8d4399dc429",
+    "Sources/SwiftlightCore/SessionIntent.swift": "cbcea325950dacbffdf547e8f16695cd72bb2fa2c9148b0166f4f01d5ef5ae33",
+    "Sources/SwiftlightCore/SessionState.swift": "74b009a246748fce0974ab186029a3afa9ff7221f67a77bdb354d30bdc06640f",
+    "Sources/SwiftlightCore/StreamSettings.swift": "9f3dd6b99ca54d6af99ccdca6b20f3ea987f671db5071e3f7673ea342bbc6f29",
+    "Sources/SwiftlightHost/BonjourHostDiscovery.swift": "42819ffce42d73b00a0504bfeb1eea0e1ff4af42dc95f115e56031b02a707492",
+    "Sources/SwiftlightHost/HostClient.swift": "16347a5d8d31703c3f4dce90e77d7aab100be3d3fe23a9dbd0a0b250997b2c54",
+    "Sources/SwiftlightHost/HostHTTP.swift": "bb5104828415191259a4ac335cf4a62fa45954db5564debf20828850dd13bd1e",
+    "Sources/SwiftlightHost/HostIdentity.swift": "f4644bad0793a3273fd999249abf9f41cbdad161bd9812c277ec4879a6279222",
+    "Sources/SwiftlightHost/HostModels.swift": "80524eb86b16b252f216ffc99a5ddca7551d4469ab4a2b84939da652a8b04962",
+    "Sources/SwiftlightHost/HostXML.swift": "189f124c970102fa0925a689fe324c14605d0f3e3771b8a5bcf5fbc2876be3fb",
+    "Sources/SwiftlightHost/SavedHosts.swift": "dc48081969486756078b794e2ca6c4210bc6b0d0464a1bfc99a27c0b309150b8",
+    "Sources/SwiftlightReplay/main.swift": "c58904ad38feb18a52394aab5398d218b9d094a5d01fb8c32c07f59d4853c48e",
+    "Sources/SwiftlightTransport/StreamTransport.swift": "34cf687e628dad41a43b1fcd76efbe0a8a6b72da86fd52d8b39f4366ebdc0080",
+    "Sources/SwiftlightVideo/MetalVideoRenderer.swift": "cd00403df3283d06bf0c588f7d9c8a711b3018e65c27ca8beed58aa4424f3032",
+    "Sources/SwiftlightVideo/VideoDecoder.swift": "3b36da26ee2970ed2c93003d10a0d199659c77d92d15aad90b68624baa0150e3",
+    "Sources/SwiftlightVideo/VideoReadbackValidator.swift": "78647dfbe4dd250a0b9b46c925f54e54bb6c2ab59f82abb83a6fa1dc75436406",
+    "Tests/DependencyPreparation/__pycache__/test_prepare.cpython-314.pyc": "306f52cfa24a87af5370f54c469f33f30630458aef6a649b3e814162aec91fe4",
+    "Tests/DependencyPreparation/test_prepare.py": "6ca9ae82b91536f5962126ef43db193429c14c6b769e16b5a83c9dd8a7eda340",
+    "Tests/NativeTransport/main.c": "0e9284ecbd620fb6e1456f04a1eddcb6ec087c1669f7e0198d00b79620baef1f",
+    "Tests/SwiftlightCoreTests/CoreTests.swift": "9aa10997912ddd086f8eb00ddc7da439cca2716e19a63a2766eb3c5cb4996bf8",
+    "Tests/SwiftlightHostTests/HostTLSTests.swift": "e4cf9f4fddef8b097b6f96c8849456dfcc347e096b575ce1042135bc7035e368",
+    "Tests/SwiftlightHostTests/HostTests.swift": "50ca595769c425d06ec8c1dc6f54be39c738e358e455d84d47581d243a9664a3",
+    "Tests/SwiftlightTransportTests/TransportTests.swift": "1563d8c3aa1a50ce905e625ea0f4afae73243265bdfce9076ae19a6b95b90309",
+    "Tests/SwiftlightVideoTests/VideoTests.swift": "777717ddf95166d09886f25ac615be699c6501847bd39ab07c134fc9428da4ae",
+    "scripts/validate-display-publication.py": "8f4d9ef4c08041a793b3c8e5a96dd4edffe58ae43af28f4e2439def8b2cdcdb1"
+  },
+  "report": "pairing-fix-validation.md",
+  "acceptance_counts": {
+    "PASS": 16,
+    "FAIL": 0,
+    "SKIP": 1,
+    "BLOCKED": 17,
+    "TODO": 2
+  },
+  "archival_note": "Pairing follow-up before the renderer deadlock/full-screen work. Current results are in validation-summary.json."
+}

@@ -1,0 +1,59 @@
+# Transport, audio, input, and ownership
+
+`SwiftlightTransport` wraps the C `CStreamBridge` target. The only media transport is the pinned Moonlight common-c Git submodule with targeted patches; there is no alternate video decoder in either target. `StreamTransport` is single-use and common-c permits only one active session per process. Swift serializes `LiStartConnection` and `LiStopConnection` on a lifecycle queue. Cancellation uses only `LiInterruptConnection` while start is pending and joins start before stop. Bridge state uses explicit acquire/release atomics because the input and callback gates serve different lifetimes; neither gate is acquired while holding the other. C input APIs hold an admission mutex while using common-c, so disconnect closes admission before common-c tears down its input queue. Held keyboard, mouse and controller buttons are released before stop. Disconnect never invokes host `/cancel` or `/quit`.
+
+## Compressed frame ownership
+
+The renderer advertises `CAPABILITY_PULL_RENDERER` without direct-submit or reference-frame-invalidation capabilities. A dedicated pthread calls `LiWaitForNextVideoFrame`, validates and flattens the complete access unit including HEVC parameter sets, and calls the Swift admission closure synchronously. No video decoding occurs on a receive thread. The closure returns success only after MoonlightAppleVideo owns compressed bytes; then `LiCompleteVideoFrame(handle, DR_OK)` relinquishes the common-c frame. Rejection, malformed input, cancellation and overflow converge on exactly one `LiCompleteVideoFrame(handle, DR_NEED_IDR)`.
+
+The flattener has a 32 MiB reusable buffer, a 65,536-entry validation bound and exactly one outstanding C frame handle. Swift acquires a value-owned Data copy before invoking the decoder callback; MoonlightAppleVideo's submit-copy acquires its own bytes. These explicit copies are the correctness baseline and have not been promoted as an optimization. No borrowed C pointer escapes. The app closes decoder admission, waits for the transport worker to join, then drains/destroys the decoder. Capacity waits belong in the decoder adapter and retain the same compressed AU; obsolete decoded presentation frames may be replaced, compressed reference frames may not be arbitrarily dropped.
+
+The production `consume_frame` owner is the same code used by the deterministic native and Swift tests. Six cases cover successful acquisition, decoder rejection, inconsistent length, cancellation after acquisition, oversize input and a cyclic fragment chain. Every acquired handle completes once; rejected malformed input never reaches the decoder closure.
+
+## Clock domains and route evidence
+
+common-c's Darwin `PltGetMicroseconds` is `(CLOCK_UPTIME_RAW - start_ns) / 1000`. MoonlightAppleVideo's `mav_monotonic_time_ns` is absolute `CLOCK_UPTIME_RAW` nanoseconds. A minimal patched accessor returns immutable `start_ns`; the bridge adds it to receive/enqueue microseconds to expose `receiveUptimeNanoseconds` and `enqueueUptimeNanoseconds`. The conversion has less than one microsecond of floor quantization. RTP presentation timestamps remain in a separate 90 kHz/first-capture domain and must not be subtracted from the uptime clock.
+
+`StreamTransport.diagnostics` reads common-c RTT and variance, pending video/audio, and local audio queue counters. A minimal `VideoStream.c` accessor uses `getsockname` on the actual bound video UDP socket. The address is matched against `getifaddrs` to identify its interface. This does not infer an existing media socket's route from a global `NWPathMonitor`. Wi-Fi signal strength, FEC/loss details, throughput and host RTT have no invented values; values not exposed or measured remain unavailable.
+
+## Audio
+
+Only stereo is advertised and accepted. The server's Opus multistream mapping is passed unchanged to the pinned libopus decoder. common-c retains its packet loss/jitter queue and calls Opus decoding on its audio decoder worker, never on the Core Audio callback. Missing packets use Opus PLC. Native interleaved Float32 output is passed to the default-output Audio Unit on macOS (RemoteIO conditional scaffolding for future Apple platforms).
+
+A lock-free single-producer/single-consumer ring holds at most 2,048 stereo sample frames (42.67 ms at 48 kHz). Atomic acquire/release indices protect occupied cells. The producer rejects a whole arriving decoded packet on overflow; it never overwrites unread storage or advances the consumer index. The Audio Unit callback copies available samples and emits silence on underrun, with no allocation, locks, network calls or Opus work. Overflow and underrun sample frames are counted. The queue size is an initial bounded policy, not a measured optimum. macOS output-device, nominal-sample-rate and device-alive property listeners use a dedicated serial control queue. A route change stops/disposes the previous Audio Unit, discards stale queued PCM and rebuilds/restarts the output while retaining Opus history. Removal of listeners and draining the control queue precede context destruction. Failed recovery emits an explicit audio failure. Application sleep/suspension uses the app session lifecycle. Wired/Bluetooth latency, long-run A/V drift and actual route changes still require manual validation; iOS/tvOS AudioSession interruption handling remains future platform work.
+
+## Input and Apollo permissions
+
+Input is forwarded independently of decoder backpressure. Keyboard VK values are normalized to the GameStream `0x8000 | VK` representation before enqueueing; the same normalized key is stored and used for held-key release. Stream configuration takes optional authenticated Apollo `Permission` bits. A missing field means a standard host; explicit zero denies all input. Controller (`0x100`), mouse (`0x800`) and keyboard (`0x1000`) paths are gated in C before enqueueing. These constants are verified against Apollo `src/crypto.h` at `adc5c5a0bd80831ce495434bb16aee2cd4175fb8`. No touch or pen path is advertised by this macOS transport adapter. The macOS app owns keyboard mapping, capture and GameController hot-plug/haptics. Core transport keeps held-state release bookkeeping.
+
+## Pins and patches
+
+- moonlight-common-c: `62e066388f1a1b133e0bee947b9a374311a3354b` (GPL-3.0), actual pristine submodule at `Dependencies/moonlight-common-c`.
+- `scripts/prepare-common-c.py` verifies pinned committed source and applies `patches/moonlight-common-c/series` into the ignored generated build tree; the submodule remains pristine.
+- Its ENet: `aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1` (MIT), nested Git submodule.
+- Its nanors: `b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a` (MIT), nested Git submodule.
+- Opus 1.5.2, SHA256 `65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1`.
+- OpenSSL 3.6.4, SHA256 `9bffaa1ad1e07b354c21bd3324ec02fa15579f45a7d0494b3e74bc449b7333ef`.
+
+`Connection.c` has a scoped lifetime patch: the termination callback thread remains joinable and is joined after media/control threads and before platform cleanup. Upstream detaches it, which could let late termination delivery observe a new process-global session. The internal cancellation flag is atomic, and termination notification uses an atomic exchange so concurrent failures cannot create two competing callback threads. The matching internal declaration is in `Limelight-internal.h`. Swiftlight event callbacks enqueue orchestration and must never call stop inline. Two additional read-only accessors expose the common-c clock epoch and bound video socket address. No packet, crypto, congestion or recovery semantics have been replaced. These three changes are the complete upstream patch set, stored as separately reviewable files under `patches/moonlight-common-c` with a `series` and README. They apply cleanly to both the audited Qt reference `874ac954` and selected upstream `62e0663`; the newer upstream frame-loss/recovery fixes remain intact. The standalone native validator prepares and verifies the generated tree before compiling.
+
+## Reproduce offline validation
+
+```sh
+scripts/bootstrap-dependencies.sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache" swift test --disable-sandbox --filter TransportTests
+scripts/validate-transport-native.sh
+SWIFTLIGHT_SANITIZERS=thread scripts/validate-transport-native.sh
+```
+
+The native command compiles owned code and the generated upstream transport with AddressSanitizer/UndefinedBehaviorSanitizer by default. It exercises exact frame completion and stereo ring wrap, overflow, silence, route-discard and 100,000 concurrently transferred ordered frames. It also validates exact clock mapping, Apollo input gates, a deliberately blocked callback racing context retirement, and 1,000 repeated callback-context retirements. It never creates a host connection or opens an audio device. It emits JSON at `.build/native-transport-tests/results.json`. TSan is a separate run; an inability to initialize a sanitizer is not a test pass. Native libraries are pinned source builds for the current Mac architecture and macOS 14 deployment target, not iOS/tvOS binaries. Future platform builds need their own dependency slices and AudioSession/route adapters.
+
+## Executed local evidence (2026-09-12)
+
+- `swift test --disable-sandbox --manifest-cache none --skip-build --filter TransportTests` after rebuilding the test binary, with workspace module cache: 7 XCTest tests, 0 failures. The skip-build invocation isolated transport tests while the new app preview was still being added; full final application verification is recorded in the implementation report.
+- `scripts/validate-transport-native.sh`: always-on CHECK assertions; ASan+UBSan PASS for all six AU ownership cases, 100,000 ordered stereo frames, route queue discard, clock mapping, permissions, normalized keyboard send/release, 20,000 deterministic cancellation phases, 100,000 concurrent cancellation/state publications, and callback retirement (including blocked callback versus teardown).
+- `SWIFTLIGHT_SANITIZERS=thread scripts/validate-transport-native.sh`: same native suite PASS under TSan.
+- `xcrun clang --analyze -std=gnu11 -fblocks -Wall -Wextra -Werror ...` on owned `AudioRing.c`, `AudioOutput.c` and `StreamBridge.c`: no findings or warnings. Analyzer plist artifacts reside under `.build/native-transport-tests/`.
+- Builds used the installed Xcode macOS 26.5 SDK and arm64 host; native audio playback, real default-device switching and live Sunshine/Apollo packet flow were not executed. The user is performing host tests manually.
+
+The native harness uses an always-on CHECK macro; `NDEBUG` applies only to common-c's ordinary release assertions and cannot eliminate test expressions or thread creation.

@@ -1,0 +1,14 @@
+diff --git a/src/Platform.c b/src/Platform.c
+--- a/src/Platform.c
++++ b/src/Platform.c
+@@ -477,6 +477,10 @@
+     return (now_ns - start_ns) / 1000;
+ }
+ 
++// Swiftlight: exact mapping to MoonlightAppleVideo's CLOCK_UPTIME_RAW nanoseconds.
++// Called only after platform startup; start_ns remains immutable for process lifetime.
++uint64_t sf_common_clock_epoch_ns(void) { return start_ns; }
++
+ #elif defined(__vita__)
+ 
+ static uint64_t start;
