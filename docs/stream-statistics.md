@@ -13,6 +13,12 @@ In **Simple**, **First packet → display** shows the latency of the most recent
 - **Network latency (RTT)** measures the control channel's round trip. **Network jitter** measures variation between frame arrivals relative to their RTP timestamps; host pacing and client scheduling also contribute. It does not isolate network delay. **Frames lost to network** counts irrecoverable RTP frames across the connection, separately from local decoder or presentation drops.
 - **First packet → display** measures a frame's first received packet to its confirmed drawable presentation. **Host → display (estimated)** adds that interval to the same frame's host processing duration, then adds half the recent average RTT. Half RTT assumes symmetric transit, and the RTT samples use a separate window. This is an estimate without synchronized host clocks, physical scanout measurement or input-to-photon timing.
 
+## Rendering the panel
+
+Statistics use an opaque panel drawn into the same Metal render pass and drawable as the video. Core Text rasterizes changed values off the main thread, at the existing statistics cadence; intervening video frames reuse the cached texture. Opening the panel adds no separate SwiftUI glass surface, Core Animation layer, render pass, or presentation queue. Native accessibility elements expose the same labels and values without visual layers.
+
+This removes an application-controlled reason for composition; macOS still chooses Direct or Composited presentation. See the [statistics rendering comparison](statistics-metal-overlay-2026-09-13.md) for controlled measurements and their limits. The debug build retains the old SwiftUI panel only for its **Run Statistics Overlay Comparison** command.
+
 ## Transport measurements
 
 `StreamTransport.diagnostics.video` reports connection-lifetime frame counters and bounded recent timing summaries. The RTP receive thread performs only relaxed atomic counter increments; the existing pull worker records decode-unit metadata with constant-time updates to two fixed 1024-sample timing rings. A low-rate snapshot computes their min/max/mean under a short dedicated mutex. No decoder, Swift callback, network operation, or lifecycle call runs while that mutex is held. The existing API gate excludes concurrent start/stop when sampling the common-c counters. A new transport/queue starts all counters and windows empty.

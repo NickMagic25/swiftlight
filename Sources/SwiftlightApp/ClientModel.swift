@@ -27,6 +27,7 @@ import SwiftlightVideo
     @Published var hdrHeadroom: Double = 1
     @Published var hardwareDetail = ""
     @Published var pipeline: StreamingPipeline?
+    var renderOptions = StreamRenderOptions()
     @Published var transport: StreamTransport?
     @Published var renderFailure: String?
     @Published var inputCaptured = false
@@ -326,7 +327,7 @@ import SwiftlightVideo
                 }
                 let launchResponse = info.currentAppID == app.id ? try await client.resume(launchRequest) : try await client.launch(launchRequest)
                 try ensureCurrent(generation)
-                let pipeline = StreamingPipeline()
+                let pipeline = StreamingPipeline(renderOptions: renderOptions)
                 let formats: UInt32 = selection.codec == .av1 ? (selection.hdr ? 0x2000 : 0x1000) : (selection.hdr ? 0x200 : 0x100)
                 let config = TransportConfiguration(address: host.address.host, appVersion: info.appVersion, gfeVersion: info.gfeVersion,
                     rtspURL: launchResponse.sessionURL, serverCodecSupport: info.codecSupport, width: request.size.width,
@@ -362,6 +363,7 @@ import SwiftlightVideo
         }
     }
     func disconnect() { intentGate.retire(); state.apply(.disconnect); teardown() }
+    func waitForStreamTeardown() async { await stoppingTask?.value }
     private func teardown() {
         guard stoppingTask == nil else { return }
         finishStreamDiagnostics()

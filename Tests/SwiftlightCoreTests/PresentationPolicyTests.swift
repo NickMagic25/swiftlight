@@ -16,6 +16,8 @@ final class PresentationPolicyTests: XCTestCase {
         let decoded = try JSONDecoder().decode(StreamSettings.self, from: legacy)
         XCTAssertEqual(decoded, expected)
         XCTAssertTrue(decoded.launchInFullScreen)
+        XCTAssertEqual(decoded.videoPacing, .immediate)
+        XCTAssertFalse(decoded.displaySyncEnabled)
     }
 
     func testSavedWindowedPreferenceSurvivesSettingsRoundTrip() throws {
@@ -25,6 +27,18 @@ final class PresentationPolicyTests: XCTestCase {
         let decoded = try JSONDecoder().decode(StreamSettings.self, from: data)
         XCTAssertEqual(decoded, settings)
         XCTAssertFalse(decoded.launchInFullScreen)
+    }
+
+    func testLatencyPreferencesRoundTripAndDoNotChangeStreamRequest() throws {
+        let baseline = StreamSettings()
+        var experiment = baseline
+        experiment.videoPacing = .displayLink; experiment.displaySyncEnabled = true
+        experiment.maximumDrawableCount = 2
+        let decoded = try JSONDecoder().decode(StreamSettings.self, from: JSONEncoder().encode(experiment))
+        XCTAssertEqual(decoded, experiment)
+        XCTAssertEqual(try baseline.request(display: .fallback), try experiment.request(display: .fallback))
+        experiment.maximumDrawableCount = 1
+        XCTAssertThrowsError(try experiment.validated())
     }
 
     func testMissingSettingsUseDefaultsWithoutAcceptingInvalidStoredTypes() throws {

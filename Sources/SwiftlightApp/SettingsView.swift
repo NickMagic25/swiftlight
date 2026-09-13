@@ -42,6 +42,15 @@ struct SettingsView: View {
             } header: { Text("Video") }
             Section {
                 Toggle("Start streams in full screen", isOn: $model.settings.launchInFullScreen)
+                Picker("Frame pacing", selection: $model.settings.videoPacing) {
+                    ForEach(VideoPacing.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Toggle("VSync", isOn: $model.settings.displaySyncEnabled)
+                Picker("Drawable buffers", selection: $model.settings.maximumDrawableCount) {
+                    Text("3 (default)").tag(3); Text("2").tag(2)
+                }
+                Text("Reconnect to apply changes. On decoded frame minimizes waiting. Display paced adapts to the screen, including ProMotion. VSync can reduce tearing at the cost of latency.")
+                    .font(.caption).foregroundStyle(.secondary)
             } header: { Text("Presentation") }
             Section {
                 Picker("Detail", selection: $model.statisticsPreferences.detail) {

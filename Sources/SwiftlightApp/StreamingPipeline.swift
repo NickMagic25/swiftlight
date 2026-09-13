@@ -3,10 +3,48 @@ import SwiftlightVideo
 import SwiftlightTransport
 import os
 
+struct StreamRenderOptions: Codable, Equatable, Sendable {
+    var cacheEDRMetadata = false
+    var configureEDRBeforeAcquire = false
+    var captureScheduledCallback = true
+    var nativePQOutput = false
+    var showMetalHUD = false
+    /// Diagnostic only; honored by the macOS surface in DEBUG builds.
+    var useRootMetalLayer = false
+    var hideEmptyOverlayContainer = false
+    var useSwiftUIStatisticsOverlay = false
+}
+
+struct PresentationRuntimeDiagnostics: Codable, Sendable {
+    let pacing: String
+    let displaySyncEnabled: Bool
+    let maximumDrawableCount: Int
+    let maximumGPUFramesInFlight: Int
+    let displayRefreshHz: Double
+    let preferredFrameLatency: Float?
+    let layerOpaque: Bool
+    let presentsWithTransaction: Bool
+    let nativeFullScreen: Bool
+    let drawableWidth: Int
+    let drawableHeight: Int
+    let minimumRefreshInterval: Double
+    let maximumRefreshInterval: Double
+    let displayUpdateGranularity: Double
+    let cacheEDRMetadata: Bool
+    var edrMetadataUpdates = 0
+    var outputColorSpace = "linearSRGB"
+    var layerPixelFormat = "rgba16Float"
+    var metalLayerIsViewRoot = false
+    var viewOpaque = false
+    var windowOpaque: Bool? = nil
+}
+
 /// The lock protects only admission and the decoder reference. The decoder owns its
 /// serialized API queue. A pull callback holds a strong owner until it has acquired
 /// the AU; teardown closes admission, joins common-c, then destroys that owner.
 final class StreamingPipeline: @unchecked Sendable {
+    let renderOptions: StreamRenderOptions
+    init(renderOptions: StreamRenderOptions = .init()) { self.renderOptions = renderOptions }
     private let lock = NSLock()
     private var decoder: VideoDecoder?
     private var accepting = true
@@ -15,6 +53,11 @@ final class StreamingPipeline: @unchecked Sendable {
     private var latestDecodedFormat: DecodedVideoFormat?
     private var negotiatedStream: VideoStreamDescription?
     private var latestViewport = CGSize.zero
+    private var frameAvailableHandler: (@Sendable () -> Void)?
+    private var presentationRuntime: PresentationRuntimeDiagnostics?
+    private var edrMetadataUpdates = 0
+    private var outputColorSpace = "linearSRGB"
+    private var layerPixelFormat = "rgba16Float"
     private let signposter = OSSignposter(subsystem: "net.edrisil.swiftlight", category: "Video")
     func setup(_ description: VideoStreamDescription) -> Bool {
         let codec: VideoCodec
@@ -27,7 +70,8 @@ final class StreamingPipeline: @unchecked Sendable {
             let newDecoder = try VideoDecoder(codec: codec, maxFramesInFlight: 2)
             lock.lock()
             guard accepting else { lock.unlock(); try newDecoder.close(); return false }
-            let old = decoder; decoder = newDecoder; negotiatedStream = description; latestDecodedFormat = nil; lock.unlock()
+            let old = decoder; decoder = newDecoder; negotiatedStream = description; latestDecodedFormat = nil
+            newDecoder.setFrameAvailableHandler(frameAvailableHandler); lock.unlock()
             try old?.close(); return true
         } catch { recordFailure(String(describing: error)); return false }
     }
@@ -72,6 +116,23 @@ final class StreamingPipeline: @unchecked Sendable {
     func takeLatestFrame() -> DecodedFrame? {
         lock.lock(); let owner = accepting ? decoder : nil; lock.unlock()
         return owner?.takeLatestFrame()
+    }
+    func setFrameAvailableHandler(_ handler: (@Sendable () -> Void)?) {
+        lock.lock(); defer { lock.unlock() }
+        frameAvailableHandler = handler; decoder?.setFrameAvailableHandler(handler)
+    }
+    func recordPresentationRuntime(_ runtime: PresentationRuntimeDiagnostics) {
+        lock.lock(); presentationRuntime = runtime; lock.unlock()
+    }
+    var presentationDiagnostics: PresentationRuntimeDiagnostics? {
+        lock.lock(); defer { lock.unlock() }
+        var result = presentationRuntime; result?.edrMetadataUpdates = edrMetadataUpdates
+        result?.outputColorSpace = outputColorSpace; result?.layerPixelFormat = layerPixelFormat; return result
+    }
+    func recordEDRMetadataUpdate(nativePQ: Bool) {
+        lock.lock(); defer { lock.unlock() }; edrMetadataUpdates += 1
+        outputColorSpace = nativePQ ? "rec2020PQ" : "linearSRGB"
+        layerPixelFormat = nativePQ ? "bgr10a2Unorm" : "rgba16Float"
     }
     var statistics: DecoderStatistics? {
         lock.lock(); let owner = decoder; lock.unlock(); return owner?.statistics

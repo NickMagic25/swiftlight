@@ -19,6 +19,10 @@ public enum ResolutionMode: String, Codable, CaseIterable, Sendable {
 }
 public enum PointerMode: String, Codable, CaseIterable, Sendable { case relative, absolute }
 public enum VideoScaling: String, Codable, CaseIterable, Sendable { case fit, fill, integer }
+public enum VideoPacing: String, Codable, CaseIterable, Sendable {
+    case displayLink, immediate
+    public var label: String { self == .displayLink ? "Display paced" : "On decoded frame (lowest latency)" }
+}
 public struct PixelSize: Codable, Equatable, Sendable {
     public var width: Int
     public var height: Int
@@ -38,10 +42,14 @@ public struct StreamSettings: Codable, Equatable, Sendable {
     public var pointerMode: PointerMode = .relative
     /// macOS launch preference; other Apple platforms always present full screen.
     public var launchInFullScreen = true
+    public var videoPacing: VideoPacing = .immediate
+    public var displaySyncEnabled = false
+    public var maximumDrawableCount = 3
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case resolution, customSize, framesPerSecond, bitrateMbps, automaticBitrate
         case codec, hdr, scaling, pointerMode, launchInFullScreen
+        case videoPacing, displaySyncEnabled, maximumDrawableCount
     }
     public init(from decoder: any Decoder) throws {
         self.init()
@@ -58,6 +66,9 @@ public struct StreamSettings: Codable, Equatable, Sendable {
         // Existing global/per-host JSON predates this key. Preserve its settings
         // while adopting the full-screen launch default for the new preference.
         launchInFullScreen = try values.decodeIfPresent(Bool.self, forKey: .launchInFullScreen) ?? launchInFullScreen
+        videoPacing = try values.decodeIfPresent(VideoPacing.self, forKey: .videoPacing) ?? videoPacing
+        displaySyncEnabled = try values.decodeIfPresent(Bool.self, forKey: .displaySyncEnabled) ?? displaySyncEnabled
+        maximumDrawableCount = try values.decodeIfPresent(Int.self, forKey: .maximumDrawableCount) ?? maximumDrawableCount
     }
     public func resolvedSize(display: DisplayGeometry) -> PixelSize {
         switch resolution {
@@ -72,6 +83,9 @@ public struct StreamSettings: Codable, Equatable, Sendable {
         }
     }
     public func validated() throws -> StreamSettings {
+        guard (2...3).contains(maximumDrawableCount) else {
+            throw SettingsError.invalid("Drawable count must be 2 or 3.")
+        }
         guard (64...16384).contains(customSize.width), (64...16384).contains(customSize.height) else {
             throw SettingsError.invalid("Custom dimensions must be between 64 and 16384 pixels.")
         }

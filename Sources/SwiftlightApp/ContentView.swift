@@ -13,18 +13,23 @@ struct ContentView: View {
             if let pipeline = model.pipeline, let transport = model.transport {
                 ZStack(alignment: .top) {
                     StreamSurface(pipeline: pipeline, transport: transport, settings: model.settings,
+                                  statisticsRows: model.streamStatisticRows,
+                                  statisticsVisible: model.showingStreamStatistics && !pipeline.renderOptions.useSwiftUIStatisticsOverlay,
+                                  statisticsPosition: model.statisticsPreferences.position,
                                   onDisplay: updateDisplay, onError: { model.renderFailure = $0 }, onCapture: { model.inputCaptured = $0 },
                                   onShortcut: model.handleStreamShortcut)
                         .ignoresSafeArea()
-                    VStack(spacing: 12) {
-                        if !model.inputCaptured { streamOverlay }
-                        if model.showingStreamStatistics {
-                            StreamStatisticsOverlay(rows: model.streamStatisticRows)
-                                .frame(maxWidth: .infinity, alignment: statisticsAlignment)
-                                .padding(.horizontal, 16)
-                        }
-                        Spacer(minLength: 0)
-                    }.padding(.top, 12)
+                    if !model.inputCaptured || (model.showingStreamStatistics && pipeline.renderOptions.useSwiftUIStatisticsOverlay) {
+                        VStack(spacing: 12) {
+                            if !model.inputCaptured { streamOverlay }
+                            if model.showingStreamStatistics && pipeline.renderOptions.useSwiftUIStatisticsOverlay {
+                                StreamStatisticsOverlay(rows: model.streamStatisticRows)
+                                    .frame(maxWidth: .infinity, alignment: statisticsAlignment)
+                                    .padding(.horizontal, 16)
+                            }
+                            Spacer(minLength: 0)
+                        }.padding(.top, 12)
+                    }
                 }.background(.black)
             } else {
                 NavigationSplitView {

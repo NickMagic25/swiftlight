@@ -3,6 +3,13 @@ import AppKit
 
 @main
 struct SwiftlightApp: App {
+    init() {
+        #if DEBUG
+        // Enable the public Metal HUD facility before any Metal device is created.
+        // Each streaming layer keeps it disabled unless the debug option is on.
+        setenv("MTL_HUD_ENABLED", "1", 0)
+        #endif
+    }
     @StateObject private var model = ClientModel()
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var delegate
     @Environment(\.openWindow) private var openWindow
@@ -24,6 +31,22 @@ struct SwiftlightApp: App {
                     .disabled(model.lastStreamDiagnostics == nil)
                 Divider()
                 Button("Video Validation…") { openWindow(id: "replay") }
+                #if DEBUG
+                Divider()
+                Button("Run Latency Comparison (Short)") { model.runLatencyExperiments(short: true) }
+                Button("Run Latency Comparison (Full)") { model.runLatencyExperiments() }
+                Button("Run Statistics Overlay Comparison") { model.runStatisticsOverlayComparison() }
+                Button("Cancel Latency Comparison") { model.cancelLatencyExperiments() }
+                Button("Toggle Metal HUD for Next Stream") { model.renderOptions.showMetalHUD.toggle() }
+                Button("Preview Native PQ Root Layer on Next Stream") {
+                    var options = StreamRenderOptions()
+                    options.nativePQOutput = true; options.cacheEDRMetadata = true
+                    options.useRootMetalLayer = true; options.hideEmptyOverlayContainer = true
+                    options.showMetalHUD = true
+                    model.renderOptions = options
+                }
+                Button("Reset Rendering Experiments") { model.renderOptions = .init() }
+                #endif
                 Divider()
                 Button("Disconnect") { model.disconnect() }.keyboardShortcut("q", modifiers: [.control, .option, .shift]).disabled(!model.isSessionActive)
                 Button(model.showingStreamStatistics ? "Hide Stream Statistics" : "Show Stream Statistics") {

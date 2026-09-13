@@ -99,7 +99,10 @@ public final class DecodedFrame: @unchecked Sendable {
     public let callbackNanoseconds: UInt64
     /// Zero means unavailable. These share mav_monotonic_time_ns's clock domain.
     public let firstPacketNanoseconds: UInt64
+    public let scheduledArrivalNanoseconds: UInt64
     public let admissionNanoseconds: UInt64
+    /// Single-sample decode only; zero for aggregate or show-existing completions.
+    public let vtSubmitNanoseconds: UInt64
     public let hostProcessingMilliseconds: Double?
     public let hardwareAccelerated: Bool
     /// Visible source pixels, with top-left origin to match input coordinates and Metal.
@@ -116,10 +119,12 @@ public final class DecodedFrame: @unchecked Sendable {
     public init(pixelBuffer: CVPixelBuffer, id: UInt64, generation: UInt64 = 0, width: Int, height: Int,
                 bitDepth: Int, color: VideoColor, callbackNanoseconds: UInt64 = 0, hardwareAccelerated: Bool = false,
                 firstPacketNanoseconds: UInt64 = 0, admissionNanoseconds: UInt64 = 0,
-                hostProcessingMilliseconds: Double? = nil) {
+                hostProcessingMilliseconds: Double? = nil,
+                scheduledArrivalNanoseconds: UInt64 = 0, vtSubmitNanoseconds: UInt64 = 0) {
         self.pixelBuffer = pixelBuffer; self.id = id; self.generation = generation; self.width = width; self.height = height
         self.bitDepth = bitDepth; self.color = color; self.callbackNanoseconds = callbackNanoseconds; self.hardwareAccelerated = hardwareAccelerated
         self.firstPacketNanoseconds = firstPacketNanoseconds; self.admissionNanoseconds = admissionNanoseconds
+        self.scheduledArrivalNanoseconds = scheduledArrivalNanoseconds; self.vtSubmitNanoseconds = vtSubmitNanoseconds
         self.hostProcessingMilliseconds = hostProcessingMilliseconds
         Self.ownership.acquire()
     }
@@ -204,6 +209,7 @@ private final class CompletionMailbox: @unchecked Sendable {
     var latest: DecodedFrame?
     var statistics = DecoderStatistics()
     var suppressOutput = false
+    var frameAvailableHandler: (@Sendable () -> Void)?
     func complete(_ value: mav_completion) {
         let metadata = value.caller_context.map { Unmanaged<SubmissionMetadata>.fromOpaque($0).takeRetainedValue() }
         // takeUnretainedValue does not consume decoder ownership. DecodedFrame's strong
@@ -214,8 +220,11 @@ private final class CompletionMailbox: @unchecked Sendable {
             callbackNanoseconds: value.trace.valid & UInt32(MAV_TRACE_CALLBACK) != 0 ? value.trace.callback_ns : 0,
             hardwareAccelerated: value.hardware_accelerated != 0,
             firstPacketNanoseconds: value.trace.valid & UInt32(MAV_TRACE_FIRST_PACKET) != 0 ? value.trace.first_packet_ns : 0,
-            admissionNanoseconds: value.trace.admission_ns, hostProcessingMilliseconds: metadata?.hostProcessingMilliseconds) }
-        lock.lock(); defer { lock.unlock() }
+            admissionNanoseconds: value.trace.admission_ns, hostProcessingMilliseconds: metadata?.hostProcessingMilliseconds,
+            scheduledArrivalNanoseconds: value.trace.valid & UInt32(MAV_TRACE_ARRIVAL) != 0 ? value.trace.scheduled_arrival_ns : 0,
+            vtSubmitNanoseconds: value.trace.valid & UInt32(MAV_TRACE_VT_SUBMIT) != 0 && value.internal_samples == 1 && value.show_existing_frame == 0 ? value.trace.vt_submit_ns : 0) }
+        var available: (@Sendable () -> Void)?
+        lock.lock()
         statistics.completed += 1
         if value.result != MAV_OK || value.backend_status != 0 {
             statistics.lastBackendStatus = value.backend_status; statistics.lastResult = value.result.rawValue
@@ -243,6 +252,7 @@ private final class CompletionMailbox: @unchecked Sendable {
             else if let frame {
                 if latest != nil { statistics.skippedForPresentation += 1 }
                 latest = frame; statistics.mailboxHighWater = 1
+                available = frameAvailableHandler
             }
         case MAV_COMPLETION_NO_DISPLAY: statistics.noDisplay += 1
         case MAV_COMPLETION_FAILED: statistics.failed += 1
@@ -250,6 +260,8 @@ private final class CompletionMailbox: @unchecked Sendable {
         case MAV_COMPLETION_DROPPED: statistics.dropped += 1
         default: statistics.failed += 1
         }
+        lock.unlock()
+        available?()
     }
 }
 
@@ -340,6 +352,7 @@ public final class VideoDecoder: @unchecked Sendable {
         try worker.sync {
             guard let handle else { return }
             mailbox.lock.lock(); mailbox.suppressOutput = true
+            mailbox.frameAvailableHandler = nil
             if mailbox.latest != nil { mailbox.statistics.skippedForPresentation += 1 }
             mailbox.latest = nil; mailbox.lock.unlock()
             let result = mav_decoder_destroy(handle)
@@ -359,6 +372,12 @@ public final class VideoDecoder: @unchecked Sendable {
         let result = mailbox.latest; mailbox.latest = nil
         if result != nil { mailbox.statistics.takenForPresentation += 1 }
         return result
+    }
+    /// Notification only: invoked on the decoder completion thread after releasing
+    /// the mailbox lock. Signal a presentation queue; never call submit/control from
+    /// this closure. A notification already extracted may finish after replacement.
+    public func setFrameAvailableHandler(_ handler: (@Sendable () -> Void)?) {
+        mailbox.lock.lock(); mailbox.frameAvailableHandler = handler; mailbox.lock.unlock()
     }
     public var statistics: DecoderStatistics {
         mailbox.lock.lock(); defer { mailbox.lock.unlock() }

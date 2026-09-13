@@ -4,7 +4,12 @@ import SwiftlightVideo
 import SwiftlightCore
 
 private struct LiveDiagnostics: Encodable {
-    let schemaVersion = 3
+    let schemaVersion = 5
+    #if DEBUG
+    let buildConfiguration = "debug"
+    #else
+    let buildConfiguration = "release"
+    #endif
     let timestamp: Date
     let phase: String
     let requested: String
@@ -17,6 +22,10 @@ private struct LiveDiagnostics: Encodable {
     let timeline: StreamDiagnosticTimeline?
     let decoder: DecoderStatistics?
     let renderer: RenderStatistics?
+    let presentationRuntime: PresentationRuntimeDiagnostics?
+    let statisticsOverlayVisible: Bool
+    let inputCaptured: Bool
+    let renderOptions: StreamRenderOptions?
     let stream: StreamStatisticsSnapshot
     let rttMilliseconds: UInt32?
     let rttVarianceMilliseconds: UInt32?
@@ -38,7 +47,22 @@ extension ClientModel {
         guard diagnosticTimeline != nil else { return }
         refreshStreamStatistics()
         diagnosticTimeline?.finish(streamStatisticsSnapshot, outcome: state.phase.rawValue)
-        do { lastStreamDiagnostics = try diagnosticsData() }
+        do {
+            let data = try diagnosticsData(); lastStreamDiagnostics = data
+            #if DEBUG
+            // A debug run retains every completed attempt for repeatable comparisons.
+            // Write once after capture, never on a media callback or during measurement.
+            do {
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SwiftlightLatency", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let filename = "stream-\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString.prefix(8)).json"
+                try data.write(to: directory.appendingPathComponent(filename), options: .atomic)
+            } catch {
+                // A local debug-file failure must not discard the normal in-memory export.
+                message = "Automatic debug capture could not be saved. Export Last Stream Diagnostics is still available."
+            }
+            #endif
+        }
         catch { lastStreamDiagnostics = nil; message = "Could not retain stream diagnostics: \(error.localizedDescription)" }
         diagnosticTimeline = nil
     }
@@ -51,6 +75,9 @@ extension ClientModel {
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
             settings: diagnosticSettings, failure: diagnosticFailure, timeline: diagnosticTimeline,
             decoder: pipeline?.statistics, renderer: pipeline?.renderStatistics,
+            presentationRuntime: pipeline?.presentationDiagnostics,
+            statisticsOverlayVisible: showingStreamStatistics, inputCaptured: inputCaptured,
+            renderOptions: pipeline?.renderOptions,
             stream: streamStatisticsSnapshot,
             rttMilliseconds: stats?.rttMilliseconds, rttVarianceMilliseconds: stats?.rttVarianceMilliseconds,
             interface: stats?.interfaceName, pendingVideoFrames: stats?.pendingVideoFrames,
@@ -68,6 +95,18 @@ extension ClientModel {
         do { saveDiagnostics(try diagnosticsData(), filename: "swiftlight-live-stream.json") }
         catch { message = error.localizedDescription }
     }
+    #if DEBUG
+    func writeLatencyExperimentSnapshot(label: String) throws -> URL {
+        refreshStreamStatistics()
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Swiftlight/LatencyExperiments", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let safe = label.map { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") ? $0 : "-" }
+        let url = directory.appendingPathComponent("\(String(safe))-\(Int(Date().timeIntervalSince1970 * 1000)).json")
+        try diagnosticsData().write(to: url, options: .atomic)
+        return url
+    }
+    #endif
     func exportLastStreamDiagnostics() {
         guard let data = lastStreamDiagnostics else { return }
         saveDiagnostics(data, filename: "swiftlight-last-stream.json")

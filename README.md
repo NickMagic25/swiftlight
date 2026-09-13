@@ -46,7 +46,7 @@ The library loads real covers from the paired host into a 3:4 grid. Hover or foc
 | Control–Option–Shift–Z | Release input capture and show stream controls. |
 | Control–Command–F | Toggle native full screen. |
 
-In **Settings → Stream Statistics**, choose **Simple** or **Detailed** and **Top Left**, **Top Center** or **Top Right**. Defaults are **Simple** and **Top Center**. Detail and position save immediately for every computer, persist across launches, and take effect during the current stream without reconnecting. The panel uses native Liquid Glass on macOS 26 and later, a native material on earlier supported macOS versions, and an opaque background when Reduce Transparency is enabled. See [stream statistics](docs/stream-statistics.md) for measurement definitions and limits.
+In **Settings → Stream Statistics**, choose **Simple** or **Detailed** and **Top Left**, **Top Center** or **Top Right**. Defaults are **Simple** and **Top Center**. Detail and position save immediately for every computer, persist across launches, and take effect during the current stream without reconnecting. The statistics panel uses an opaque background and is drawn into the video’s existing Metal pass. Its cached text updates independently of video frames, and accessible rows remain available without overlapping visual layers. See the [statistics rendering investigation](docs/statistics-metal-overlay-2026-09-13.md) for implementation and measured limits. See [stream statistics](docs/stream-statistics.md) for measurement definitions and limits.
 
 Relative mouse mode is for games; Absolute mode maps the pointer through the same clean-aperture/fit/fill viewport and rejects letterbox input. Physical controllers support analog controls and available haptics. Stream request changes require reconnect; display movement/resize changes presentation immediately, while a new native pixel request needs reconnect. HDR On fails clearly if unavailable; Auto intersects host codec/10-bit support, hardware decoder candidates and display capability.
 
@@ -54,7 +54,13 @@ Client private keys and certificate pins live in Keychain. The macOS development
 
 ## Export a stream for debugging
 
+Presentation defaults are **On decoded frame**, **VSync off**, and **3 drawable buffers**. Decoded-frame pacing submits the newest available frame without a display-link wait; disabling VSync permits tearing. HDR configuration and layer-placement experiments remain opt-in because they regressed throughput in live comparisons. Existing explicitly saved presentation settings remain in effect. **Frame pacing**, **VSync**, and **Drawable buffers** can be changed in Settings and apply on reconnect. See [latency debugging and measured results](docs/stream-latency-debugging.md) for measurements and remaining presentation variance.
+
 After disconnecting, choose **Stream → Export Last Stream Diagnostics…** or the same action in the library's computer-options menu. Save the JSON file wherever you want. It contains the completed connection attempt's settings, outcome, recent statistics timeline, and decoder/renderer/network/audio counters. Failed connection attempts are included. The last report is retained in memory until replaced by the next completed attempt or Swiftlight quits; export it before closing the app. Pairing credentials, host addresses, application names and media are excluded. See [diagnostic exports](docs/diagnostic-exports.md) for the schema and measurement limits.
+
+Schema 5 separates completed GPU submissions from confirmed display presentations. `completedFrameTimings` remains available when a drawable has no usable presentation timestamp; `presentationTimings` joins completion and confirmed presentation for the same submission. These bounded recent windows distinguish CPU scheduling, GPU execution and the wait after GPU completion. GPU completion is not display latency.
+
+Debug builds save finalized reports locally and expose **Stream → Run Latency Comparison (Short/Full)**. The selected host's Desktop stream is captured at 10, 30 and 50 seconds per case under `~/Library/Application Support/Swiftlight/LatencyExperiments/`. **Cancel Latency Comparison** stops the sequence. Settings are restored afterward and Desktop remains running remotely. Native PQ output is a debug-only comparison: its nonlinear PQ layer uses nil EDR metadata under Apple's API contract, so its highlight handling requires separate validation before adoption.
 
 ## Offline validation
 
@@ -64,7 +70,7 @@ scripts/validate-offline.sh
 
 This runs unit/protocol/ownership tests, the native ASan/UBSan harness, independent OTP vectors, real HEVC/AV1 hardware decode and production Metal render/readback for all eight fixture sets, and the sole-decoder audit. It requires an Apple GPU and HEVC/AV1 hardware; a sandbox or unsupported device can block these checks and must not be called a pass. Outputs are written to `artifacts/` and `.build/native-transport-tests/`.
 
-The latest full Swift suite passed 72 tests (47 XCTest and 25 host tests), including artwork protocol/image bounds, statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. The integrated macOS app built and signed successfully. Native ASan, UBSan and TSan checks passed. Ten isolated window-lifecycle groups and nineteen packaging checks also pass. The initial live checks are partial functional evidence; they do not replace the remaining acceptance gates.
+The latest full Swift suite passed 95 tests (70 XCTest and 25 host tests), including hardware readbacks for statistics overlay color/placement/lifetime, artwork protocol/image bounds, statistics preferences, shortcut ownership, presentation policy, Keychain caching and a deterministic regression for the drawable callback deadlock. The integrated macOS debug app built and signed successfully, and the release product compiled. Native ASan, UBSan and TSan checks passed. Ten isolated window-lifecycle groups and nineteen packaging checks also pass. The initial live checks are partial functional evidence; they do not replace the remaining acceptance gates.
 
 ```sh
 .build/debug/swiftlight-replay --fixture fixtures/av1-accounting-10/manifest.json \

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import QuartzCore
+import Metal
 import CoreGraphics
 import SwiftlightCore
 import SwiftlightVideo
@@ -92,30 +93,64 @@ struct StreamSurface: NSViewRepresentable {
     let pipeline: StreamingPipeline
     let transport: StreamTransport
     let settings: StreamSettings
+    let statisticsRows: [StreamStatisticRow]
+    let statisticsVisible: Bool
+    let statisticsPosition: StreamStatisticsPosition
     let onDisplay: @MainActor (DisplayGeometry, Double) -> Void
     let onError: @MainActor (String) -> Void
     let onCapture: @MainActor (Bool) -> Void
     let onShortcut: @MainActor (StreamShortcutAction) -> Void
     func makeNSView(context: Context) -> MacStreamView {
-        let view = MacStreamView(pipeline: pipeline, transport: transport)
+        let view = MacStreamView(pipeline: pipeline, transport: transport, settings: settings)
         view.onDisplay = onDisplay; view.onError = onError; view.onCapture = onCapture; view.settings = settings
         view.onShortcut = onShortcut
+        view.updateStatistics(rows: statisticsRows, visible: statisticsVisible, position: statisticsPosition)
         return view
     }
     func updateNSView(_ view: MacStreamView, context: Context) {
         view.onDisplay = onDisplay; view.onError = onError; view.onCapture = onCapture
         view.onShortcut = onShortcut
         if view.settings != settings { view.settings = settings; view.needsLayout = true }
+        view.updateStatistics(rows: statisticsRows, visible: statisticsVisible, position: statisticsPosition)
     }
     static func dismantleNSView(_ view: MacStreamView, coordinator: ()) { view.stop() }
+}
+/// Dispatch-source additions coalesce; decoded frames stay in the one-slot mailbox.
+/// No per-frame main-queue closures or retained video buffers accumulate here.
+private final class FramePresentationSignal: @unchecked Sendable {
+    private let source: any DispatchSourceUserDataAdd
+    init(handler: @escaping @Sendable () -> Void) {
+        source = DispatchSource.makeUserDataAddSource(queue: .main)
+        source.setEventHandler(handler: handler); source.resume()
+    }
+    func signal() { source.add(data: 1) }
+    func cancel() { source.cancel() }
 }
 @MainActor final class MacStreamView: NSView, @preconcurrency CAMetalDisplayLinkDelegate {
     private let pipeline: StreamingPipeline
     private let transport: StreamTransport
+    private let configuredPacing: VideoPacing
     private let metalLayer = CAMetalLayer()
     private var displayLink: CAMetalDisplayLink?
+    private var frameSignal: FramePresentationSignal?
     private var renderer: MetalVideoRenderer?
     private var lastFrame: DecodedFrame?
+    private var edrMetadataState = HDRMetadataState()
+    private var outputColorSpace = VideoOutputColorSpace.linearSRGB
+    private var statisticsRows: [StreamStatisticRow] = []
+    private var statisticsVisible = false
+    private var statisticsPosition: StreamStatisticsPosition = .topLeading
+    private var statisticsRasterKey: StatisticsRasterKey?
+    private var statisticsRaster: StatisticsOverlayRaster?
+    private var statisticsTask: Task<Void, Never>?
+    private var statisticsRevision: UInt64 = 0
+    private var statisticsAXElements: [String: NSAccessibilityElement] = [:]
+    private struct StatisticsRasterKey: Equatable, Sendable {
+        let rows: [StreamStatisticRow]
+        let position: StreamStatisticsPosition
+        let scale: CGFloat
+        let width: CGFloat
+    }
     private var captured = false
     private var initialCapturePending = true
     private var cursorHidden = false
@@ -141,23 +176,42 @@ struct StreamSurface: NSViewRepresentable {
     private var capsLockState = false
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
-    init(pipeline: StreamingPipeline, transport: StreamTransport) {
+    init(pipeline: StreamingPipeline, transport: StreamTransport, settings: StreamSettings) {
         self.pipeline = pipeline; self.transport = transport
+        configuredPacing = settings.videoPacing
+        self.settings = settings
         super.init(frame: .zero)
+        #if DEBUG
+        if pipeline.renderOptions.useRootMetalLayer && settings.resolution != .nativeSafeArea {
+            // NSView layer hosting requires assigning the layer BEFORE wantsLayer.
+            // This experiment uses the full view; safe-area clipping keeps the child layer.
+            layer = metalLayer
+        }
+        #endif
         wantsLayer = true; layer?.backgroundColor = NSColor.black.cgColor
         do {
-            let renderer = try MetalVideoRenderer(); self.renderer = renderer; pipeline.attachRenderer(renderer)
+            let renderer = try MetalVideoRenderer(captureScheduledCallback: pipeline.renderOptions.captureScheduledCallback); self.renderer = renderer; pipeline.attachRenderer(renderer)
             metalLayer.device = renderer.device; metalLayer.pixelFormat = .rgba16Float
             metalLayer.colorspace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
             metalLayer.wantsExtendedDynamicRangeContent = true
-            metalLayer.framebufferOnly = true; metalLayer.maximumDrawableCount = 3
-            layer?.addSublayer(metalLayer)
+            metalLayer.framebufferOnly = true
+            metalLayer.maximumDrawableCount = min(3, max(2, settings.maximumDrawableCount))
+            metalLayer.displaySyncEnabled = settings.displaySyncEnabled
+            metalLayer.isOpaque = true; metalLayer.presentsWithTransaction = false
+            #if DEBUG
+            if pipeline.renderOptions.showMetalHUD {
+                metalLayer.developerHUDProperties = ["mode": "main", "MTL_HUD_ENABLED": "1",
+                    "MTL_HUD_ELEMENTS": "device,layersize,fps,gputime,presentdelay", "MTL_HUD_ALIGNMENT": "topright"]
+            } else { metalLayer.developerHUDProperties = ["mode": "disabled"] }
+            #endif
+            if layer !== metalLayer { layer?.addSublayer(metalLayer) }
         } catch { DispatchQueue.main.async { [weak self] in self?.onError?(String(describing: error)) } }
     }
     required init?(coder: NSCoder) { fatalError("Use init(pipeline:transport:)") }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         displayLink?.invalidate(); displayLink = nil
+        frameSignal?.cancel(); frameSignal = nil; pipeline.setFrameAvailableHandler(nil)
         if let localKeyMonitor { NSEvent.removeMonitor(localKeyMonitor); self.localKeyMonitor = nil }
         if let window {
             localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
@@ -169,11 +223,20 @@ struct StreamSurface: NSViewRepresentable {
             }
             previousAcceptsMouseMovedEvents = window.acceptsMouseMovedEvents
             window.acceptsMouseMovedEvents = true
-            let link = CAMetalDisplayLink(metalLayer: metalLayer)
-            link.delegate = self; link.preferredFrameLatency = 1
-            let maxFPS = Float(window.screen?.maximumFramesPerSecond ?? 60)
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: min(30, maxFPS), maximum: maxFPS, preferred: min(Float(settings.framesPerSecond == 0 ? Int(maxFPS) : settings.framesPerSecond), maxFPS))
-            link.add(to: .main, forMode: .common); displayLink = link
+            if configuredPacing == .displayLink {
+                let link = CAMetalDisplayLink(metalLayer: metalLayer)
+                link.delegate = self; link.preferredFrameLatency = 1
+                let maxFPS = Float(window.screen?.maximumFramesPerSecond ?? 60)
+                link.preferredFrameRateRange = CAFrameRateRange(minimum: min(30, maxFPS), maximum: maxFPS, preferred: min(Float(settings.framesPerSecond == 0 ? Int(maxFPS) : settings.framesPerSecond), maxFPS))
+                link.add(to: .main, forMode: .common); displayLink = link
+            } else {
+                let signal = FramePresentationSignal { [weak self] in
+                    MainActor.assumeIsolated { self?.renderAvailableFrame() }
+                }
+                frameSignal = signal
+                pipeline.setFrameAvailableHandler { signal.signal() }
+                signal.signal()
+            }
             resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.releaseCapture() }
             }
@@ -187,22 +250,46 @@ struct StreamSurface: NSViewRepresentable {
     override func layout() {
         super.layout()
         let value = geometry(for: self)
+        if let link = displayLink {
+            let maxFPS = Float(window?.screen?.maximumFramesPerSecond ?? Int(value.0.refreshHz))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: min(30, maxFPS), maximum: maxFPS,
+                preferred: min(Float(settings.framesPerSecond == 0 ? Int(maxFPS) : settings.framesPerSecond), maxFPS))
+        }
         let scale = window?.backingScaleFactor ?? 1
         destination = bounds
-        if settings.resolution == .nativeSafeArea, let window {
+        if layer !== metalLayer, settings.resolution == .nativeSafeArea, let window {
             let safeWindow = window.convertFromScreen(value.0.safeContent)
             let local = convert(safeWindow, from: nil)
             destination = bounds.intersection(local)
             if destination.isNull { destination = .zero }
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        metalLayer.frame = destination; metalLayer.contentsScale = scale
+        // AppKit maps the hosted root to the view. Only child layers use the
+        // local destination rectangle; assigning it to the root can displace it.
+        if layer !== metalLayer { metalLayer.frame = destination }
+        metalLayer.contentsScale = scale
         metalLayer.drawableSize = CGSize(width: max(1, destination.width * scale), height: max(1, destination.height * scale))
         CATransaction.commit(); needsRedraw = true
+        frameSignal?.signal()
+        pipeline.recordPresentationRuntime(PresentationRuntimeDiagnostics(pacing: configuredPacing.rawValue,
+            displaySyncEnabled: metalLayer.displaySyncEnabled, maximumDrawableCount: metalLayer.maximumDrawableCount,
+            maximumGPUFramesInFlight: 3, displayRefreshHz: value.0.refreshHz,
+            preferredFrameLatency: displayLink?.preferredFrameLatency, layerOpaque: metalLayer.isOpaque,
+            presentsWithTransaction: metalLayer.presentsWithTransaction,
+            nativeFullScreen: window?.styleMask.contains(.fullScreen) == true,
+            drawableWidth: Int(metalLayer.drawableSize.width), drawableHeight: Int(metalLayer.drawableSize.height),
+            minimumRefreshInterval: window?.screen?.minimumRefreshInterval ?? 0,
+            maximumRefreshInterval: window?.screen?.maximumRefreshInterval ?? 0,
+            displayUpdateGranularity: window?.screen?.displayUpdateGranularity ?? 0,
+            cacheEDRMetadata: pipeline.renderOptions.cacheEDRMetadata,
+            metalLayerIsViewRoot: layer === metalLayer, viewOpaque: isOpaque,
+            windowOpaque: window?.isOpaque))
         displayChanges.publish(value.0, value.1) { [weak self] geometry, headroom in
             guard let self, self.window != nil else { return }
             self.onDisplay?(geometry, headroom)
         }
+        refreshStatisticsOverlay()
+        updateStatisticsAccessibility()
         recordGeometryDiagnostic()
     }
     /// Diagnostic numbers only. Coalesce resize/animation bursts and publish at most
@@ -238,8 +325,47 @@ struct StreamSurface: NSViewRepresentable {
         }
     }
     func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
+        let entered = CACurrentMediaTime()
+        renderAvailableFrame(into: update.drawable, timing: PresentationSubmissionTiming(
+            displayCallbackSeconds: entered, targetDeadlineSeconds: update.targetTimestamp,
+            targetPresentationSeconds: update.targetPresentationTimestamp, selectedAtSeconds: CACurrentMediaTime()))
+    }
+    private func renderAvailableFrame() {
+        guard frameSignal != nil, window != nil else { return }
+        if pipeline.renderOptions.cacheEDRMetadata || pipeline.renderOptions.configureEDRBeforeAcquire {
+            let incoming = pipeline.takeLatestFrame()
+            guard let frame = incoming ?? (needsRedraw ? lastFrame : nil) else { return }
+            // EDR configuration belongs to the drawable being acquired, not the one
+            // already acquired. Keep a single retained frame if acquisition fails.
+            lastFrame = frame; needsRedraw = true
+            _ = applyEDRMetadata(frame, force: !pipeline.renderOptions.cacheEDRMetadata)
+            let acquireStart = CACurrentMediaTime()
+            guard let drawable = metalLayer.nextDrawable() else { return }
+            let acquired = CACurrentMediaTime()
+            // Acquisition may block. Prefer the newest decoded frame, provided
+            // this drawable was acquired with the matching HDR configuration.
+            let newest = pipeline.takeLatestFrame() ?? frame
+            lastFrame = newest
+            if applyEDRMetadata(newest) { frameSignal?.signal(); return }
+            renderAvailableFrame(into: drawable, timing: PresentationSubmissionTiming(selectedAtSeconds: CACurrentMediaTime(),
+                drawableAcquisitionMilliseconds: (acquired - acquireStart) * 1000), selectedFrame: newest)
+            return
+        }
+        let acquireStart = CACurrentMediaTime()
+        // Acquire first, then select the newest output in case obtaining a drawable waited.
+        guard let drawable = metalLayer.nextDrawable() else { return }
+        let acquired = CACurrentMediaTime()
+        renderAvailableFrame(into: drawable, timing: PresentationSubmissionTiming(selectedAtSeconds: acquired,
+            drawableAcquisitionMilliseconds: (acquired - acquireStart) * 1000))
+    }
+    private func renderAvailableFrame(into drawable: any CAMetalDrawable, timing: PresentationSubmissionTiming,
+                                      selectedFrame: DecodedFrame? = nil) {
         guard let renderer else { return }
-        let incoming = pipeline.takeLatestFrame()
+        let incoming = selectedFrame ?? pipeline.takeLatestFrame()
+        let selected = selectedFrame == nil ? CACurrentMediaTime() : (timing.selectedAtSeconds ?? CACurrentMediaTime())
+        let submission = PresentationSubmissionTiming(displayCallbackSeconds: timing.displayCallbackSeconds,
+            targetDeadlineSeconds: timing.targetDeadlineSeconds, targetPresentationSeconds: timing.targetPresentationSeconds,
+            selectedAtSeconds: selected, drawableAcquisitionMilliseconds: timing.drawableAcquisitionMilliseconds)
         if let incoming {
             lastFrame = incoming; pipeline.recordFrame(incoming, viewport: metalLayer.drawableSize)
             if initialCapturePending {
@@ -248,20 +374,142 @@ struct StreamSurface: NSViewRepresentable {
             }
         }
         guard incoming != nil || needsRedraw, let frame = lastFrame else { return }
-        // targetTimestamp is a submission deadline. It is not recorded as actual presentation.
-        // Use only the update's drawable; renderer records MTLDrawable.presentedTime when available.
-        if frame.color.transfer == 16 {
-            metalLayer.edrMetadata = .hdr10(displayInfo: frame.color.mastering.isEmpty ? nil : Data(frame.color.mastering),
-                contentInfo: frame.color.contentLight.isEmpty ? nil : Data(frame.color.contentLight), opticalOutputScale: 203)
-        } else { metalLayer.edrMetadata = nil }
+        if pipeline.renderOptions.cacheEDRMetadata || pipeline.renderOptions.configureEDRBeforeAcquire {
+            if applyEDRMetadata(frame) {
+                // Display-link drawables are already acquired. After a metadata
+                // transition, render this or a newer frame with the next drawable.
+                needsRedraw = true; return
+            }
+        } else { _ = applyEDRMetadata(frame, force: true) }
         do {
-            if try renderer.render(frame, into: update.drawable,
+            if try renderer.render(frame, into: drawable,
                 scaleMode: settings.scaling == .fill ? .fill : settings.scaling == .integer ? .integer : .fit,
+                outputColorSpace: outputColorSpace, submissionTiming: submission,
                 completion: { [pipeline] result in if !result.succeeded { pipeline.reportRendererFailure() } }) { needsRedraw = false }
-        } catch { onError?(String(describing: error)); link.isPaused = true }
+        } catch {
+            onError?(String(describing: error)); displayLink?.isPaused = true
+            frameSignal?.cancel(); frameSignal = nil; pipeline.setFrameAvailableHandler(nil)
+        }
+    }
+    @discardableResult private func applyEDRMetadata(_ frame: DecodedFrame, force: Bool = false) -> Bool {
+        let usePQ = pipeline.renderOptions.nativePQOutput && frame.color.transfer == 16 &&
+            frame.color.primaries == 9 && frame.color.matrix == 9
+        let nextOutput: VideoOutputColorSpace = usePQ ? .rec2020PQ : .linearSRGB
+        let outputChanged = nextOutput != outputColorSpace
+        let value: HDRMetadataValue = usePQ ? .none : HDRMetadataValue(color: frame.color)
+        let metadataChanged = edrMetadataState.update(value)
+        let changed = outputChanged || metadataChanged
+        guard changed || force else { return false }
+        if !force { CATransaction.begin(); CATransaction.setDisableActions(true) }
+        if outputChanged {
+            outputColorSpace = nextOutput
+            metalLayer.pixelFormat = usePQ ? .bgr10a2Unorm : .rgba16Float
+            metalLayer.colorspace = CGColorSpace(name: usePQ ? CGColorSpace.itur_2100_PQ : CGColorSpace.extendedLinearSRGB)
+        }
+        switch value {
+        case .none: metalLayer.edrMetadata = nil
+        case .hdr10(let mastering, let contentLight):
+            metalLayer.edrMetadata = .hdr10(displayInfo: mastering.isEmpty ? nil : mastering,
+                contentInfo: contentLight.isEmpty ? nil : contentLight, opticalOutputScale: 203)
+        }
+        if !force { CATransaction.commit() }
+        pipeline.recordEDRMetadataUpdate(nativePQ: usePQ)
+        return changed
+    }
+    func updateStatistics(rows: [StreamStatisticRow], visible: Bool, position: StreamStatisticsPosition) {
+        guard rows != statisticsRows || visible != statisticsVisible || position != statisticsPosition else { return }
+        let visibilityChanged = visible != statisticsVisible
+        statisticsRows = rows; statisticsVisible = visible; statisticsPosition = position
+        if !visible {
+            guard visibilityChanged else { return }
+            statisticsRevision &+= 1; statisticsTask?.cancel(); statisticsTask = nil
+            statisticsRasterKey = nil; statisticsRaster = nil
+            try? renderer?.setOverlay(nil)
+            statisticsAXElements.removeAll(); setAccessibilityChildren([])
+            setAccessibilityElement(false)
+            if visibilityChanged { needsRedraw = true; frameSignal?.signal() }
+            return
+        }
+        refreshStatisticsOverlay(redraw: visibilityChanged)
+    }
+    private func refreshStatisticsOverlay(redraw: Bool = false) {
+        guard statisticsVisible, window != nil, destination.width > 0 else { return }
+        let key = StatisticsRasterKey(rows: statisticsRows, position: statisticsPosition,
+            scale: window?.backingScaleFactor ?? 1, width: min(520, max(96, destination.width - 32)))
+        guard key != statisticsRasterKey else { return }
+        statisticsRasterKey = key; statisticsRevision &+= 1
+        let revision = statisticsRevision, size = destination.size
+        statisticsTask?.cancel()
+        statisticsTask = Task.detached(priority: .utility) { [weak self] in
+            do {
+                try Task.checkCancellation()
+                let raster = try StatisticsOverlayRasterizer.render(rows: key.rows, position: key.position,
+                    backingScale: key.scale, availableSize: size)
+                try Task.checkCancellation()
+                await self?.installStatisticsRaster(raster, revision: revision, redraw: redraw)
+            } catch is CancellationError { }
+            catch { await self?.statisticsRasterFailed(revision: revision, message: String(describing: error)) }
+        }
+    }
+    private func installStatisticsRaster(_ raster: StatisticsOverlayRaster, revision: UInt64, redraw: Bool) {
+        guard revision == statisticsRevision, statisticsVisible, window != nil else { return }
+        do {
+            try renderer?.setOverlay(raster.bitmap)
+            statisticsRaster = raster; statisticsTask = nil
+            updateStatisticsAccessibility()
+            // Values are picked up by the next decoded frame. Only visibility
+            // changes request a redraw, avoiding extra presentation work at 4 Hz.
+            if redraw { needsRedraw = true; frameSignal?.signal() }
+        } catch { statisticsRasterFailed(revision: revision, message: String(describing: error)) }
+    }
+    private func statisticsRasterFailed(revision: UInt64, message: String) {
+        guard revision == statisticsRevision else { return }
+        statisticsRasterKey = nil; statisticsTask = nil
+        geometryLogger.error("Statistics overlay failed: \(message, privacy: .public)")
+    }
+    private func updateStatisticsAccessibility() {
+        guard statisticsVisible, let raster = statisticsRaster, let window else { return }
+        setAccessibilityElement(true); setAccessibilityRole(.group); setAccessibilityLabel("Stream Statistics")
+        let scale = window.backingScaleFactor
+        let bitmap = raster.bitmap
+        let targetWidth = Int(metalLayer.drawableSize.width), targetHeight = Int(metalLayer.drawableSize.height)
+        let insetX = min(bitmap.insetPixels, max(0, targetWidth - bitmap.width))
+        let insetY = min(bitmap.insetPixels, max(0, targetHeight - bitmap.height))
+        let pixelX: Int
+        switch bitmap.position {
+        case .topLeft: pixelX = insetX
+        case .topCenter: pixelX = max(0, (targetWidth - bitmap.width) / 2)
+        case .topRight: pixelX = max(0, targetWidth - bitmap.width - insetX)
+        }
+        let x = destination.minX + CGFloat(pixelX) / scale
+        let y = destination.minY + CGFloat(insetY) / scale
+        let width = CGFloat(bitmap.width) / scale
+        let rows = statisticsRows.isEmpty ? [StreamStatisticRow(id: "waiting", label: "Waiting for statistics…", value: "")] : Array(statisticsRows.prefix(24))
+        let parentFrame = accessibilityFrame()
+        var children: [NSAccessibilityElement] = []
+        for (index, row) in rows.enumerated() {
+            let element = statisticsAXElements[row.id] ?? NSAccessibilityElement()
+            element.setAccessibilityElement(true); element.setAccessibilityRole(.staticText)
+            element.setAccessibilityLabel(row.label); element.setAccessibilityValue(row.value)
+            element.setAccessibilityParent(self)
+            let local = CGRect(x: x + 12, y: y + 36 + CGFloat(index) * raster.rowHeight,
+                width: max(1, width - 24), height: raster.rowHeight)
+            let screenFrame = window.convertToScreen(convert(local, to: nil))
+            // AX parent coordinates are bottom-left based even for flipped NSViews.
+            // Parent-relative frames follow window movement without new layers.
+            element.setAccessibilityFrameInParentSpace(screenFrame.offsetBy(dx: -parentFrame.minX, dy: -parentFrame.minY))
+            statisticsAXElements[row.id] = element; children.append(element)
+        }
+        let ids = Set(rows.map(\.id))
+        statisticsAXElements = statisticsAXElements.filter { ids.contains($0.key) }
+        setAccessibilityChildren(children)
     }
     func stop() {
+        statisticsRevision &+= 1; statisticsTask?.cancel(); statisticsTask = nil
+        statisticsRaster = nil; statisticsRasterKey = nil; statisticsAXElements.removeAll()
+        try? renderer?.setOverlay(nil); setAccessibilityChildren([])
         releaseCapture(); displayLink?.invalidate(); displayLink = nil; lastFrame = nil
+        frameSignal?.cancel(); frameSignal = nil; pipeline.setFrameAvailableHandler(nil)
         if let localKeyMonitor { NSEvent.removeMonitor(localKeyMonitor); self.localKeyMonitor = nil }
         displayChanges.clear()
         geometryLogTask?.cancel(); geometryLogTask = nil; pendingGeometryDiagnostic = nil

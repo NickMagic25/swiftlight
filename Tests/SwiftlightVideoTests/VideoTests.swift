@@ -6,6 +6,31 @@ import QuartzCore
 @testable import SwiftlightVideo
 
 final class VideoTests: XCTestCase {
+    func testFrameAvailableNotificationCanReadAndTakeMailboxAfterUnlock() throws {
+        try requireHardware()
+        let decoder = try VideoDecoder(codec: .hevc)
+        defer { try? decoder.close() }
+        let available = expectation(description: "Frame available outside mailbox lock")
+        decoder.setFrameAvailableHandler { [weak decoder] in
+            guard let decoder else { return }
+            let accessed = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .userInteractive).async {
+                // Require another thread to acquire the mailbox lock before the
+                // notification returns. Timeout makes a regression fail, not hang.
+                _ = decoder.statistics
+                XCTAssertNotNil(decoder.takeLatestFrame())
+                accessed.signal()
+            }
+            XCTAssertEqual(accessed.wait(timeout: .now() + 1), .success,
+                "Frame notification must not hold the mailbox lock")
+            available.fulfill()
+        }
+        XCTAssertEqual(decoder.submit(try load("hevc-sdr8")[0]), .accepted)
+        wait(for: [available], timeout: 10)
+        decoder.setFrameAvailableHandler(nil)
+        XCTAssertEqual(decoder.statistics.takenForPresentation, 1)
+    }
+
     func testDrawableCallbackCanFinishDuringHandlerRegistration() throws {
         try requireHardware()
         let renderer = try MetalVideoRenderer()
