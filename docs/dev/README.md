@@ -4,6 +4,7 @@ This directory contains engineering notes, implementation references, validation
 
 ## Engineering references
 
+- [Release CI, signing secrets, and DMG distribution](releases.md)
 - [Architecture](architecture.md)
 - [Transport and ownership](transport.md)
 - [Video lifetime](video-lifetime.md)

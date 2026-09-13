@@ -55,6 +55,9 @@ staged_app="$stage_dir/Swiftlight.app"
 mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources/Licenses"
 cp -f "$bin_path/Swiftlight" "$staged_app/Contents/MacOS/Swiftlight"
 cp -f App/Info.plist "$staged_app/Contents/Info.plist"
+if [[ -n "${RELEASE_TAG:-}" ]]; then
+  python3 scripts/release-version.py "$RELEASE_TAG" --build-number "${BUILD_NUMBER:-1}" --plist "$staged_app/Contents/Info.plist"
+fi
 cp -f LICENSE "$staged_app/Contents/Resources/Licenses/Swiftlight.txt"
 cp -f .build/dependencies/licenses/*.txt "$staged_app/Contents/Resources/Licenses/"
 cp -f Sources/CStreamBridge/vendor/common-c/LICENSE.txt "$staged_app/Contents/Resources/Licenses/moonlight-common-c.txt"
@@ -63,7 +66,11 @@ cp -f "$decoder_path/LICENSE" "$staged_app/Contents/Resources/Licenses/Moonlight
 for entry in Sources/CStreamBridge/vendor/common-c/enet/LICENSE Sources/CStreamBridge/vendor/common-c/nanors/LICENSE; do
   if [[ -f "$entry" ]]; then cp -f "$entry" "$staged_app/Contents/Resources/Licenses/$(basename "$(dirname "$entry")").txt"; fi
 done
-codesign --force --sign "$signing_identity" "$staged_app"
+signing_options=(--force --sign "$signing_identity")
+if [[ "$configuration" == release ]]; then
+  signing_options+=(--options runtime --timestamp)
+fi
+codesign "${signing_options[@]}" "$staged_app"
 codesign --verify --deep --strict --verbose=2 "$staged_app"
 plutil -lint "$staged_app/Contents/Info.plist"
 path_check="$(otool -L "$staged_app/Contents/MacOS/Swiftlight")"

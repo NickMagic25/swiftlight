@@ -60,6 +60,8 @@ In **Settings → Audio**, choose the host channel layout and local output mode,
 
 ## Development
 
+Tagged versions use the [macOS release pipeline](docs/dev/releases.md) to run automated checks, sign and notarize Swiftlight, and publish an Apple silicon DMG on GitHub Releases. Version numbers derive from tags, beginning with `v0.0.1`.
+
 Run the offline checks with:
 
 ```sh

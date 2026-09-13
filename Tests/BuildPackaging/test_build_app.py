@@ -5,12 +5,14 @@ from contextlib import ExitStack
 import hashlib
 import json
 import os
+import plistlib
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 
 SOURCE = Path(__file__).resolve().parents[2] / "scripts/build-app.sh"
+VERSION_SCRIPT = SOURCE.with_name("release-version.py")
 A, B = "A" * 40, "B" * 40
 ONE = f'  1) {A} "Apple Development: Fixture (TEAM)"\n     1 valid identities found\n'
 TWO = ONE + f'  2) {B} "Developer ID Application: Fixture (TEAM)"\n'
@@ -44,6 +46,8 @@ CASES = [
     ("release_unset", {"CONFIGURATION": "release", "STUB_IDENTITIES": ONE}, False, None),
     ("release_dash", {"CONFIGURATION": "release", "SIGNING_IDENTITY": "-"}, False, None),
     ("release_real", {"CONFIGURATION": "release", "SIGNING_IDENTITY": A}, True, A),
+    ("release_version", {"CONFIGURATION": "release", "SIGNING_IDENTITY": A, "RELEASE_TAG": "v0.0.1", "BUILD_NUMBER": "42"}, True, A),
+    ("release_invalid_version", {"CONFIGURATION": "release", "SIGNING_IDENTITY": A, "RELEASE_TAG": "v01.0.0"}, False, None),
     ("lookup_failure", {"STUB_SECURITY_EXIT": "7"}, False, None),
     ("sign_failure", {"STUB_FAIL_AT": "sign", "SIGNING_IDENTITY": "-"}, False, None),
     ("verify_failure", {"STUB_FAIL_AT": "verify", "SIGNING_IDENTITY": "-"}, False, None),
@@ -65,6 +69,7 @@ def run_case(root, source, case):
     name, extra, success, identity = case
     (root / "scripts").mkdir(parents=True)
     (root / "scripts/build-app.sh").write_bytes(source)
+    (root / "scripts/release-version.py").write_bytes(VERSION_SCRIPT.read_bytes())
     bootstrap = root / "scripts/bootstrap-dependencies.sh"
     bootstrap.write_text("#!/bin/bash\nexit 0\n")
     bootstrap.chmod(0o755)
@@ -74,6 +79,8 @@ def run_case(root, source, case):
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("new-fake-binary" if relative == "bin/Swiftlight" else "fixture")
+    with (root / "App/Info.plist").open("wb") as destination:
+        plistlib.dump({"CFBundleIdentifier": "net.edrisil.swiftlight", "CFBundleShortVersionString": "0.0.1", "CFBundleVersion": "1"}, destination)
     tools = root / "stub-bin"
     tools.mkdir()
     (tools / "tool").write_text(STUB)
@@ -93,7 +100,7 @@ def run_case(root, source, case):
             old = cleanup.enter_context(binary.open("rb"))
             original_inode = os.fstat(old.fileno()).st_ino
         env = {key: value for key, value in os.environ.items()
-               if key not in {"SIGNING_IDENTITY", "CONFIGURATION", "SWIFTLIGHT_DECODER_PATH"}
+               if key not in {"SIGNING_IDENTITY", "CONFIGURATION", "SWIFTLIGHT_DECODER_PATH", "RELEASE_TAG", "BUILD_NUMBER"}
                and not key.startswith("STUB_")}
         env.update(extra)
         env.update(STUB_ROOT=str(root), PATH=str(tools) + ":/usr/bin:/bin:/usr/sbin:/sbin")
@@ -108,6 +115,16 @@ def run_case(root, source, case):
             sign = [args for command, args in calls if command == "codesign" and "--sign" in args][0]
             require(sign[sign.index("--sign") + 1] == identity, "Wrong signing identity")
             require("/.Swiftlight-stage." in sign[-1], "Signing did not target the staged bundle")
+            if extra.get("CONFIGURATION") == "release":
+                require("--timestamp" in sign and "--options" in sign and sign[sign.index("--options") + 1] == "runtime",
+                        "Release signature lacks hardened runtime or secure timestamp")
+            else:
+                require("--timestamp" not in sign and "--options" not in sign, "Debug signing changed")
+            if "RELEASE_TAG" in extra:
+                with (app / "Contents/Info.plist").open("rb") as source_plist:
+                    info = plistlib.load(source_plist)
+                require(info["CFBundleShortVersionString"] == "0.0.1" and info["CFBundleVersion"] == "42",
+                        "Release version was not embedded before signing")
             if original_inode:
                 require(binary.stat().st_ino != original_inode, "Installed executable inode was overwritten")
         else:
