@@ -40,25 +40,11 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Resolve pinned decoder dependency
-        env:
-          # GITHUB_TOKEN cannot read the separate private decoder repository.
-          DECODER_READ_TOKEN: ${{ secrets.DECODER_READ_TOKEN }}
+      - name: Resolve pinned public decoder dependency
         run: |
           mkdir -p .build/ModuleCache
           export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
           export GIT_TERMINAL_PROMPT=0
-          export GIT_ASKPASS="$RUNNER_TEMP/swiftlight-git-askpass"
-          trap 'rm -f "$GIT_ASKPASS"' EXIT
-          cat > "$GIT_ASKPASS" <<'SH'
-          #!/bin/bash
-          case "$1" in
-            *Username*) printf '%s\n' x-access-token ;;
-            *Password*) printf '%s\n' "$DECODER_READ_TOKEN" ;;
-            *) exit 1 ;;
-          esac
-          SH
-          chmod 700 "$GIT_ASKPASS"
           swift package --disable-sandbox --disable-dependency-cache --manifest-cache none --force-resolved-versions resolve
 
       - name: Run automated tests and source audits
@@ -142,7 +128,7 @@ jobs:
         run: |
           keychain="$RUNNER_TEMP/swiftlight-signing.keychain-db"
           if [[ -f "$keychain" ]]; then security delete-keychain "$keychain"; fi
-          rm -f "$RUNNER_TEMP/swiftlight-signing.p12" "$RUNNER_TEMP/swiftlight-git-askpass" "$RUNNER_TEMP/Swiftlight.zip"
+          rm -f "$RUNNER_TEMP/swiftlight-signing.p12" "$RUNNER_TEMP/Swiftlight.zip"
 
       - name: Upload test and notarization diagnostics
         if: always()
