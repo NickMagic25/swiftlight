@@ -14,6 +14,10 @@ let package = Package(
     platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17)],
     products: [
         .library(name: "SwiftlightCore", targets: ["SwiftlightCore"]),
+        // The Xcode app project consumes these modules as local-package products.
+        // Keep the command-line SwiftPM build as the source of truth for them too.
+        .library(name: "SwiftlightHost", targets: ["SwiftlightHost"]),
+        .library(name: "SwiftlightTransport", targets: ["SwiftlightTransport"]),
         .library(name: "SwiftlightVideo", targets: ["SwiftlightVideo"]),
         .executable(name: "Swiftlight", targets: ["SwiftlightApp"]),
         .executable(name: "swiftlight-replay", targets: ["SwiftlightReplay"])
