@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swiftlight}",
+            "name": "Debug Swiftlight",
+            "target": "Swiftlight",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Swiftlight"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swiftlight}",
+            "name": "Release Swiftlight",
+            "target": "Swiftlight",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Swiftlight"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swiftlight}",
+            "name": "Debug swiftlight-replay",
+            "target": "swiftlight-replay",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug swiftlight-replay"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swiftlight}",
+            "name": "Release swiftlight-replay",
+            "target": "swiftlight-replay",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release swiftlight-replay"
+        }
+    ]
+}

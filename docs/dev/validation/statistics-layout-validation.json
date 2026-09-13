@@ -1,0 +1,34 @@
+{
+  "generated_at_utc": "2026-09-13T01:36:07.293911+00:00",
+  "status": "PASS",
+  "scope": "Statistics panel alignment, footer removal, accessibility and documentation only. Earlier full-suite/transport qualification not repeated.",
+  "binary_sha256": "e1afdc8f4668b656883f6acd922764a03aa6e0fb5864f2d37c1e0f523f49af11",
+  "bundle": ".build/Verified/Swiftlight.app",
+  "build": "PASS",
+  "strict_signature": "PASS",
+  "focused_statistics_tests": {
+    "passed": 5,
+    "failed": 0
+  },
+  "live_checks": [
+    "Simple and Detailed labels and values each on one line",
+    "No explanatory footer or jitter footnote marker",
+    "Each metric exposed exactly once with its label and value in the accessibility tree",
+    "Existing stream quality preserved",
+    "Simple/Top Left restored",
+    "Local disconnect returned to the paired library with remote app still running"
+  ],
+  "logs": [
+    "artifacts/statistics-layout-tests.log",
+    "artifacts/statistics-layout-build.log",
+    "artifacts/statistics-layout-bundle.json"
+  ],
+  "source_sha256": {
+    "Sources/SwiftlightApp/StreamStatisticsOverlay.swift": "48a56cb4b869e1cc46eeeef74d5fe09656ef3cd63bd7fcd7a8ddac6540e4e2dd",
+    "Sources/SwiftlightApp/ContentView.swift": "bd4423238436084f8f7602dd8684f41b38cc59ee701c8fbadc2c8c0a29501c20",
+    "Sources/SwiftlightApp/ClientModel.swift": "b67bc578f0542319fb7e183c7bb12d29fe76a8ec6789cb68953f8470e8230b70",
+    "Sources/SwiftlightApp/StreamStatistics.swift": "dbf21914660d3f850383cab2408dca432b02ca364fd6b1e516040f0f1fbc7fba",
+    "Sources/SwiftlightCore/StreamStatisticsSnapshot.swift": "1ce2bce154be664aa00ee9de7dbe3277601c1f20424394ca482f2e409ef5211d",
+    "docs/dev/stream-statistics-implementation.md": "fb0721c4255c4f3880dab5a508739e1bfbaa49b9966ceffd38fc9903aa5e60aa"
+  }
+}

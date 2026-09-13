@@ -1,0 +1,84 @@
+{
+  "generated_at_utc": "2026-09-13T02:29:08.741103+00:00",
+  "status": "PARTIAL",
+  "scope": "Native Liquid Glass controls and portrait host artwork library; visual acceptance pending.",
+  "build": {
+    "status": "PASS",
+    "bundle": ".build/Swiftlight.app",
+    "binary_sha256": "8c5338124fc8dd2f5742d4748bd4a38f5bf507cd45c3d2d95a47f2e83ab8f403",
+    "signing": "Existing Apple Development identity",
+    "strict_signature_verification": "PASS in final build script",
+    "previous_live_verified_bundle_preserved": ".build/Verified/Swiftlight.app"
+  },
+  "environment": {
+    "platform": "macOS",
+    "version": "26.6.2",
+    "architecture": "arm64"
+  },
+  "tests": {
+    "swift_xctest": 44,
+    "swift_testing_host": 25,
+    "swift_total": 69,
+    "failures": 0,
+    "hardware_tests_enabled": true,
+    "artwork_cache_checks": 13,
+    "artwork_cache_report": "artifacts/artwork-store-validation.json"
+  },
+  "logs": [
+    "artifacts/liquid-glass-tests.log",
+    "artifacts/liquid-glass-build.log",
+    "artifacts/artwork-store-validation.json"
+  ],
+  "partial_native_checks": {
+    "settings_open_close": "PASS",
+    "stream_quality_changed": false,
+    "live_host_covers": "BLOCKED: existing pairing read held inside macOS Keychain",
+    "main_thread": "AppKit event loop responsive in short stack sample",
+    "evidence": [
+      "artifacts/liquid-glass/pending-keychain.jpg",
+      "artifacts/liquid-glass-pending.sample"
+    ],
+    "final_binary_gui_validated": false
+  },
+  "visual_preview": {
+    "path": ".build/AppearancePreview.app",
+    "production_views": [
+      "AppLibraryGrid.swift",
+      "GlassStyle.swift"
+    ],
+    "fixture_store": true,
+    "cached_cover_images": 10,
+    "network_or_keychain_used": false,
+    "rendered_comparison": "BLOCKED: computer-control tool reported Mac locked"
+  },
+  "design_qa": "design-qa.md",
+  "remaining": [
+    "Unlock Mac and approve protected existing Keychain pairing access",
+    "Launch final bundle and verify real host cover retrieval",
+    "Inspect hover, keyboard focus/activation, Resume and missing-cover fallback",
+    "Check adaptive widths, accessibility fallbacks, and stream-control glass"
+  ],
+  "not_tested": [
+    "OS27",
+    "Older macOS runtime",
+    "iOS/iPadOS/tvOS application/device",
+    "Controlled performance benchmark"
+  ],
+  "source_sha256": {
+    "Sources/SwiftlightApp/AppArtworkStore.swift": "a698e16352f40f3a27e458215f045b3c331bcd2f86c114f47ec881c37be38c2c",
+    "Sources/SwiftlightApp/AppLibraryGrid.swift": "9ecfec49eb9f3a46f2c8580df249db81cb6e17b14e8f93e987a3dbdeed5f2357",
+    "Sources/SwiftlightApp/ClientModel.swift": "9ce81f7e434f89387bfb73d2222b9234717953d1bce081ebef7baddd50303c59",
+    "Sources/SwiftlightApp/ContentView.swift": "ac6482f3e72bb134c6b9d8074edb05c8b735e0a3f42f2d8847a98ec6388299f1",
+    "Sources/SwiftlightApp/GlassStyle.swift": "848e0993f053a9e1a690d745d065587bcc6fb89bb64582bab738b255f8d3bb01",
+    "Sources/SwiftlightApp/ReplayPreview.swift": "6c19477079acdf61f993181146859ce8c513beb04d5e049c3251d2bc6b65f247",
+    "Sources/SwiftlightApp/SettingsView.swift": "9640b039a6735ae15bd1e903afb89599b2fb56f15b645fbed695b420fc6ae3bb",
+    "Sources/SwiftlightApp/StreamStatisticsOverlay.swift": "32363527c22d1c73af76efb0e3abbd6f31d41ef9e285b31f4246561bbdc68b11",
+    "Sources/SwiftlightHost/HostArtwork.swift": "54cc07bdd186760c9a24eaab08f3c24a6bdfc169d353891820ceb5b8b47f1835",
+    "Sources/SwiftlightHost/HostClient.swift": "f85027cf7019920c6854ca29bb09afcd8aea71a2b309608bb5df668a5d364e41",
+    "Sources/SwiftlightHost/HostHTTP.swift": "6cf206b2a7a58e30952d369ec5e7d03325e1b5759d4647894002e9c6ad17d79b",
+    "Sources/SwiftlightHost/HostModels.swift": "b4ec025f136492089e5ebb804932ebd03ed7eab9506b6a4b83d258fc4fc3b22b",
+    "Tests/SwiftlightHostTests/HostArtworkTests.swift": "b08256b9eafaab50e373a04c5f516bf7082bab7cb76858d1e08de044710f2d2b",
+    "scripts/artwork-store-harness.swift": "dc959dc0d5b0edb1d9efc74fea59b0f06cd452cf6b0293e950285a046fa128c9",
+    "scripts/validate-artwork-store.py": "a0d3658140432cc7805b162d6445960448c85bd93ded8f1616ec9e3904c3e987"
+  }
+}

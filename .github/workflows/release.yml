@@ -1,0 +1,192 @@
+name: Release macOS
+
+# A tag push is the single entry point. The workflow creates the GitHub Release
+# only after all checks succeed; branch pushes and PRs do not run this pipeline.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ !github.event.deleted }}
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      RELEASE_TAG: ${{ github.ref_name }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Validate release tag and toolchain
+        run: |
+          python3 scripts/release-version.py "$RELEASE_TAG"
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          swift --version
+
+      - name: Resolve pinned decoder dependency
+        env:
+          # GITHUB_TOKEN cannot read the separate private decoder repository.
+          DECODER_READ_TOKEN: ${{ secrets.DECODER_READ_TOKEN }}
+        run: |
+          mkdir -p .build/ModuleCache
+          export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
+          export GIT_TERMINAL_PROMPT=0
+          export GIT_ASKPASS="$RUNNER_TEMP/swiftlight-git-askpass"
+          trap 'rm -f "$GIT_ASKPASS"' EXIT
+          cat > "$GIT_ASKPASS" <<'SH'
+          #!/bin/bash
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "$DECODER_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          SH
+          chmod 700 "$GIT_ASKPASS"
+          swift package --disable-sandbox --disable-dependency-cache --manifest-cache none --force-resolved-versions resolve
+
+      - name: Run automated tests and source audits
+        run: |
+          set -o pipefail
+          mkdir -p artifacts
+          scripts/validate-ci.sh 2>&1 | tee artifacts/ci-tests.log
+
+      - name: Import Developer ID and notarization credentials
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          for name in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            if [[ -z "${!name}" ]]; then echo "::error::Missing GitHub secret: $name"; exit 1; fi
+          done
+          keychain="$RUNNER_TEMP/swiftlight-signing.keychain-db"
+          certificate="$RUNNER_TEMP/swiftlight-signing.p12"
+          trap 'rm -f "$certificate"' EXIT
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          umask 077
+          printf '%s' "$DEVELOPER_ID_P12_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -P "$DEVELOPER_ID_P12_PASSWORD" -k "$keychain" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -En 's/^[[:space:]]*[0-9]+\) ([[:xdigit:]]{40}) "Developer ID Application:.*"$/\1/p')"
+          if [[ ! "$identity" =~ ^[[:xdigit:]]{40}$ ]]; then
+            echo '::error::The P12 must contain exactly one valid Developer ID Application identity.'
+            exit 1
+          fi
+          xcrun notarytool store-credentials swiftlight-notary --keychain "$keychain" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
+          echo "SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN_PATH=$keychain" >> "$GITHUB_ENV"
+
+      - name: Build signed release app
+        env:
+          CONFIGURATION: release
+        run: scripts/build-app.sh
+
+      - name: Notarize and staple app
+        run: |
+          ditto -c -k --keepParent .build/Swiftlight.app "$RUNNER_TEMP/Swiftlight.zip"
+          scripts/notarize.sh "$RUNNER_TEMP/Swiftlight.zip" artifacts/notarization/app.json
+          xcrun stapler staple .build/Swiftlight.app
+          xcrun stapler validate .build/Swiftlight.app
+          codesign --verify --deep --strict --verbose=2 .build/Swiftlight.app
+          spctl --assess --type execute --verbose=2 .build/Swiftlight.app
+
+      - name: Create, notarize, and verify DMG
+        run: |
+          scripts/package-dmg.sh
+          version="$(python3 scripts/release-version.py "$RELEASE_TAG")"
+          dmg="artifacts/release/Swiftlight-$version-macos-arm64.dmg"
+          scripts/notarize.sh "$dmg" artifacts/notarization/dmg.json
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          codesign --verify --strict --verbose=2 "$dmg"
+          hdiutil verify "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          cd artifacts/release
+          shasum -a 256 "Swiftlight-$version-macos-arm64.dmg" > SHA256SUMS.txt
+
+      - name: Upload verified installer
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: signed-installer
+          path: artifacts/release/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          keychain="$RUNNER_TEMP/swiftlight-signing.keychain-db"
+          if [[ -f "$keychain" ]]; then security delete-keychain "$keychain"; fi
+          rm -f "$RUNNER_TEMP/swiftlight-signing.p12" "$RUNNER_TEMP/swiftlight-git-askpass" "$RUNNER_TEMP/Swiftlight.zip"
+
+      - name: Upload test and notarization diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-diagnostics
+          path: |
+            artifacts/ci-tests.log
+            artifacts/build-packaging.json
+            artifacts/notarization/
+            artifacts/*results.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: signed-installer
+          path: release
+
+      - name: Publish GitHub Release with generated notes
+        run: |
+          cd release
+          sha256sum --check SHA256SUMS.txt
+          # Refuse to replace published assets on a rerun. A failed upload may
+          # leave a draft, which can be safely completed before publishing.
+          if gh release view "$RELEASE_TAG" --json isDraft > "$RUNNER_TEMP/release.json"; then
+            if [[ "$(jq -r .isDraft "$RUNNER_TEMP/release.json")" != true ]]; then
+              echo '::error::This release is already published. Use a new version tag.'
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes \
+              --title "Swiftlight ${RELEASE_TAG#v}"
+          fi
+          gh release upload "$RELEASE_TAG" ./*.dmg SHA256SUMS.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --verify-tag

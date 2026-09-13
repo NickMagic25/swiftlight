@@ -1,0 +1,79 @@
+diff --git a/src/Connection.c b/src/Connection.c
+--- a/src/Connection.c
++++ b/src/Connection.c
+@@ -2,8 +2,10 @@
+ 
+ static int stage = STAGE_NONE;
+ static ConnListenerConnectionTerminated originalTerminationCallback;
+-static bool alreadyTerminated;
++static _Atomic bool alreadyTerminated;
+ static PLT_THREAD terminationCallbackThread;
++// Swiftlight: keep termination delivery joinable until teardown; see docs/dev/transport.md.
++static bool terminationCallbackThreadStarted;
+ static int terminationCallbackErrorCode;
+ 
+ // Common globals
+@@ -17,7 +19,7 @@
+ DECODER_RENDERER_CALLBACKS VideoCallbacks;
+ AUDIO_RENDERER_CALLBACKS AudioCallbacks;
+ int NegotiatedVideoFormat;
+-volatile bool ConnectionInterrupted;
++_Atomic bool ConnectionInterrupted;
+ bool HighQualitySurroundSupported;
+ bool HighQualitySurroundEnabled;
+ OPUS_MULTISTREAM_CONFIGURATION NormalQualityOpusConfig;
+@@ -129,6 +131,12 @@
+         // Nothing to do
+         stage--;
+     }
++    // Media/control callers that can launch AsyncTerm have now been joined.
++    // Do not let an old callback observe the next session's global callbacks.
++    if (terminationCallbackThreadStarted) {
++        PltJoinThread(&terminationCallbackThread);
++        terminationCallbackThreadStarted = false;
++    }
+     if (stage == STAGE_PLATFORM_INIT) {
+         Limelog("Cleaning up platform...");
+         cleanupPlatform();
+@@ -160,12 +168,13 @@
+     int err;
+ 
+     // Avoid recursion and issuing multiple callbacks
+-    if (alreadyTerminated || ConnectionInterrupted) {
++    if (atomic_load_explicit(&ConnectionInterrupted, memory_order_acquire) ||
++        atomic_exchange_explicit(&alreadyTerminated, true, memory_order_acq_rel)) {
+         return;
+     }
+ 
++    // Only the winning termination caller may create/write the joinable callback.
+     terminationCallbackErrorCode = errorCode;
+-    alreadyTerminated = true;
+ 
+     // Invoke the termination callback on a separate thread
+     err = PltCreateThread("AsyncTerm", terminationCallbackThreadFunc, NULL, &terminationCallbackThread);
+@@ -175,8 +184,9 @@
+         LC_ASSERT(err == 0);
+     }
+ 
+-    // Detach the thread since we never wait on it
+-    PltDetachThread(&terminationCallbackThread);
++    // Swiftlight joins this thread during LiStopConnection. Client callbacks must
++    // dispatch stop to a lifecycle worker instead of stopping inline.
++    terminationCallbackThreadStarted = err == 0;
+ }
+ 
+ static bool parseRtspPortNumberFromUrl(const char* rtspSessionUrl, uint16_t* port)
+diff --git a/src/Limelight-internal.h b/src/Limelight-internal.h
+--- a/src/Limelight-internal.h
++++ b/src/Limelight-internal.h
+@@ -24,7 +24,9 @@
+ extern DECODER_RENDERER_CALLBACKS VideoCallbacks;
+ extern AUDIO_RENDERER_CALLBACKS AudioCallbacks;
+ extern int NegotiatedVideoFormat;
+-extern volatile bool ConnectionInterrupted;
++#include <stdatomic.h>
++// Swiftlight: async cancellation is shared across lifecycle and media threads.
++extern _Atomic bool ConnectionInterrupted;
+ extern bool HighQualitySurroundSupported;
+ extern bool HighQualitySurroundEnabled;
+ extern OPUS_MULTISTREAM_CONFIGURATION NormalQualityOpusConfig;

@@ -1,0 +1,319 @@
+{
+  "generated_at_utc": "2026-09-12T23:06:39.110228+00:00",
+  "status": "PASS",
+  "scope": "Clean export macOS build and offline validation; live host qualification remains separate.",
+  "toolchain": {
+    "xcode": "Xcode 26.6\nBuild version 17F113",
+    "swift": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+    "sdk_version": "26.5",
+    "sdk_path": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk"
+  },
+  "reproducibility": {
+    "clean_export": "/private/tmp/swiftlight-clean-verification",
+    "fresh_bootstrap": "Opus/OpenSSL archives downloaded anew, SHA256 verified, and compiled from source in the initial empty export. These pinned native build outputs were retained during final source refreshes; no build products were copied from the development workspace.",
+    "final_refresh": "Final frozen owned source copied into the export; generated vendor and compiled Swift/C target outputs removed before final preparation/build. common-c independently cloned, pinned, recursively initialized, and absorbed into the export own Git metadata.",
+    "local_decoder_override": false,
+    "owned_source_files_before_build": 105,
+    "final_source_hash_append_pending": false,
+    "final_owned_source_files": 107,
+    "production_source_unchanged_since_full_tests": true,
+    "final_manifest_sha256": "066b70ac1bee4c86a0a64fbd09fb6cb45944c2d5ef26dcab06bfceac28b8f21a",
+    "post_suite_changes": [
+      "README.md",
+      "docs/dev/implementation-report.md",
+      "docs/dev/video-lifetime.md",
+      "docs/dev/video-validation.md",
+      "scripts/preview-lifecycle-harness.swift",
+      "scripts/validate-preview-lifecycle.py"
+    ],
+    "manifest_exclusions": [
+      ".git",
+      ".build*",
+      "artifacts",
+      ".swiftpm",
+      "__pycache__",
+      ".vscode",
+      ".DS_Store",
+      "Dependencies/moonlight-common-c (Git pins separately verified)",
+      "Sources/CStreamBridge/vendor/common-c (generated and stamped)",
+      "docs/dev/validation/validation-summary.json (derived self-reference)"
+    ]
+  },
+  "dependencies": {
+    "decoder": {
+      "url": "https://github.com/NickMagic25/moonlight-apple-decoder.git",
+      "revision": "8d92ee039dc19fe50dc0158d5098d4c5646c6a56"
+    },
+    "moonlight_common_c": {
+      "revision": "62e066388f1a1b133e0bee947b9a374311a3354b",
+      "gitlink_mode": "160000",
+      "pristine_checkout": true,
+      "independent_git_directory": "/private/tmp/swiftlight-clean-verification/.git/modules/Dependencies/moonlight-common-c",
+      "submodules": {
+        "enet": "aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1",
+        "nanors": "b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a"
+      },
+      "patches": [
+        {
+          "file": "0001-serialize-cancellation-and-termination.patch",
+          "sha256": "36bda18e5aab35fb1cf0a7bf575eea36fff6d4eb4e46a1a841dd7da8e74562c0"
+        },
+        {
+          "file": "0002-expose-darwin-clock-epoch.patch",
+          "sha256": "c64384ad93e303fa69edb45d2a4e0ee17d4a7175fbf6a60997ca972b5825a312"
+        },
+        {
+          "file": "0003-expose-bound-video-socket-address.patch",
+          "sha256": "36c74790c0f6863e18421360a97d5af542ce5433308b68a9579c271a20440473"
+        }
+      ],
+      "generated_source": {
+        "revision": "62e066388f1a1b133e0bee947b9a374311a3354b",
+        "submodules": {
+          "enet": "aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1",
+          "nanors": "b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a"
+        },
+        "patches": [
+          "0001-serialize-cancellation-and-termination.patch",
+          "0002-expose-darwin-clock-epoch.patch",
+          "0003-expose-bound-video-socket-address.patch"
+        ],
+        "preparation_sha256": "ed60dc516ad5766eef11f59dbd1138dec8bd468d42cbefdb5daa69e5322e2f8d",
+        "source_sha256": "80d30bc67f6b7c05e14373fe1fa046aaa80e05e421f2b0974b12fec2b7f16a8f"
+      }
+    },
+    "opus": "1.5.2",
+    "openssl": "3.6.4"
+  },
+  "commands": [
+    {
+      "command": "env -u SWIFTLIGHT_DECODER_PATH scripts/bootstrap-dependencies.sh",
+      "status": "PASS"
+    },
+    {
+      "command": "env -u SWIFTLIGHT_DECODER_PATH scripts/build-app.sh",
+      "runs": 2,
+      "status": "PASS"
+    },
+    {
+      "command": "env -u SWIFTLIGHT_DECODER_PATH scripts/validate-offline.sh",
+      "status": "PASS"
+    },
+    {
+      "command": "SWIFTLIGHT_SANITIZERS=thread scripts/validate-transport-native.sh",
+      "status": "PASS"
+    },
+    {
+      "command": "codesign --verify --deep --strict --verbose=2 .build/Swiftlight.app",
+      "status": "PASS"
+    },
+    {
+      "command": "python3 scripts/audit-decoder.py",
+      "status": "PASS"
+    },
+    {
+      "command": "python3 scripts/validate-preview-lifecycle.py",
+      "status": "PASS",
+      "mode": "no window"
+    }
+  ],
+  "tests": {
+    "swift_total": 36,
+    "xctest": 24,
+    "swift_testing_host": 12,
+    "failures": 0,
+    "dependency_python_tests": 3,
+    "apollo_otp_vectors": 2,
+    "hardware_replay_fixtures": 8,
+    "asan_ubsan": "PASS",
+    "tsan": "PASS",
+    "native_clock_mapping": "CLOCK_UPTIME_RAW epoch conversion validated",
+    "keyboard_wire_and_release": "PASS",
+    "cancellation_state_phases": 20000,
+    "cancellation_race_iterations": 100000,
+    "callback_retirements": 1000,
+    "ordered_audio_frames": 100000,
+    "preview_lifecycle_hardware_checks": 7
+  },
+  "replays": [
+    {
+      "fixture": "av1-accounting-10",
+      "status": "PASS",
+      "codec": "av1",
+      "bit_depth": 10,
+      "dimensions": [
+        256,
+        144
+      ],
+      "hardware_validated": true,
+      "accepted": 71,
+      "completed": 71,
+      "output": 48,
+      "no_display": 23,
+      "show_existing": 20,
+      "outstanding": 0
+    },
+    {
+      "fixture": "av1-accounting-8",
+      "status": "PASS",
+      "codec": "av1",
+      "bit_depth": 8,
+      "dimensions": [
+        256,
+        144
+      ],
+      "hardware_validated": true,
+      "accepted": 71,
+      "completed": 71,
+      "output": 48,
+      "no_display": 23,
+      "show_existing": 20,
+      "outstanding": 0
+    },
+    {
+      "fixture": "av1-hdr10",
+      "status": "PASS",
+      "codec": "av1",
+      "bit_depth": 10,
+      "dimensions": [
+        128,
+        72
+      ],
+      "hardware_validated": true,
+      "accepted": 8,
+      "completed": 8,
+      "output": 8,
+      "no_display": 0,
+      "show_existing": 0,
+      "outstanding": 0
+    },
+    {
+      "fixture": "av1-reconfigure",
+      "status": "PASS",
+      "codec": "av1",
+      "bit_depth": 10,
+      "dimensions": [
+        192,
+        104
+      ],
+      "hardware_validated": true,
+      "accepted": 8,
+      "completed": 8,
+      "output": 8,
+      "no_display": 0,
+      "show_existing": 0,
+      "outstanding": 0
+    },
+    {
+      "fixture": "av1-sdr8",
+      "status": "PASS",
+      "codec": "av1",
+      "bit_depth": 8,
+      "dimensions": [
+        128,
+        72
+      ],
+      "hardware_validated": true,
+      "accepted": 8,
+      "completed": 8,
+      "output": 8,
+      "no_display": 0,
+      "show_existing": 0,
+      "outstanding": 0
+    },
+    {
+      "fixture": "hevc-hdr10",
+      "status": "PASS",
+      "codec": "hevc",
+      "bit_depth": 10,
+      "dimensions": [
+        128,
+        72
+      ],
+      "hardware_validated": true,
+      "accepted": 8,
+      "completed": 8,
+      "output": 8,
+      "no_display": 0,
+      "show_existing": 0,
+      "outstanding": 0
+    },
+    {
+      "fixture": "hevc-reconfigure",
+      "status": "PASS",
+      "codec": "hevc",
+      "bit_depth": 10,
+      "dimensions": [
+        192,
+        104
+      ],
+      "hardware_validated": true,
+      "accepted": 8,
+      "completed": 8,
+      "output": 8,
+      "no_display": 0,
+      "show_existing": 0,
+      "outstanding": 0
+    },
+    {
+      "fixture": "hevc-sdr8",
+      "status": "PASS",
+      "codec": "hevc",
+      "bit_depth": 8,
+      "dimensions": [
+        128,
+        72
+      ],
+      "hardware_validated": true,
+      "accepted": 8,
+      "completed": 8,
+      "output": 8,
+      "no_display": 0,
+      "show_existing": 0,
+      "outstanding": 0
+    }
+  ],
+  "bundle": {
+    "path": "/Users/nmajkic/git/moonlight-dev/swiftlight/.build/VerifiedBaseline-2026-09-12/Swiftlight.app",
+    "binary_sha256": "f16995042faf576b78af4e4f5f374a87e00285eef2f0ae7ab6a163db55376a18",
+    "signing": "ad-hoc",
+    "signature_verified_after_copy": true,
+    "static_common_c_symbols": [
+      "LiStartConnection",
+      "LiStopConnection",
+      "LiSendKeyboardEvent2",
+      "LiCompleteVideoFrame",
+      "LiWaitForNextVideoFrame"
+    ],
+    "homebrew_dynamic_dependencies": false,
+    "root_active_bundle_modified": false,
+    "launched_during_verification": false
+  },
+  "not_performed": [
+    "Live Sunshine/Apollo connections or pairing",
+    "Audio device playback or route-switch listening",
+    "Physical HDR display validation",
+    "End-to-end input or presentation latency benchmarks",
+    "Thirty-minute streaming soak",
+    "Other Apple platform/device qualification"
+  ],
+  "artifacts": "artifacts/clean-verification/",
+  "preview_lifecycle": {
+    "checks": [
+      "finite final mailbox retention",
+      "terminal/presentation status separation",
+      "honest callback metric export",
+      "retained frame after teardown",
+      "Completed Stop affordance",
+      "restart destruction barrier",
+      "queued restart cancellation"
+    ],
+    "hardwareValidated": true,
+    "liveFramesAfterStop": 0,
+    "mode": "preview-lifecycle-no-window",
+    "sourceSHA256": "bb49b1e07d0a6462c8b1f8b6e1b4bdeea5e7f3d95fb7e9412e2fda4870a9624a",
+    "status": "PASS",
+    "visiblePresentationMeasured": false
+  },
+  "archival_note": "Earlier clean-export offline baseline. The later pairing fix is recorded in validation-summary.json; this baseline suite was not rerun in its entirety for that follow-up."
+}
