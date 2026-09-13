@@ -13,7 +13,6 @@ In **Settings → Secrets and variables → Actions → Repository secrets**, ad
 | `APPLE_ID` | Apple Account email authorized to notarize for the developer team. |
 | `APPLE_TEAM_ID` | The certificate's Apple Developer team ID. |
 | `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password for that Apple Account, created at Apple's account website. Use this instead of the account's login password. |
-| `DECODER_READ_TOKEN` | Fine-grained GitHub token with **Contents: Read-only** access to `NickMagic25/moonlight-apple-decoder`. Required while that repository is private; the workflow's `GITHUB_TOKEN` can access only Swiftlight. Omit it if the decoder becomes public. |
 
 For example, import the certificate into a GitHub secret without printing its contents:
 
@@ -25,7 +24,7 @@ Enter the other secrets through GitHub's UI or `gh secret set SECRET_NAME --repo
 
 Ensure Actions is enabled, the repository permits the pinned official GitHub Actions, and the account has macOS runner capacity/budget. The build job uses `macos-26` (Apple silicon) and explicitly selects `/Applications/Xcode_26.6.app/Contents/Developer`, matching Swift 6.3 requirements. The app targets macOS 14 or later. This workflow produces an **arm64 DMG**, not an Intel or universal build.
 
-Both repositories are currently private. GitHub release downloads remain limited to users with access to Swiftlight; make an explicit distribution/access decision before directing external users to the release page.
+Swiftlight and `moonlight-apple-decoder` are public. GitHub release downloads are therefore publicly accessible; make an explicit distribution decision before directing external users to the release page.
 
 ## Create the first release
 
