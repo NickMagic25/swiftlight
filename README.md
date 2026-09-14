@@ -1,8 +1,8 @@
 # Swiftlight
 
-Swiftlight is a native macOS client for Moonlight game streaming. It connects to Sunshine and Apollo hosts, uses Apple hardware video decoding, and presents your games in a SwiftUI and Metal interface designed for the Mac.
+Swiftlight is a native Apple client for Moonlight game streaming, with a macOS app and developing iPhone and iPad MVPs. It connects to Sunshine and Apollo hosts, uses Apple hardware video decoding, and presents games through SwiftUI and Metal. The [iPhone and iPad guide](docs/mobile.md) describes the mobile feature set and its validation limits.
 
-## What you can do
+## What you can do on Mac
 
 - Pair with a Sunshine or Apollo computer and browse its applications with cover artwork.
 - Stream in native full screen or in a resizable window.
@@ -11,7 +11,7 @@ Swiftlight is a native macOS client for Moonlight game streaming. It connects to
 - Choose Stereo, 5.1, or 7.1 audio, with Direct output or System Spatial Audio on compatible AirPods.
 - View optional stream statistics and export the last completed stream's privacy-filtered diagnostics.
 
-macOS is the current application target. iOS, iPadOS, and tvOS adapters are future work. Swiftlight is still under active development; see the [compatibility guide](docs/compatibility-matrix.md) and [acceptance status](docs/dev/acceptance-matrix.md) for the current validation boundary.
+The `SwiftlightMobile` Xcode target supports iOS and iPadOS 26 or later, with adaptive navigation, discovery, PIN pairing, application browsing, and a first SDR streaming path. tvOS remains future work. Swiftlight is still under active development; see the [mobile guide](docs/mobile.md), [compatibility guide](docs/compatibility-matrix.md), and [acceptance status](docs/dev/acceptance-matrix.md) for validation boundaries.
 
 ## Requirements
 
@@ -35,7 +35,9 @@ In Xcode, select the **Swiftlight** scheme and **My Mac** destination, choose yo
 
 Bootstrap downloads and builds pinned native dependencies on its first run, so internet access is required. Run it again when native dependency inputs change; local Xcode builds do not run it automatically. See [development documentation](docs/dev/README.md) for the terminal `xcodebuild` recipe, signing and verification. `Package.swift` supplies the shared modules and test/replay tooling used by the app.
 
-## Connect to a computer
+For iPhone or iPad, prepare dependencies with `scripts/bootstrap-dependencies.sh --platform ios-simulator` for Simulator or `--platform ios` for devices, then choose the **SwiftlightMobile** scheme and the intended iPhone or iPad destination. See the [mobile guide](docs/mobile.md) for build, input, and platform details.
+
+## Connect from your Mac
 
 1. Select **Add Computer** and enter the host address, or choose a Bonjour-discovered host. Custom ports and IPv6 addresses are supported.
 2. Select **Start PIN Pairing**, then enter the PIN in Sunshine or Apollo. Apollo also supports its one-time `art://` pairing link.

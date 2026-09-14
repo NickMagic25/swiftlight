@@ -1,12 +1,13 @@
 # Architecture
 
-Swiftlight is a native macOS SwiftUI application built on a shared Apple streaming engine. The first target is macOS 14 or later. The package declares iOS/tvOS 17 engine minima; UIKit/tvOS application adapters are follow-on work and are not shipped or validated in this macOS delivery.
+Swiftlight has native SwiftUI applications for macOS and a developing iPhone/iPad MVP built on the same Apple streaming engine. The `Swiftlight` target supports macOS 14 or later; `SwiftlightMobile` targets iOS and iPadOS 26 or later. Package platform declarations establish shared-engine minima, while Xcode targets establish runnable clients. tvOS has no application adapter yet. See the [mobile guide](../mobile.md) for the implemented surface and validation limits.
 
 `Swiftlight.xcodeproj` and its shared `Swiftlight` scheme own the primary app build, run and archive workflow. The app target compiles `Sources/SwiftlightApp` and consumes the shared libraries defined by the local `Package.swift`. SwiftPM also provides module tests, replay tooling and the secondary app-packaging path used by the existing release workflow. See the [build guide](README.md#build-and-run-the-app-with-xcode); adding or renaming app sources requires updating their explicit Xcode project membership.
 
 ## Boundaries
 
 - `SwiftlightApp`: MainActor host/library/settings/pairing/session orchestration; AppKit Metal surface, native full screen, scoped keyboard/mouse capture, GameController and power activity.
+- `SwiftlightMobile`: MainActor discovery, saved-host selection, PIN pairing, library, staged settings, and generation-checked session orchestration. SwiftUI owns adaptive navigation and sheets; narrow UIKit adapters supply window geometry, Metal presentation, touch input, and stream accessibility. The mobile target also compiles the existing `StreamingPipeline` and `ControllerHub` app sources to share their video ownership and physical-controller behavior, and `AppLibraryGrid`, `AppArtworkStore`, and `GlassStyle` for authenticated cover artwork and library presentation.
 - `SwiftlightCore`: Foundation/CoreGraphics value types for requested settings, host/device capability intersection, safe-area/viewport transforms, session generations and held-input state. No decoder, network socket or UI dependencies.
 - `SwiftlightHost`: Bonjour, host HTTP/XML, Keychain identity and certificate pins, standard PIN and Apollo OTP pairing, app control and nonsecret host persistence. Its C crypto helper uses OpenSSL for established GameStream RSA/certificate operations. See `host-protocol-details.md`.
 - `SwiftlightTransport` / `CStreamBridge`: pinned moonlight-common-c transport, pull video ownership, Opus and CoreAudio stereo output, protocol input. No video decoder.

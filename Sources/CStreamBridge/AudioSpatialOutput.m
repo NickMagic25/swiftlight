@@ -1,5 +1,8 @@
 #import <AVFoundation/AVFoundation.h>
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
 #import <CoreAudio/CoreAudio.h>
+#endif
 #include "AudioSpatialOutput.h"
 #include "AudioFormat.h"
 #include "AudioQueuePolicy.h"
@@ -16,12 +19,15 @@ static int64_t current_frame(AVSampleBufferRenderSynchronizer *synchronizer) {
     return CMTIME_IS_NUMERIC(time)
         ? CMTimeConvertScale(time, 48000, kCMTimeRoundingMethod_RoundTowardPositiveInfinity).value : 0;
 }
+#if TARGET_OS_OSX
 static bool audio_property(AudioObjectID object, AudioObjectPropertySelector selector,
                            AudioObjectPropertyScope scope, void *value, UInt32 size) {
     AudioObjectPropertyAddress address = {selector, scope, kAudioObjectPropertyElementMain};
     return AudioObjectGetPropertyData(object, &address, 0, NULL, &size, value) == noErr;
 }
+#endif
 static uint32_t route_floor_frames(void) {
+#if TARGET_OS_OSX
     AudioDeviceID device = kAudioObjectUnknown;
     Float64 rate = 0;
     if (!audio_property(kAudioObjectSystemObject, kAudioHardwarePropertyDefaultOutputDevice,
@@ -46,6 +52,14 @@ static uint32_t route_floor_frames(void) {
     // Apple's prerecorded-media preroll flag remains diagnostic: the measured
     // threshold exceeds our entire real-time queue bound.
     uint64_t frames = (uint64_t)ceil(((double)latency + safety + buffer + streamLatency) * 48000 / rate);
+#else
+    // iOS exposes the active route through AVAudioSession, not the macOS HAL.
+    // Session activation and interruptions belong to the app's session lifecycle.
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    double seconds = session.outputLatency + session.IOBufferDuration;
+    if (!isfinite(seconds) || seconds <= 0) return SF_AUDIO_SPATIAL_TARGET_FRAMES;
+    uint64_t frames = (uint64_t)ceil(seconds * 48000);
+#endif
     return sf_audio_spatial_route_floor(frames);
 }
 static double mapped_host_delta(CMTimebaseRef timebase, int64_t frame, uint64_t host) {

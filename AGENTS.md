@@ -4,7 +4,7 @@
 
 These instructions apply throughout Swiftlight. Read the relevant source and linked engineering contract before changing a subsystem; dated validation reports describe the runs they recorded, not current acceptance.
 
-- Swiftlight ships a native macOS SwiftUI/AppKit client. `Package.swift` requires Swift tools 6.3 and Swift 6 language mode. Its iOS/tvOS platform declarations support future shared-engine work; they do not establish shipping mobile or TV clients. Use the toolchain requirements in [README.md](README.md) and `.github/workflows/release.yml`.
+- Swiftlight has a native macOS SwiftUI/AppKit client and an iOS/iPadOS 26+ MVP in the universal `SwiftlightMobile` Xcode target. Mobile device streaming and distribution acceptance remain separate from simulator checks; see [mobile](docs/mobile.md). `Package.swift` requires Swift tools 6.3 and Swift 6 language mode. Its tvOS declaration does not establish a TV app. Use the toolchain requirements in [README.md](README.md) and `.github/workflows/release.yml`.
 - Use `Swiftlight.xcodeproj` and its shared `Swiftlight` scheme as the primary app build, run, debug and archive entrypoint. `Package.swift` defines the shared modules, tests and replay tooling, plus the secondary SwiftPM app executable used by the current release packager. Keep the following boundaries:
 
 | Path | Responsibility and placement rule |
@@ -15,6 +15,7 @@ These instructions apply throughout Swiftlight. Read the relevant source and lin
 | `Sources/SwiftlightTransport/`, `Sources/CStreamBridge/` | common-c transport, compressed-frame ownership, protocol input, Opus and native C/Objective-C audio. No video decoding. |
 | `Sources/SwiftlightVideo/` | `MoonlightAppleVideo` adapter, decoded-frame handoff, production Metal renderer and readback validation. |
 | `Sources/SwiftlightApp/` | MainActor app orchestration, SwiftUI views, AppKit windows/surfaces, input and controllers. Start with `SwiftlightApp.swift`, `ClientModel.swift` and `StreamingPipeline.swift`. |
+| `Sources/SwiftlightMobile/` | iPhone/iPad SwiftUI navigation and MainActor session orchestration, with narrow UIKit display/input and audio-session adapters. Reuses `StreamingPipeline.swift` and `ControllerHub.swift` through explicit Xcode membership. |
 | `Sources/SwiftlightReplay/` | Fixture replay through the production decoder and renderer; do not create an independent video implementation for tests. |
 | `Tests/` | Swift module tests, native transport/audio harnesses, and Python dependency/release/packaging checks. |
 
@@ -66,6 +67,7 @@ Run commands from the repository root. Bootstrap before local Xcode builds, dire
 - Native transport/audio or common-c patch changes need the native harness and a separate TSan run. `SWIFTLIGHT_AUDIO_SMOKE=1 scripts/validate-transport-native.sh` adds real local audio playback when audio output is part of the task; it is not included in the default gate.
 - Verify app changes with the `Swiftlight.xcodeproj` / `Swiftlight` build. SwiftPM compilation alone is not app build verification. Run focused SwiftPM tests for affected shared modules; also check the secondary packager when changing its inputs, shared plist or packaging behavior. Follow the [local build guide](docs/dev/README.md#build-and-run-the-app-with-xcode) and [Xcode Cloud setup](docs/dev/xcode-cloud.md) for their respective environments.
 - UI changes require a launched app and inspection of the affected flow, including applicable keyboard/accessibility and appearance states. Use the signed bundle for Keychain, permission, pairing and live-host checks. A preview, stubbed packaging test or successful signature check does not establish runtime acceptance.
+- For mobile, bootstrap with `scripts/bootstrap-dependencies.sh --platform ios-simulator` (simulators) or `--platform ios` (device archives). Build/test the shared `SwiftlightMobile` scheme on both iPhone and iPad destinations; it owns `SwiftlightMobileUITests`. Keep SDK-specific static-library search paths separate. Run `scripts/validate-mobile-crypto.sh <booted-simulator-UDID>` for the production mobile crypto probe. An iOS 26 SDK build does not verify iOS/iPadOS 27 without that runtime/toolchain.
 - For stream/debug-build delivery, verify a real stream when a suitable host/device is available. Record unavailable host, hardware, Keychain or display access as blocked validation. Do not report skipped hardware tests, offscreen GPU completion or a screenshot as successful live presentation/HDR validation.
 - Report checks run and their scope, failures, and remaining live gates. Use [manual validation](docs/dev/manual-validation.md) and the [acceptance matrix](docs/dev/acceptance-matrix.md); do not copy historical PASS rows or test counts into a new result.
 

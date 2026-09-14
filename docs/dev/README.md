@@ -8,6 +8,11 @@ This directory contains engineering notes, implementation references, validation
 
 Use Xcode 26.6 / Swift 6.3.3 and the native tools listed in the [root requirements](../../README.md#requirements). The app project targets Apple silicon Macs running macOS 14 or later.
 
+For iPhone and iPad, select the shared **SwiftlightMobile** scheme and prepare
+the matching native SDK libraries. Follow the [mobile build guide](../mobile.md#build-and-run)
+and [mobile validation record](mobile-mvp-validation-2026-09-13.md). The mobile
+target requires iOS/iPadOS 26 or later and has its own UI test target.
+
 From the repository root:
 
 ```sh
@@ -33,7 +38,7 @@ For an archive, use **Product → Archive** with the shared scheme, whose Archiv
 
 ## Verify shared modules and native integration
 
-The Xcode scheme currently has no test targets. Continue using the repository's SwiftPM and native validation commands; **Product → Test** or `xcodebuild test` does not replace them:
+The macOS **Swiftlight** scheme currently has no test targets. **SwiftlightMobile** includes its simulator UI suite. Continue using the repository's SwiftPM and native validation commands for shared modules; **Product → Test** or `xcodebuild test` does not replace them:
 
 ```sh
 scripts/validate-ci.sh
@@ -62,6 +67,7 @@ Direct `swift test`, replay builds and app-source harnesses remain supported too
 
 ## Validation and investigations
 
+- [iPhone/iPad MVP validation](mobile-mvp-validation-2026-09-13.md)
 - [Acceptance matrix](acceptance-matrix.md)
 - [Benchmarking](benchmarking.md)
 - [Implementation report](implementation-report.md)

@@ -1,0 +1,11 @@
+diff --git a/providers/stores.inc b/providers/stores.inc
+--- a/providers/stores.inc
++++ b/providers/stores.inc
+@@ -11,7 +11,6 @@
+ # error Macro STORE undefined
+ #endif
+ 
+-STORE("file", "yes", ossl_file_store_functions)
+ #ifndef OPENSSL_NO_WINSTORE
+ STORE("org.openssl.winstore", "yes", ossl_winstore_store_functions)
+ #endif

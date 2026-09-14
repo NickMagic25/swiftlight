@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive macOS bundle versions from a stable SemVer release tag."""
+"""Set bundle versions from a stable SemVer tag or an existing marketing version."""
 import argparse
 import plistlib
 import re
@@ -14,19 +14,24 @@ def version_from_tag(tag):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tag")
+    parser.add_argument("tag", nargs="?", help="Stable SemVer tag; omit to retain the plist marketing version")
     parser.add_argument("--plist", type=Path)
-    parser.add_argument("--build-number", default="1", help="Positive macOS bundle build number")
+    parser.add_argument("--build-number", default="1", help="Positive bundle build number")
     args = parser.parse_args()
-    try:
-        version = version_from_tag(args.tag)
-    except ValueError as error:
-        parser.error(str(error))
     if not re.fullmatch(r"[1-9][0-9]*", args.build_number):
         parser.error("Build number must be a positive integer without leading zeros")
+    if not args.tag and not args.plist:
+        parser.error("A plist is required when retaining the marketing version")
+    info = None
     if args.plist:
         with args.plist.open("rb") as source:
             info = plistlib.load(source)
+    try:
+        tag = args.tag if args.tag is not None else "v" + info.get("CFBundleShortVersionString", "")
+        version = version_from_tag(tag)
+    except (TypeError, ValueError) as error:
+        parser.error(str(error))
+    if args.plist:
         info["CFBundleShortVersionString"] = version
         info["CFBundleVersion"] = args.build_number
         with args.plist.open("wb") as destination:

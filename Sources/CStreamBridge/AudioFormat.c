@@ -21,17 +21,17 @@ AudioStreamBasicDescription sf_audio_pcm_format(uint32_t channels) {
 }
 OSStatus sf_audio_format_description(uint32_t channels, CMAudioFormatDescriptionRef *description) {
     AudioChannelLayout layout;
-    if (!description || !sf_audio_channel_layout(channels, &layout)) return paramErr;
+    if (!description || !sf_audio_channel_layout(channels, &layout)) return kAudio_ParamError;
     AudioStreamBasicDescription format = sf_audio_pcm_format(channels);
     return CMAudioFormatDescriptionCreate(kCFAllocatorDefault, &format, sizeof(layout), &layout,
                                          0, NULL, NULL, description);
 }
 OSStatus sf_audio_sample_buffer(CMAudioFormatDescriptionRef description, const float *pcm,
                                uint32_t frames, int64_t presentation_frame, CMSampleBufferRef *sample) {
-    if (!description || !pcm || !sample || !frames || frames > 5760 || presentation_frame < 0) return paramErr;
+    if (!description || !pcm || !sample || !frames || frames > 5760 || presentation_frame < 0) return kAudio_ParamError;
     *sample = NULL;
     const AudioStreamBasicDescription *format = CMAudioFormatDescriptionGetStreamBasicDescription(description);
-    if (!format || format->mSampleRate != 48000 || format->mChannelsPerFrame > 8) return paramErr;
+    if (!format || format->mSampleRate != 48000 || format->mChannelsPerFrame > 8) return kAudio_ParamError;
     size_t bytes = (size_t)frames * format->mBytesPerFrame;
     CMBlockBufferRef block = NULL;
     OSStatus status = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, NULL, bytes,

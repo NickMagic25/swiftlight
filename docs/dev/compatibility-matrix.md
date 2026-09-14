@@ -18,7 +18,7 @@ PASS means this exact check ran; source support alone is not a pass.
 | H.264 / YUV444 / HLG | not advertised; explicit rejection | Architecture audit + format tests |
 | Packed native/lossless output | not enabled | SKIP evidence-gated optimization; canonical production path |
 | macOS Intel | source deployment target exists | BLOCKED on build/hardware validation; HEVC capability determines usable configurations |
-| iOS/iPadOS | core geometry/settings/host/video modules prepared | TODO future app adapter/touch/AVAudioSession/signing/physical devices; macOS first scope |
+| iOS/iPadOS 26+ | universal SwiftUI app, shared host/streaming engine, UIKit/Metal/touch and AVAudioSession adapters | iPhone/iPad 26.5 simulator builds, launch and UI checks plus unsigned device archive; physical streaming, 27 runtime and signed distribution remain BLOCKED. See [mobile validation](mobile-mvp-validation-2026-09-13.md). |
 | tvOS | core shared intent | TODO future target/focus/controller UI/audio and separate HDR API path |
 
 No simulator result establishes hardware decode, HDR, local-network permission behavior or streaming performance.

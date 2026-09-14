@@ -21,3 +21,31 @@ The generated `.swiftlight-source.json` records the pins, patch order and SHA-25
 5. Confirm `git -C Dependencies/moonlight-common-c status --porcelain` is empty, and review `git diff --submodule=log` plus the patch diff.
 
 Fresh clones can use `--recurse-submodules`; bootstrap also initializes missing submodules. A wrong revision or tracked local edit is rejected with an actionable error rather than silently reset. The initial bootstrap requires Git/network access, native build tools, and the pinned SwiftPM decoder repository.
+
+## iOS native libraries and OpenSSL
+
+`scripts/bootstrap-dependencies.sh --platform ios` builds arm64 device libraries;
+`--platform ios-simulator` builds arm64 and x86_64 simulator slices. The default
+remains macOS. Native SDKs have separate build/install trees; the Xcode target
+selects the matching library directory, while generated mobile OpenSSL headers
+select their configuration using target architecture and simulator macros.
+Verified license texts are always published at `.build/dependencies/licenses`
+for the app's packaging phase, including clean mobile-only Cloud workers.
+
+The mobile OpenSSL build uses memory BIOs and Apple's secure entropy source.
+Its supported build flags disable stdio, POSIX file helpers, console prompts,
+automatic configuration loading and external module builds. OpenSSL 3.6.4 still
+registers a file store in both built-in providers despite those flags, so the
+explicit [mobile patch](../../patches/openssl/README.md) removes that unused
+registration from the extracted mobile source. The upstream archive stays
+SHA-256-pinned, and the patch hash is part of each mobile cache identity. macOS
+uses the original source and configuration.
+
+Run `python3 -m unittest discover -s Tests/DependencyPreparation -v` for patch
+application, cache invalidation and platform isolation. After bootstrapping and
+booting a simulator, run `scripts/validate-mobile-crypto.sh <simulator-UDID>`.
+It exercises ephemeral identity/PKCS12, signature verification and tamper
+rejection, AES ECB/CBC/GCM known vectors, rejected GCM tags, and unavailable
+file-store lookup. It also fails if the linked crypto probe imports filesystem
+metadata APIs. Relink and audit the actual device app before accepting a
+release; a standalone probe does not establish app distribution acceptance.

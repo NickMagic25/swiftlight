@@ -4,8 +4,10 @@
 #include "AudioSpatialOutput.h"
 #include "AudioQueuePolicy.h"
 #include <AudioToolbox/AudioToolbox.h>
-#include <CoreAudio/CoreAudio.h>
 #include <TargetConditionals.h>
+#if TARGET_OS_OSX
+#include <CoreAudio/CoreAudio.h>
+#endif
 #include <opus/opus_multistream.h>
 #include <dispatch/dispatch.h>
 #include <Block.h>

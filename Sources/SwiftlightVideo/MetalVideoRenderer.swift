@@ -794,13 +794,21 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         lock.lock()
         counters.submitted += 1; counters.inFlight += 1; counters.inFlightHighWater = max(counters.inFlightHighWater, counters.inFlight)
         if frameOverlay != nil { counters.overlayDraws += 1 }
+        #if targetEnvironment(simulator)
+        // Simulator Metal has no drawable presentation callback. Do not create a
+        // join or substitute GPU completion for confirmed display measurements.
+        let presentationID: UInt64? = nil
+        if drawable != nil { counters.unconfirmedPresentation += 1 }
+        #else
         let presentationID = drawable == nil ? nil : presentationJoiner.begin(frameTiming, submission: gpuStamp.timing)
+        #endif
         lock.unlock()
         idle.enter()
         // Preserve command ordering for concurrent callers before releasing encoding
         // serialization. No callback can need this lock, and metrics are unlocked.
         command.enqueue()
         encodingLock.unlock(); encodingLocked = false
+        #if !targetEnvironment(simulator)
         if let drawable, let presentationID {
             drawable.addPresentedHandler { [weak self] presented in
                 guard let self else { return }
@@ -813,8 +821,9 @@ public final class MetalVideoRenderer: @unchecked Sendable {
                 self.recordResolvedPresentation(self.presentationJoiner.presented(presentationID, at: presentedTime,
                     callbackSeconds: callbackSeconds, calibration: calibration))
             }
-            present?(command)
         }
+        #endif
+        if drawable != nil { present?(command) }
         if captureScheduledCallback { command.addScheduledHandler { [weak self] _ in
             let callbackSeconds = CACurrentMediaTime()
             guard let self else { return }

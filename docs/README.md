@@ -3,6 +3,7 @@
 These pages describe Swiftlight from a player's perspective: connecting to a computer, choosing stream/audio/display settings, understanding the optional statistics panel, and sharing a safe diagnostics export.
 
 - [Pairing and host connections](host-protocol.md)
+- [iPhone and iPad MVP](mobile.md)
 - [Appearance and application library](appearance.md)
 - [Audio and Spatial Audio](audio.md)
 - [Stream presentation](stream-presentation.md)

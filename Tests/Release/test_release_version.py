@@ -43,6 +43,31 @@ class ReleaseVersionTests(unittest.TestCase):
                                         text=True, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
 
+    def test_branch_build_retains_marketing_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            plist = Path(temporary) / "Info.plist"
+            info = {"CFBundleShortVersionString": "0.4.2", "CFBundleVersion": "1", "UIDeviceFamily": [1, 2]}
+            plist.write_bytes(plistlib.dumps(info))
+            subprocess.run([sys.executable, str(SCRIPT), "--build-number", "103", "--plist", str(plist)],
+                           check=True, capture_output=True)
+            info["CFBundleVersion"] = "103"
+            self.assertEqual(plistlib.loads(plist.read_bytes()), info)
+
+    def test_invalid_marketing_version_does_not_mutate_plist(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            plist = Path(temporary) / "Info.plist"
+            for version in (None, "", "1.0", "1.2.3-beta", 123):
+                with self.subTest(version=version):
+                    info = {"CFBundleVersion": "1"}
+                    if version is not None:
+                        info["CFBundleShortVersionString"] = version
+                    original = plistlib.dumps(info)
+                    plist.write_bytes(original)
+                    result = subprocess.run([sys.executable, str(SCRIPT), "--build-number", "103", "--plist", str(plist)],
+                                            capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(plist.read_bytes(), original)
+
 
 if __name__ == "__main__":
     unittest.main()

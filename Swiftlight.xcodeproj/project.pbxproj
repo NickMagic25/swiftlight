@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 71;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -30,9 +30,39 @@
 		A10000000000000000000021 /* SwiftlightHost in Frameworks */ = {isa = PBXBuildFile; productRef = A60000000000000000000002 /* SwiftlightHost */; };
 		A10000000000000000000022 /* SwiftlightTransport in Frameworks */ = {isa = PBXBuildFile; productRef = A60000000000000000000003 /* SwiftlightTransport */; };
 		A10000000000000000000023 /* SwiftlightVideo in Frameworks */ = {isa = PBXBuildFile; productRef = A60000000000000000000004 /* SwiftlightVideo */; };
+		B10000000000000000000001 /* SwiftlightMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* SwiftlightMobileApp.swift */; };
+		B10000000000000000000002 /* MobileClientModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* MobileClientModel.swift */; };
+		B10000000000000000000003 /* MobileContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* MobileContentView.swift */; };
+		B10000000000000000000004 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000004 /* MobileSettingsView.swift */; };
+		B10000000000000000000005 /* MobileStreamingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* MobileStreamingSession.swift */; };
+		B10000000000000000000006 /* MobileStreamSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000006 /* MobileStreamSurface.swift */; };
+		B10000000000000000000007 /* MobileDisplayProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000007 /* MobileDisplayProbe.swift */; };
+		B10000000000000000000008 /* StreamingPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* StreamingPipeline.swift */; };
+		B10000000000000000000009 /* ControllerHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* ControllerHub.swift */; };
+		B10000000000000000000010 /* AppArtworkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* AppArtworkStore.swift */; };
+		B10000000000000000000011 /* AppLibraryGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppLibraryGrid.swift */; };
+		B10000000000000000000012 /* GlassStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* GlassStyle.swift */; };
+		B10000000000000000000015 /* SwiftlightCore in Frameworks */ = {isa = PBXBuildFile; productRef = B60000000000000000000001 /* SwiftlightCore */; };
+		B10000000000000000000016 /* SwiftlightHost in Frameworks */ = {isa = PBXBuildFile; productRef = B60000000000000000000002 /* SwiftlightHost */; };
+		B10000000000000000000017 /* SwiftlightTransport in Frameworks */ = {isa = PBXBuildFile; productRef = B60000000000000000000003 /* SwiftlightTransport */; };
+		B10000000000000000000018 /* SwiftlightVideo in Frameworks */ = {isa = PBXBuildFile; productRef = B60000000000000000000004 /* SwiftlightVideo */; };
+		B1000000000000000000003D /* App/MobileAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000015 /* App/MobileAssets.xcassets */; };
+		B1000000000000000000003E /* App/PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000016 /* App/PrivacyInfo.xcprivacy */; };
+		C10000000000000000000001 /* Tests/SwiftlightMobileUITests/MobileNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000001 /* Tests/SwiftlightMobileUITests/MobileNavigationTests.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		C70000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B50000000000000000000001;
+			remoteInfo = SwiftlightMobile;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		38A9AD7F3057B529005EBC2B /* SwiftlightMobileUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftlightMobileUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000001 /* AppArtworkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppArtworkStore.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* AppLibraryGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLibraryGrid.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* ClientModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientModel.swift; sourceTree = "<group>"; };
@@ -53,6 +83,17 @@
 		A20000000000000000000018 /* StreamingPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingPipeline.swift; sourceTree = "<group>"; };
 		A20000000000000000000019 /* SwiftlightApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftlightApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000020 /* Swiftlight.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Swiftlight.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B20000000000000000000001 /* SwiftlightMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftlightMobileApp.swift; sourceTree = "<group>"; };
+		B20000000000000000000002 /* MobileClientModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileClientModel.swift; sourceTree = "<group>"; };
+		B20000000000000000000003 /* MobileContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileContentView.swift; sourceTree = "<group>"; };
+		B20000000000000000000004 /* MobileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSettingsView.swift; sourceTree = "<group>"; };
+		B20000000000000000000005 /* MobileStreamingSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileStreamingSession.swift; sourceTree = "<group>"; };
+		B20000000000000000000006 /* MobileStreamSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileStreamSurface.swift; sourceTree = "<group>"; };
+		B20000000000000000000007 /* MobileDisplayProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileDisplayProbe.swift; sourceTree = "<group>"; };
+		B20000000000000000000014 /* SwiftlightMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftlightMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B20000000000000000000015 /* App/MobileAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = App/MobileAssets.xcassets; sourceTree = SOURCE_ROOT; };
+		B20000000000000000000016 /* App/PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = App/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };
+		C20000000000000000000001 /* Tests/SwiftlightMobileUITests/MobileNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/SwiftlightMobileUITests/MobileNavigationTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -67,18 +108,33 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B30000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000015 /* SwiftlightCore in Frameworks */,
+				B10000000000000000000016 /* SwiftlightHost in Frameworks */,
+				B10000000000000000000017 /* SwiftlightTransport in Frameworks */,
+				B10000000000000000000018 /* SwiftlightVideo in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		A40000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
-				A40000000000000000000002 /* SwiftlightApp */,
+				A40000000000000000000002 /* Sources/SwiftlightApp */,
+				B40000000000000000000001 /* Sources/SwiftlightMobile */,
+				B20000000000000000000015 /* App/MobileAssets.xcassets */,
+				B20000000000000000000016 /* App/PrivacyInfo.xcprivacy */,
+				C20000000000000000000001 /* Tests/SwiftlightMobileUITests/MobileNavigationTests.swift */,
 				A40000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		A40000000000000000000002 /* SwiftlightApp */ = {
+		A40000000000000000000002 /* Sources/SwiftlightApp */ = {
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000001 /* AppArtworkStore.swift */,
@@ -108,8 +164,24 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000020 /* Swiftlight.app */,
+				B20000000000000000000014 /* SwiftlightMobile.app */,
+				38A9AD7F3057B529005EBC2B /* SwiftlightMobileUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B40000000000000000000001 /* Sources/SwiftlightMobile */ = {
+			isa = PBXGroup;
+			children = (
+				B20000000000000000000001 /* SwiftlightMobileApp.swift */,
+				B20000000000000000000002 /* MobileClientModel.swift */,
+				B20000000000000000000003 /* MobileContentView.swift */,
+				B20000000000000000000004 /* MobileSettingsView.swift */,
+				B20000000000000000000005 /* MobileStreamingSession.swift */,
+				B20000000000000000000006 /* MobileStreamSurface.swift */,
+				B20000000000000000000007 /* MobileDisplayProbe.swift */,
+			);
+			path = Sources/SwiftlightMobile;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -137,6 +209,46 @@
 			productName = Swiftlight;
 			productReference = A20000000000000000000020 /* Swiftlight.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B50000000000000000000001 /* SwiftlightMobile */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B80000000000000000000001 /* Build configuration list for PBXNativeTarget "SwiftlightMobile" */;
+			buildPhases = (
+				B90000000000000000000001 /* Sources */,
+				B30000000000000000000001 /* Frameworks */,
+				B90000000000000000000002 /* Resources */,
+				B90000000000000000000003 /* Copy licenses */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SwiftlightMobile;
+			packageProductDependencies = (
+				B60000000000000000000001 /* SwiftlightCore */,
+				B60000000000000000000002 /* SwiftlightHost */,
+				B60000000000000000000003 /* SwiftlightTransport */,
+				B60000000000000000000004 /* SwiftlightVideo */,
+			);
+			productName = SwiftlightMobile;
+			productReference = B20000000000000000000014 /* SwiftlightMobile.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C50000000000000000000001 /* SwiftlightMobileUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C80000000000000000000001 /* Build configuration list for PBXNativeTarget "SwiftlightMobileUITests" */;
+			buildPhases = (
+				C90000000000000000000001 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C70000000000000000000002 /* PBXTargetDependency */,
+			);
+			name = SwiftlightMobileUITests;
+			productName = SwiftlightMobileUITests;
+			productReference = 38A9AD7F3057B529005EBC2B /* SwiftlightMobileUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -166,12 +278,13 @@
 			packageReferences = (
 				AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */,
 			);
-			preferredProjectObjectVersion = 77;
 			productRefGroup = A40000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				A50000000000000000000001 /* Swiftlight */,
+				B50000000000000000000001 /* SwiftlightMobile */,
+				C50000000000000000000001 /* SwiftlightMobileUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -184,7 +297,48 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B90000000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1000000000000000000003D /* App/MobileAssets.xcassets in Resources */,
+				B1000000000000000000003E /* App/PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B90000000000000000000003 /* Copy licenses */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Package.resolved",
+				"$(SRCROOT)/scripts/copy-app-licenses.sh",
+				"$(SRCROOT)/LICENSE",
+				"$(SRCROOT)/.build/dependencies/licenses/OpenSSL.txt",
+				"$(SRCROOT)/.build/dependencies/licenses/Opus.txt",
+				"$(SRCROOT)/Sources/CStreamBridge/vendor/common-c/LICENSE.txt",
+				"$(SRCROOT)/Sources/CStreamBridge/vendor/common-c/enet/LICENSE",
+				"$(SRCROOT)/Sources/CStreamBridge/vendor/common-c/nanors/LICENSE",
+			);
+			name = "Copy licenses";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses/Swiftlight.txt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses/MoonlightAppleVideo.txt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses/moonlight-common-c.txt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses/enet.txt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses/nanors.txt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses/OpenSSL.txt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses/Opus.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/copy-app-licenses.sh\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Licenses\"";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A90000000000000000000001 /* Sources */ = {
@@ -213,7 +367,42 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B90000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000001 /* SwiftlightMobileApp.swift in Sources */,
+				B10000000000000000000002 /* MobileClientModel.swift in Sources */,
+				B10000000000000000000003 /* MobileContentView.swift in Sources */,
+				B10000000000000000000004 /* MobileSettingsView.swift in Sources */,
+				B10000000000000000000005 /* MobileStreamingSession.swift in Sources */,
+				B10000000000000000000006 /* MobileStreamSurface.swift in Sources */,
+				B10000000000000000000007 /* MobileDisplayProbe.swift in Sources */,
+				B10000000000000000000008 /* StreamingPipeline.swift in Sources */,
+				B10000000000000000000009 /* ControllerHub.swift in Sources */,
+				B10000000000000000000010 /* AppArtworkStore.swift in Sources */,
+				B10000000000000000000011 /* AppLibraryGrid.swift in Sources */,
+				B10000000000000000000012 /* GlassStyle.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C90000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C10000000000000000000001 /* Tests/SwiftlightMobileUITests/MobileNavigationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C70000000000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B50000000000000000000001 /* SwiftlightMobile */;
+			targetProxy = C70000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AC00000000000000000000001 /* Debug */ = {
@@ -262,10 +451,14 @@
 				ARCHS = arm64;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = B6NQ32TF6A;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MARKETING_VERSION = 0.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = net.edrisil.swiftlight;
 				PRODUCT_NAME = Swiftlight;
@@ -280,15 +473,127 @@
 				ARCHS = arm64;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = B6NQ32TF6A;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MARKETING_VERSION = 0.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = net.edrisil.swiftlight;
 				PRODUCT_NAME = Swiftlight;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		BC0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = B6NQ32TF6A;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "App/Mobile-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/.build/dependencies/ios/lib",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/.build/dependencies/ios-simulator/lib",
+				);
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = net.edrisil.swiftlight.ios;
+				PRODUCT_NAME = SwiftlightMobile;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BC0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = B6NQ32TF6A;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "App/Mobile-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/.build/dependencies/ios/lib",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/.build/dependencies/ios-simulator/lib",
+				);
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = net.edrisil.swiftlight.ios;
+				PRODUCT_NAME = SwiftlightMobile;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		CC0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = net.edrisil.swiftlight.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = SwiftlightMobile;
+			};
+			name = Debug;
+		};
+		CC0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = net.edrisil.swiftlight.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = SwiftlightMobile;
 			};
 			name = Release;
 		};
@@ -309,6 +614,24 @@
 			buildConfigurations = (
 				AC00000000000000000000001 /* Debug */,
 				AC00000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B80000000000000000000001 /* Build configuration list for PBXNativeTarget "SwiftlightMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC0000000000000000000001 /* Debug */,
+				BC0000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C80000000000000000000001 /* Build configuration list for PBXNativeTarget "SwiftlightMobileUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC0000000000000000000001 /* Debug */,
+				CC0000000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -339,6 +662,26 @@
 			productName = SwiftlightTransport;
 		};
 		A60000000000000000000004 /* SwiftlightVideo */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = SwiftlightVideo;
+		};
+		B60000000000000000000001 /* SwiftlightCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = SwiftlightCore;
+		};
+		B60000000000000000000002 /* SwiftlightHost */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = SwiftlightHost;
+		};
+		B60000000000000000000003 /* SwiftlightTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = SwiftlightTransport;
+		};
+		B60000000000000000000004 /* SwiftlightVideo */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AB00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = SwiftlightVideo;
