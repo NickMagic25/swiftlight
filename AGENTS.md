@@ -71,6 +71,7 @@ Run commands from the repository root. Bootstrap before local Xcode builds, dire
 
 ## Code and lifecycle contracts
 
+- For UI feature work, use the [Swiftlight UI Features skill](.agents/skills/swiftlight-ui-features/SKILL.md). Keep SwiftUI-owned UI changes in SwiftUI and check current Apple Human Interface Guidelines. Additional in-stream UI must be user-toggleable, off by default and verified not to regress frame-to-display latency; prefer the existing Metal overlay path and measure both hidden and visible behavior.
 - Use the existing value types and helpers: `SessionState`/`HeldInputs`, `StreamSettings`, `DisplayGeometry`, `StreamPresentationPolicy`, `StreamShortcuts`, `StreamStatisticsSnapshot` and `StreamDiagnosticTimeline`. Keep capability negotiation, input mapping and statistics semantics shared instead of reimplementing them in views.
 - Keep UI state and AppKit integration on `@MainActor`; do not publish individual video frames through SwiftUI. Preserve low-rate statistics publication, async host work and bounded caches. Add `@unchecked Sendable` only to an immutable or explicitly synchronized owner with a documented synchronization/lifetime contract.
 - Carry the captured session generation through asynchronous callbacks. Retire it before cancellation, failure, suspension or reconfiguration teardown; late callbacks must not revive an old session. Serialize reconnect with completion of the previous teardown.

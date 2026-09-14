@@ -1,0 +1,3 @@
+interface:
+  display_name: "Swiftlight UI Features"
+  short_description: "SwiftUI and stream UI for macOS, iOS, iPadOS and tvOS"
