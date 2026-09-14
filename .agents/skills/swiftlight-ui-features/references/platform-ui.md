@@ -1,0 +1,35 @@
+# Platform UI guidance
+
+Read the rows for the platforms affected by the request. These are implementation and verification prompts; read Apple's current linked guidance and the specific API documentation during each UI task.
+
+## Design and interaction
+
+| Platform | Current Apple guidance to consult | Apply to the requested feature |
+| --- | --- | --- |
+| macOS | [Designing for macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos), [Keyboards](https://developer.apple.com/design/human-interface-guidelines/keyboards) | Preserve desktop window/menu conventions, keyboard discovery and pointer/focus access. Reuse the app's SwiftUI views and narrow AppKit adapters. |
+| iOS / iPhone | [Designing for iOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ios), [Gestures](https://developer.apple.com/design/human-interface-guidelines/gestures) | Use touch-first SwiftUI navigation and reachable controls. Adapt to supported orientations, safe areas, the onscreen keyboard and Dynamic Type. Keep actions accessible without hover, a physical keyboard or a controller. |
+| iPadOS / iPad | [Designing for iPadOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ipados), [Multitasking](https://developer.apple.com/design/human-interface-guidelines/multitasking), [Pointing devices](https://developer.apple.com/design/human-interface-guidelines/pointing-devices), [Keyboards](https://developer.apple.com/design/human-interface-guidelines/keyboards) | Adapt SwiftUI navigation and density to available window size, including compact widths and supported multitasking/resizing modes. Support touch plus keyboard/pointer where applicable. Do not treat iPad as a stretched phone or require desktop input to reach actions. |
+| tvOS / Apple TV | [Designing for tvOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-tvos), [Focus and selection](https://developer.apple.com/design/human-interface-guidelines/focus-and-selection), [Remotes](https://developer.apple.com/design/human-interface-guidelines/remotes), [Game controls](https://developer.apple.com/design/human-interface-guidelines/game-controls) | Use SwiftUI controls and native directional focus for app navigation, with clear selection, return/dismiss behavior and comfortable reading from a TV viewing distance. Make Settings reachable with the remote. Preserve expected remote/system buttons and account for optional controllers without hijacking forwarded gameplay input. |
+
+Share SwiftUI components and value/state models where behavior fits. Let navigation, layout, typography, focus and input adapt to the platform. Verify SwiftUI API availability for each target; APIs and modifiers present on one platform may be unavailable on another. iPhone and iPad may share an iOS target, but both experiences still need verification. Avoid macOS-only imports in shared UI and do not add a new rendering or decoder stack to obtain platform support.
+
+Apply [Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) on each affected platform: meaningful VoiceOver names/values, usable focus and actions, readable contrast, supported text-size adjustments, and Reduce Motion/Reduce Transparency behavior. Reuse platform-compatible styling helpers with availability checks. For custom Metal content, connect equivalent semantics to that platform's accessibility/focus adapter rather than copying AppKit-specific accessibility code.
+
+## Build and verify the affected platforms
+
+- Start with the owning Xcode project/workspace. Inspect its targets, shared schemes, supported SDKs/device families, deployment targets and source/resource membership before choosing a destination. Use the actual platform scheme and simulator/device destination; do not copy the macOS destination or invent mobile/TV schemes.
+- The existing [Xcode build guide](../../../../docs/dev/README.md#build-and-run-the-app-with-xcode) describes the macOS `Swiftlight` scheme. As mobile/TV targets land, follow their checked-in setup and keep Xcode authoritative for app builds. `Package.swift` remains the shared-module/test/tooling definition; its iOS/tvOS declarations alone do not make an app runnable.
+- Add or update app file references and membership in the owning Xcode target when its membership is explicit. Preserve package membership for shared code and keep platform adapters out of unrelated targets. Do not duplicate package-owned shared sources in app targets.
+- If the requested client has no app target yet, report that concrete gap. Complete independently useful shared work required by the request that has an existing owner; if none exists, identify the missing integration point instead of creating unused UI or incidental scaffolding. Create a target only when platform scaffolding is part of the user's requested work. Do not describe Mac compilation as a successful mobile/TV build.
+- Build affected app targets and run applicable focused tests. For shared UI, check every affected target that consumes it; macOS-only harnesses do not exercise UIKit hosting, touch or tvOS focus. Use simulators for available layout/navigation checks, and signed device builds where permissions, hardware or live streaming are involved.
+
+| Platform | Inspect the affected launched flow |
+| --- | --- |
+| macOS | Windowed/full-screen transitions, resize, menu/shortcut discovery, keyboard/pointer access and supported appearance/accessibility states. |
+| iOS / iPhone | Representative screen sizes, supported portrait/landscape layouts, safe areas, touch targets, keyboard presentation, large text/VoiceOver and background/foreground transitions. |
+| iPadOS / iPad | Touch-only operation plus applicable keyboard/pointer behavior; compact and expanded widths, supported window resizing/multitasking and orientations. Verify stream geometry and input mapping after size changes. |
+| tvOS / Apple TV | Remote-only focus traversal, selection, Settings toggles and return/dismiss; focus restoration when controls disappear; optional controller routing; TV-distance readability, safe areas and VoiceOver. Check the affected streaming flow on Apple TV with a real display. |
+
+For added in-stream UI on every platform, verify the hidden default, accessible show/hide route, removal of hidden hit/focus/accessibility targets, coexistence with other overlays and cancellation on hide/teardown. Preserve held-input release and generation checks during focus loss, suspension and reconnect; do not change background-streaming policy incidentally.
+
+Follow [streaming UI measurement](streaming-ui.md#measure-the-requested-no-regression-property) separately on representative physical devices for each affected platform/device class. Keep the device, OS, display mode and thermal/power conditions comparable within each baseline/off/on experiment. Simulator results, a different device's measurements and macOS-only telemetry cannot establish a no-regression result for that client. Missing instrumentation or hardware remains an explicitly unverified gate.

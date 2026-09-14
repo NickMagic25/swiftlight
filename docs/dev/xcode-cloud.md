@@ -1,16 +1,20 @@
 # Xcode Cloud and App Store Connect
 
-Swiftlight uses Xcode Cloud as the Apple-managed signing authority. GitHub
-continues to host source and release downloads, but must not receive an Apple
-distribution private key once the Cloud release path is active.
+Swiftlight's primary app build entrypoint is `Swiftlight.xcodeproj`, locally
+and in Xcode Cloud. The distribution migration described here makes Xcode Cloud
+the Apple-managed signing authority. GitHub continues to host source and release
+downloads, but must not receive an Apple distribution private key once the Cloud
+release path is active.
 
 ## What is ready in this repository
 
 `Swiftlight.xcodeproj` is a macOS app project that consumes this repository as
 a local Swift package. Its checked-in `Swiftlight` scheme is the project and
-scheme to select in Xcode Cloud. The original `swift build` app path remains
-supported; both paths compile the same `Sources/SwiftlightApp` UI and the same
-local package modules.
+scheme to select in Xcode Cloud. Follow the [local build guide](README.md#build-and-run-the-app-with-xcode)
+for Xcode and `xcodebuild` development. `Package.swift` supplies the shared
+modules and test/replay tooling. The secondary `scripts/build-app.sh` path
+remains in use by the existing GitHub release workflow until distribution
+migration is validated.
 
 Each Cloud action runs in a new build environment. The scripts in
 [`ci_scripts/`](../../ci_scripts/) bootstrap the pinned native dependencies and
@@ -20,7 +24,8 @@ repository's existing validation suite before the Xcode action.
 
 ## One-time account setup
 
-1. Open `Swiftlight.xcodeproj` in Xcode 15 or newer, select the `Swiftlight`
+1. Prepare dependencies using the [local build guide](README.md#build-and-run-the-app-with-xcode),
+   then open `Swiftlight.xcodeproj` in Xcode 26.6 / Swift 6.3.3, select the `Swiftlight`
    target, choose the intended Apple Developer team, and retain automatic
    signing. The macOS bundle identifier is `net.edrisil.swiftlight`.
 2. Choose **Xcode Cloud** in Xcode and create the first workflow. When Apple
@@ -66,7 +71,10 @@ fine-grained GitHub credential scoped to this repository's release contents.
 Do not move the existing GitHub `Release macOS` workflow to Cloud yet. First
 complete one Cloud archive, verify the signed artifact on a clean,
 Gatekeeper-enabled Mac, and confirm the Cloud workflow can package a signed,
-notarized DMG. Only then replace the GitHub P12/app-password release path and
+notarized DMG with the required license notices. The current Xcode Resources
+phase is empty; the script-based app packager copies those notices today, so
+an Xcode archive is not yet an equivalent distribution bundle. Only then replace
+the GitHub P12/app-password release path and
 delete its signing secrets. This prevents a signing migration from interrupting
 the current direct-download channel.
 

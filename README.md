@@ -22,14 +22,18 @@ macOS is the current application target. iOS, iPadOS, and tvOS adapters are futu
 
 ## Build and launch
 
+Use the **Xcode project** to build, run and debug the macOS app:
+
 ```sh
 git clone --recurse-submodules https://github.com/NickMagic25/swiftlight.git
 cd swiftlight
-scripts/build-app.sh
-open .build/Swiftlight.app
+scripts/bootstrap-dependencies.sh
+open Swiftlight.xcodeproj
 ```
 
-The first build downloads and builds pinned dependencies, so internet access is required. For build, signing, and dependency details, see [development documentation](docs/dev/README.md).
+In Xcode, select the **Swiftlight** scheme and **My Mac** destination, choose your development team under the app target's **Signing & Capabilities**, then use **Product → Run**. The current project builds for Apple silicon.
+
+Bootstrap downloads and builds pinned native dependencies on its first run, so internet access is required. Run it again when native dependency inputs change; local Xcode builds do not run it automatically. See [development documentation](docs/dev/README.md) for the terminal `xcodebuild` recipe, signing and verification. `Package.swift` supplies the shared modules and test/replay tooling used by the app.
 
 ## Connect to a computer
 

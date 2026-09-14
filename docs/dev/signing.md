@@ -1,4 +1,18 @@
-# App signing and safe bundle replacement
+# App signing
+
+## Xcode app builds
+
+Build and run the app through `Swiftlight.xcodeproj` and the shared `Swiftlight` scheme, following the [development build guide](README.md#build-and-run-the-app-with-xcode). The target uses automatic signing and leaves `DEVELOPMENT_TEAM` empty in the checked-in project. Choose the intended team under **Signing & Capabilities**, or supply `DEVELOPMENT_TEAM=YOUR_TEAM_ID` to `xcodebuild` using your actual team ID.
+
+Use a stable development identity and the existing `net.edrisil.swiftlight` bundle identifier for repeated pairing/permission checks. Xcode signing is controlled by its project/build settings; `SIGNING_IDENTITY` and the automatic certificate-selection rules below belong to the secondary shell packager. They do not configure Xcode.
+
+The terminal recipe writes `.build/xcode/Build/Products/Debug/Swiftlight.app`; the Xcode GUI uses its configured Derived Data location. Stop the running app before rebuilding/relaunching for validation. Xcode builds do not use the shell packager's staging and atomic-exchange implementation.
+
+A local signed build or archive is not a notarized, distribution-qualified installer. Follow [Xcode Cloud](xcode-cloud.md) and [release validation](releases.md) for archive export, required license notices, notarization and clean-Mac acceptance. Keychain authorization may still require normal user interaction with a correctly signed app.
+
+## Secondary SwiftPM app packager
+
+`scripts/build-app.sh` remains available for the existing GitHub release and packaging workflow. It produces `.build/Swiftlight.app`. The following signing table, environment variables and bundle-replacement guarantees apply to that script.
 
 `scripts/build-app.sh` chooses signing before building dependencies or compiling:
 
@@ -34,7 +48,7 @@ An ad-hoc signature can give each rebuilt executable a different code identity, 
 
 Signing does not grant unrestricted Keychain access. The build script does not modify Keychain access controls, export private keys, change the client identity, remove pairing records, or change the app's Keychain backend. macOS may ask to authorize use of the signing private key when `codesign` runs. Release signing here is not notarization, distribution approval, or release qualification.
 
-## Installation safety
+## Script bundle replacement
 
 The script assembles the complete bundle under a unique `.build/.Swiftlight-stage.*` directory, then signs it, runs strict signature verification, validates its Info.plist, and checks for Homebrew dynamic-library dependencies. It never copies a newly built executable over the installed bundle's executable.
 
@@ -42,7 +56,7 @@ Only after all checks pass does the script publish the staged bundle. For an exi
 
 This prevents truncating an app that is running; it does not reload that process into the new build. Quit and reopen Swiftlight to run the replacement.
 
-## Checks executed for this change
+## Script packaging validation
 
 Run the isolated packaging checks from the repository root:
 

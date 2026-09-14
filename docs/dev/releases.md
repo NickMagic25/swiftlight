@@ -1,5 +1,7 @@
 # macOS releases
 
+For ordinary app builds and debugging, use the [Xcode project](README.md#build-and-run-the-app-with-xcode). This page documents the existing GitHub distribution pipeline, which still invokes the secondary `scripts/build-app.sh` SwiftPM packager. The [Xcode Cloud migration](xcode-cloud.md) has separate archive, license-packaging and distribution acceptance gates before it replaces this workflow.
+
 The [release workflow](../../.github/workflows/release.yml) runs **only when a `v*` tag is pushed**. It accepts stable SemVer tags such as `v0.0.1` and rejects incomplete versions, leading zeros, prerelease suffixes, and build metadata. Ordinary branch pushes and pull requests do not run this workflow. The first release is **0.0.1**.
 
 ## One-time GitHub setup
@@ -52,7 +54,9 @@ Use **Actions → Release macOS** to inspect runs. Test output and Apple notariz
 
 If a run fails, fix missing credentials or infrastructure and rerun the failed jobs. If source changes are needed, create a new tag at the fixed commit. A failed asset upload can leave a draft; a rerun completes that draft. A rerun refuses to overwrite an already published release. Do not pre-publish an empty release in the GitHub UI: **push the tag and let the workflow publish the completed release**. There is intentionally no second `release: published` trigger, avoiding duplicate builds and empty published releases.
 
-## Local validation and manual acceptance
+## Reproduce the GitHub packaging path locally
+
+These commands exercise the existing release packager. Use the Xcode build guide above for app development.
 
 ```sh
 scripts/validate-ci.sh
