@@ -23,8 +23,12 @@ struct HostXML {
         let id = try required("uniqueid"), name = try required("hostname"), version = try required("appversion")
         let httpsPort = Int(fields["HttpsPort"] ?? "") ?? defaultHTTPSPort
         guard (1...65535).contains(httpsPort) else { throw HostError.invalidResponse }
+        // Some hosts retain the last app ID after it exits. Match Moonlight's
+        // status handling: an explicitly idle server has no running application.
+        let currentAppID = fields["state"].map { $0.hasSuffix("_SERVER_BUSY") } == false
+            ? 0 : (Int(fields["currentgame"] ?? "") ?? 0)
         return HostInfo(id: id, name: name, appVersion: version, gfeVersion: fields["GfeVersion"] ?? "",
-                        httpsPort: httpsPort, isPaired: authenticated && fields["PairStatus"] == "1", currentAppID: Int(fields["currentgame"] ?? "") ?? 0,
+                        httpsPort: httpsPort, isPaired: authenticated && fields["PairStatus"] == "1", currentAppID: currentAppID,
                         codecSupport: UInt32(fields["ServerCodecModeSupport"] ?? "") ?? 0,
                         permissions: fields["Permission"].flatMap(UInt32.init), rawFields: fields)
     }

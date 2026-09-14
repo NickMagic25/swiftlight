@@ -24,6 +24,7 @@ This directory contains engineering notes, implementation references, validation
 - [Manual validation](manual-validation.md)
 - [Video validation](video-validation.md)
 - [Pairing follow-up](pairing-fix-validation.md)
+- [Cross-client session resume follow-up (deferred)](cross-client-session-resume.md)
 - [Presentation latency investigation](latency-optimization-2026-09-13.md)
 - [Stream latency debugging](stream-latency-debugging.md)
 - [Stream deadlock validation](stream-deadlock-validation.md)

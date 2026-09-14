@@ -153,9 +153,26 @@ public actor HostClient {
     }
     public func launch(_ request: StreamLaunchRequest) async throws -> StreamLaunchResponse { try await start(request, resume: false) }
     public func resume(_ request: StreamLaunchRequest) async throws -> StreamLaunchResponse { try await start(request, resume: true) }
-    private func start(_ launch: StreamLaunchRequest, resume: Bool) async throws -> StreamLaunchResponse {
+    public func launchOrResume(_ request: StreamLaunchRequest) async throws -> StreamLaunchResponse { try await start(request, resume: nil) }
+    /// Revalidate confirmation against the app currently on the host. A changed
+    /// app needs a new confirmation, and a failed quit must never proceed to launch.
+    public func prepareApplication(_ appID: Int, quitting expectedAppID: Int? = nil) async throws -> HostInfo {
+        var info = try await serverInfo()
+        guard info.isPaired else { throw HostError.notPaired }
+        if info.currentAppID > 0 && info.currentAppID != appID {
+            guard info.currentAppID == expectedAppID else { throw RunningApplicationConflict(hostInfo: info) }
+            try await quitApplication(expectedAppID: info.currentAppID)
+            info = try await serverInfo()
+            if info.currentAppID > 0 && info.currentAppID != appID { throw RunningApplicationConflict(hostInfo: info) }
+        }
+        try Task.checkCancellation()
+        return info
+    }
+    private func start(_ launch: StreamLaunchRequest, resume requestedResume: Bool?) async throws -> StreamLaunchResponse {
         guard let pin = try await pin() else { throw HostError.notPaired }
         let info = try await serverInfo()
+        guard info.currentAppID == 0 || info.currentAppID == launch.appID else { throw RunningApplicationConflict(hostInfo: info) }
+        let resume = requestedResume ?? (info.currentAppID == launch.appID)
         if let permissions = info.permissions {
             let needed: UInt32 = (resume || info.currentAppID == launch.appID) ? 0x06000000 : 0x04000000
             guard permissions & needed != 0 else { throw HostError.permissionDenied }
@@ -176,9 +193,11 @@ public actor HostClient {
         return StreamLaunchResponse(sessionURL: session, hostInfo: info)
     }
     /// Only explicit Quit sends /cancel. Local stream disconnect never calls this.
-    public func quitApplication() async throws {
+    public func quitApplication(expectedAppID: Int? = nil) async throws {
         guard let pin = try await pin() else { throw HostError.notPaired }
-        _ = try await serverInfo()
+        let info = try await serverInfo()
+        guard info.currentAppID > 0 else { return }
+        if let expectedAppID, info.currentAppID != expectedAppID { throw RunningApplicationConflict(hostInfo: info) }
         _ = try await request("cancel", secure: true, pin: pin, timeout: 30)
         guard try await serverInfo().currentAppID == 0 else { throw HostError.permissionDenied }
     }
