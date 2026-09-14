@@ -2,6 +2,8 @@
 
 Swiftlight is a native macOS SwiftUI application built on a shared Apple streaming engine. The first target is macOS 14 or later. The package declares iOS/tvOS 17 engine minima; UIKit/tvOS application adapters are follow-on work and are not shipped or validated in this macOS delivery.
 
+`Swiftlight.xcodeproj` and its shared `Swiftlight` scheme own the primary app build, run and archive workflow. The app target compiles `Sources/SwiftlightApp` and consumes the shared libraries defined by the local `Package.swift`. SwiftPM also provides module tests, replay tooling and the secondary app-packaging path used by the existing release workflow. See the [build guide](README.md#build-and-run-the-app-with-xcode); adding or renaming app sources requires updating their explicit Xcode project membership.
+
 ## Boundaries
 
 - `SwiftlightApp`: MainActor host/library/settings/pairing/session orchestration; AppKit Metal surface, native full screen, scoped keyboard/mouse capture, GameController and power activity.

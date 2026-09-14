@@ -1,0 +1,121 @@
+# AGENTS.md
+
+## Scope and project map
+
+These instructions apply throughout Swiftlight. Read the relevant source and linked engineering contract before changing a subsystem; dated validation reports describe the runs they recorded, not current acceptance.
+
+- Swiftlight ships a native macOS SwiftUI/AppKit client. `Package.swift` requires Swift tools 6.3 and Swift 6 language mode. Its iOS/tvOS platform declarations support future shared-engine work; they do not establish shipping mobile or TV clients. Use the toolchain requirements in [README.md](README.md) and `.github/workflows/release.yml`.
+- Use `Swiftlight.xcodeproj` and its shared `Swiftlight` scheme as the primary app build, run, debug and archive entrypoint. `Package.swift` defines the shared modules, tests and replay tooling, plus the secondary SwiftPM app executable used by the current release packager. Keep the following boundaries:
+
+| Path | Responsibility and placement rule |
+| --- | --- |
+| `Sources/SwiftlightCore/` | Settings, geometry, session state/generations, statistics and diagnostic value models. Keep decoder, network sockets and UI dependencies out. |
+| `Sources/SwiftlightHost/` | Bonjour, HTTP/XML, pairing, host/app models, certificate pins, nonsecret host persistence and artwork protocol. Use `CHostCrypto` for established pairing cryptography. |
+| `Sources/CHostCrypto/` | Narrow C/OpenSSL bridge for host cryptography. |
+| `Sources/SwiftlightTransport/`, `Sources/CStreamBridge/` | common-c transport, compressed-frame ownership, protocol input, Opus and native C/Objective-C audio. No video decoding. |
+| `Sources/SwiftlightVideo/` | `MoonlightAppleVideo` adapter, decoded-frame handoff, production Metal renderer and readback validation. |
+| `Sources/SwiftlightApp/` | MainActor app orchestration, SwiftUI views, AppKit windows/surfaces, input and controllers. Start with `SwiftlightApp.swift`, `ClientModel.swift` and `StreamingPipeline.swift`. |
+| `Sources/SwiftlightReplay/` | Fixture replay through the production decoder and renderer; do not create an independent video implementation for tests. |
+| `Tests/` | Swift module tests, native transport/audio harnesses, and Python dependency/release/packaging checks. |
+
+- Keep the Xcode app project authoritative for app target configuration and source membership. It consumes the local package's shared products but explicitly enumerates app sources. When adding, removing or renaming a file under `Sources/SwiftlightApp/`, update its file/build references and Sources membership in `Swiftlight.xcodeproj/project.pbxproj`. Do not duplicate shared-module source membership in the app target. Preserve compatibility with the secondary SwiftPM app packager while it remains in release use; keep `App/Info.plist` shared.
+- Use [architecture](docs/dev/architecture.md), [transport](docs/dev/transport.md), [video ownership](docs/dev/video-lifetime.md), [audio implementation](docs/dev/audio-implementation.md) and [Xcode Cloud](docs/dev/xcode-cloud.md) for detailed contracts. Verify older implementation descriptions against current code before carrying them into a change.
+
+## Commands and build environment
+
+Run commands from the repository root. Bootstrap before local Xcode builds, direct Swift tests/builds or native harnesses when generated sources and libraries are absent or dependency inputs changed. Local Xcode builds do not run bootstrap automatically. The Cloud post-clone hook, secondary app packager and aggregate validation scripts do. Use the [Xcode build guide](docs/dev/README.md#build-and-run-the-app-with-xcode) for app development.
+
+| Purpose | Command | Scope or prerequisite |
+| --- | --- | --- |
+| Prepare dependencies | `scripts/bootstrap-dependencies.sh` | Initializes/checks recursive common-c pins, applies patches, verifies downloads and builds static Opus/OpenSSL. First run needs network and native build tools. |
+| Open the primary app project | `open Swiftlight.xcodeproj` | After bootstrap, select the Swiftlight scheme, My Mac and the intended signing team, then Build/Run. |
+| Build the app from the terminal | `xcodebuild -project Swiftlight.xcodeproj -scheme Swiftlight -configuration Debug -destination 'platform=macOS' -derivedDataPath .build/xcode build` | After bootstrap; configure signing in Xcode or supply the actual `DEVELOPMENT_TEAM` as described in the build guide. |
+| Launch the terminal Xcode build | `open .build/xcode/Build/Products/Debug/Swiftlight.app` | Quit any earlier instance first. GUI builds use Xcode's configured Derived Data location. |
+| Resolve pins for SwiftPM tooling/CI | `swift package --disable-sandbox --disable-dependency-cache --manifest-cache none --force-resolved-versions resolve` | Same resolution command as release CI and `ci_scripts/ci_post_clone.sh`. |
+| Focused Swift test example | `CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache" swift test --disable-sandbox --manifest-cache none --filter StreamStatisticsTests` | Replace the filter with the relevant test class or module declared in `Package.swift`. Hardware tests require their separate opt-in. |
+| Full automated gate without a streaming host | `scripts/validate-ci.sh` | Swift/Python/native checks, packaging and app harnesses, decoder audit. Forces hardware tests and audible audio smoke off. |
+| Hardware video/fixture gate | `scripts/validate-offline.sh` | Enables hardware tests and replays HEVC/AV1 fixtures through VideoToolbox/Metal. Requires a capable Mac; no live streaming host. |
+| Native ownership/audio checks | `scripts/validate-transport-native.sh` | ASan + UBSan by default, using the actual generated common-c sources. |
+| Native race checks | `SWIFTLIGHT_SANITIZERS=thread scripts/validate-transport-native.sh` | Separate TSan run; use for native concurrency/lifetime changes. |
+| Decoder source audit | `python3 scripts/audit-decoder.py` | Fast check for forbidden alternate video implementations. |
+| Exercise the secondary app packager | `scripts/build-app.sh` | SwiftPM packaging/release work only; produces `.build/Swiftlight.app`, separate from the Xcode product. See script signing rules below. |
+
+- For direct SwiftPM commands, create `.build/ModuleCache` as needed and set `CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"` to keep the Clang cache writable inside the workspace. The checked-in build/validation scripts do this already. SwiftPM's `--disable-sandbox` does not grant access outside the agent's environment permissions.
+- Use `SWIFTLIGHT_BUILD_JOBS` to adjust bootstrap parallelism. For intentional decoder development, set `SWIFTLIGHT_DECODER_PATH` to the actual absolute decoder checkout path; a sibling path such as `../moonlight-apple-decoder` may be wrong in a worktree. Verify normal/release behavior against the committed pin with the override unset.
+- There is no configured repository-wide formatter, SwiftLint gate or separate typecheck command. Follow nearby formatting and rely on compilation plus the relevant tests; do not introduce a formatting/tooling migration incidentally.
+- `validate-ci.sh` and `validate-offline.sh` are complementary. The latter omits CI's release, packaging and several app harnesses. Its name does not mean first-run dependency setup is network-free.
+
+## Choosing verification
+
+- For a narrow change, run the focused checks that exercise its behavior. For broad changes, shared-module integration, native ownership or dependency updates, run `scripts/validate-ci.sh` and the applicable hardware/native gates. Documentation-only changes need link/path/command review and whitespace checks, not an app build.
+- Keep behavioral tests in the corresponding `Tests/Swiftlight*Tests/` target. Both XCTest and Swift Testing are present; match the nearby suite. Cover rejected inputs, stale generations, cancellation and resource lifetime when those contracts change.
+- The Xcode scheme currently has no test targets. Continue using SwiftPM/native test gates; `xcodebuild test` or Product → Test does not run the repository suite. Use these additional checks for the affected area; app harnesses require SwiftPM debug modules/objects under `.build/debug`, which an Xcode app build does not provide:
+
+| Changed area | Focused check |
+| --- | --- |
+| Host OTP protocol | `python3 docs/dev/host-otp-vectors.py` plus the relevant `SwiftlightHostTests` |
+| Dependency preparation | `python3 -m unittest discover -s Tests/DependencyPreparation -v` |
+| Release/version logic | `python3 -m unittest discover -s Tests/Release -v` |
+| App bundle/signing logic | `python3 Tests/BuildPackaging/test_build_app.py --output artifacts/build-packaging.json` |
+| Artwork loading/cache | `python3 scripts/validate-artwork-store.py` |
+| Display publication/pacing signal | `python3 scripts/validate-display-publication.py` |
+| Stream window lifecycle | `python3 scripts/validate-stream-window-lifecycle.py` |
+| Visible replay lifecycle | `python3 scripts/validate-preview-lifecycle.py` after a SwiftPM debug build; requires hardware HEVC decoding |
+
+- Video/renderer changes need `scripts/validate-offline.sh` on a capable Mac. Follow [video validation](docs/dev/video-validation.md) for GPU validation, sanitizer and readback cases. Do not regenerate fixtures merely to make a failing expectation pass.
+- Native transport/audio or common-c patch changes need the native harness and a separate TSan run. `SWIFTLIGHT_AUDIO_SMOKE=1 scripts/validate-transport-native.sh` adds real local audio playback when audio output is part of the task; it is not included in the default gate.
+- Verify app changes with the `Swiftlight.xcodeproj` / `Swiftlight` build. SwiftPM compilation alone is not app build verification. Run focused SwiftPM tests for affected shared modules; also check the secondary packager when changing its inputs, shared plist or packaging behavior. Follow the [local build guide](docs/dev/README.md#build-and-run-the-app-with-xcode) and [Xcode Cloud setup](docs/dev/xcode-cloud.md) for their respective environments.
+- UI changes require a launched app and inspection of the affected flow, including applicable keyboard/accessibility and appearance states. Use the signed bundle for Keychain, permission, pairing and live-host checks. A preview, stubbed packaging test or successful signature check does not establish runtime acceptance.
+- For stream/debug-build delivery, verify a real stream when a suitable host/device is available. Record unavailable host, hardware, Keychain or display access as blocked validation. Do not report skipped hardware tests, offscreen GPU completion or a screenshot as successful live presentation/HDR validation.
+- Report checks run and their scope, failures, and remaining live gates. Use [manual validation](docs/dev/manual-validation.md) and the [acceptance matrix](docs/dev/acceptance-matrix.md); do not copy historical PASS rows or test counts into a new result.
+
+## Code and lifecycle contracts
+
+- Use the existing value types and helpers: `SessionState`/`HeldInputs`, `StreamSettings`, `DisplayGeometry`, `StreamPresentationPolicy`, `StreamShortcuts`, `StreamStatisticsSnapshot` and `StreamDiagnosticTimeline`. Keep capability negotiation, input mapping and statistics semantics shared instead of reimplementing them in views.
+- Keep UI state and AppKit integration on `@MainActor`; do not publish individual video frames through SwiftUI. Preserve low-rate statistics publication, async host work and bounded caches. Add `@unchecked Sendable` only to an immutable or explicitly synchronized owner with a documented synchronization/lifetime contract.
+- Carry the captured session generation through asynchronous callbacks. Retire it before cancellation, failure, suspension or reconfiguration teardown; late callbacks must not revive an old session. Serialize reconnect with completion of the previous teardown.
+- Preserve teardown ordering in `ClientModel`, `StreamingPipeline` and `StreamTransport`: finalize diagnostics before clearing native owners, close admission, release held input, interrupt/join transport work, then destroy the decoder. GPU leases finish asynchronously. Do not hold a lock across a blocking stop/join when that worker needs the same lock.
+- Disconnect is local and leaves the remote application running. Keep remote quit as the separate, explicitly confirmed application action. Sleep/network loss must release captured input; waking or reconnecting must not resurrect stale work.
+- Preserve native full-screen/window lifecycle and distinguish display points, backing pixels and display-mode pixel dimensions. Avoid double safe-area/notch subtraction, round requested 4:2:0 sizes down to even dimensions, and keep rendered crop/fit/fill geometry aligned with input coordinates.
+- Reuse `GlassStyle`, `AppLibraryGrid` and `AppArtworkStore` for library appearance and artwork. Preserve accessibility fallbacks, bounded request/cache behavior, cancellation and stale-host rejection.
+- Keep statistics labels and values on the same row; put metric explanations in [the statistics guide](docs/stream-statistics.md). Production statistics use the cached bitmap from `StatisticsOverlayRasterizer`/`VideoOverlayBitmap` in the existing Metal pass, with matching accessibility values. The SwiftUI comparison overlay is debug-only; avoid adding per-frame rasterization or an extra composition surface to the production panel.
+
+## Video, rendering and audio invariants
+
+- `MoonlightAppleVideo` is the sole video decoder. Do not add FFmpeg decoding, AVPlayer, AVSampleBufferDisplayLayer, another VideoToolbox session or a software fallback. Keep decoder changes in the package and its explicit adapter API; use `scripts/audit-decoder.py` to verify client-owned source.
+- Keep submit, capacity wait, drain, reset and destroy on `VideoDecoder`'s private serial worker, away from main, audio and packet receive callbacks. Complete each borrowed common-c frame exactly once after the decoder acquires its complete bounded access unit or rejects it for recovery.
+- Accepted access units owe one terminal completion; rejected/would-block submissions consume nothing. Callbacks can run inline before submit returns. Do not hold the mailbox lock across decoder calls, guess completion order or turn compressed input into a latest-frame queue. Retry the same unconsumed access unit after bounded capacity handling; retain controlled recovery/keyframe behavior.
+- Retain borrowed `CVPixelBuffer` ownership before returning from the C callback. Keep callbacks bounded; never invoke decoder control there. Invoke frame-available notifications outside the mailbox lock and only schedule/coalesce presentation work. Preserve the one-frame latest decoded mailbox, bounded decoder admission and bounded GPU work.
+- A GPU `TextureLease` must retain the pixel buffer and both `CVMetalTexture` wrappers through command completion. Do not write into decoded buffers, map CPU planes in normal presentation, or synchronously wait for GPU completion. Keep Core Animation/Metal handler registration, presentation and commit outside locks acquired by completion/presentation callbacks.
+- Preserve both decoded-frame and display-link pacing paths. In display-link mode, use its supplied drawable rather than acquiring a second one. Bound/coalesce decoded-frame wakeups. Promote experimental output, HDR or pacing options only after correctness and matched performance evidence.
+- Keep canonical NV12/P010 color interpretation, range, aperture and HDR metadata explicit. Preserve the validated linear-output baseline; debug native-PQ experiments are not automatic production defaults. Unsupported output formats must fail visibly rather than silently switch video implementations.
+- Keep Opus decode and allocations off the realtime audio callback. Preserve the bounded single-producer/single-consumer ring and silence on underrun; no blocking locks or network work in the output callback. Preserve channel mapping and explicit layout through Stereo/5.1/7.1 and Direct/System Spatial Audio. The native Objective-C bridge uses manual ownership (`-fno-objc-arc`); balance objects, observers and dispatch resources on replacement and teardown.
+
+## Host trust and diagnostics
+
+- Use `HostClient`, `HostHTTP` and `HostIdentity` for host control. Unauthenticated discovery/server info is not proof of pairing. Preserve exact leaf-certificate pinning, mutual TLS, endpoint/redirect checks and authenticated host-identity verification; never weaken trust checks to make a host connect.
+- Keep certificates, private keys and pins in the existing Keychain-backed storage; saved-host/settings persistence holds nonsecret data. Distinguish inaccessible/locked Keychain state from missing identity. Do not delete pairing state or generate replacement credentials as an incidental build/test repair. Treat Apollo OTP links as credentials and follow the verified protocol in [host details](docs/dev/host-protocol-details.md); do not infer an arbitrary bearer-token API.
+- Preserve the export schema in `Sources/SwiftlightApp/Diagnostics.swift` and [its schema documentation](docs/dev/diagnostic-exports-schema.md). Finalize the snapshot before native teardown, retain the last completed attempt including failure-before-first-frame, and keep timeline/timing storage bounded. Release exports are explicit; finalized debug reports also use the existing temporary local path. Do not add automatic upload.
+- Exclude host/client addresses, saved host identifiers, app names, pairing URLs/PINs/OTPs, certificates, keys, input events, media and arbitrary raw error messages from diagnostic exports. Use safe failure categories/codes. Apply the same filtering to debug captures and new fields.
+- Missing/invalid/stale measurements remain unavailable, never zero or substituted requested FPS/bitrate. Keep network loss, decoder drops and presentation skips distinct. Join stages by the same frame/submission identity and calibrate clock domains; do not subtract unrelated window averages or media PTS from monotonic timestamps.
+- Distinguish VT submit-to-callback, GPU completion, predicted display time and confirmed drawable presentation. None establishes physical scanout or input-to-photon latency. Follow [benchmarking](docs/dev/benchmarking.md) and [latency debugging](docs/dev/stream-latency-debugging.md) for controlled comparisons; label offscreen runs and sanitizer/debug overhead.
+
+## Dependencies, generated files and distribution
+
+- Add dependencies only when needed for the requested work; prefer existing platform/repository facilities. Keep third-party inputs immutable and review their licenses. For a decoder revision change, update `Package.swift`, root `Package.resolved` and `Swiftlight.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` consistently. Do not commit a workstation-specific dependency path.
+- Keep `Dependencies/moonlight-common-c` and its nested submodules pristine. Update its gitlink and matching `Dependencies/versions.json` pins together for intentional upgrades. Put local changes in the ordered `patches/moonlight-common-c/series` with rationale in its README, following [dependency maintenance](docs/dev/dependencies.md).
+- `scripts/prepare-common-c.py` generates `Sources/CStreamBridge/vendor/common-c/` from verified committed sources and patches. Never edit generated output to fix behavior or reset upstream local edits to make preparation pass. Update source inputs and rerun bootstrap.
+- Preserve ignored output boundaries: `.build/`, `.build-*/`, `.swiftpm/`, `artifacts/`, `xcuserdata/` and generated common-c. Committed `fixtures/` are validation inputs; intentional regeneration must retain manifests, provenance, hashes and applicable encoder arguments.
+- Native library versions/checksums live in `scripts/bootstrap-dependencies.sh`. Updating them must account for existing cached static libraries and license packaging; a cached build does not prove a new dependency was rebuilt. Keep distributed libraries static and retain the bundle check against Homebrew dynamic-library paths.
+- Configure primary app signing through Xcode's automatic signing and the intended `DEVELOPMENT_TEAM`; the checked-in team is empty. Keep signing keys, credentials and personal identity values out of committed files. Use a stable signature for Keychain/permission checks and stop/relaunch the app when verifying a rebuilt product. Shell-packager `SIGNING_IDENTITY` rules do not configure Xcode.
+- Preserve `scripts/build-app.sh` staging, signature/plist/library checks and atomic directory exchange when working on the secondary packaging path. Those guarantees are specific to that script. Its debug signing selects a sole suitable identity or falls back to ad-hoc if none exist; `SIGNING_IDENTITY=- scripts/build-app.sh` explicitly chooses ad-hoc. Ad-hoc rebuilds can require fresh Keychain authorization. Never overwrite the executable inside an installed/running app.
+- Script release builds require `CONFIGURATION=release` and an explicit real `SIGNING_IDENTITY`; never silently downgrade them to ad-hoc signing. Xcode uses its Release archive action and export/signing configuration. Its current Resources phase does not copy the notices assembled by the script, so validate license packaging, signing, notarization and clean-Mac acceptance before treating an Xcode archive as distribution-ready. Use [signing](docs/dev/signing.md), [releases](docs/dev/releases.md) and [licensing](docs/licensing.md).
+- `.github/workflows/release.yml` runs on `v*` tag pushes and publishes only after its gates; it is not PR CI. Xcode Cloud hooks use `SWIFTLIGHT_RUN_VALIDATION=1` for validation and `macos-v*` for their distinct release path. Preserve the existing release channel until the replacement Cloud archive, signing, notarization and clean-Mac artifact checks succeed, as required by [the migration plan](docs/dev/xcode-cloud.md).
+
+## Documentation, commits and pull requests
+
+- Update user-visible behavior and setup in `README.md` or the relevant `docs/*.md`. Put architecture, ownership, schemas, benchmarks and validation methodology in `docs/dev/`; keep navigation in `docs/README.md` and `docs/dev/README.md` useful. Update the applicable compatibility/acceptance record only with evidence from the current work. Keep this file operational rather than duplicating feature guides.
+- Commit, push, tag or publish only when requested. Use `codex/` for a new branch unless instructed otherwise. Preserve unrelated working-tree changes and do not switch/reset them away.
+- Commit titles must use Conventional Commits: `type(scope): description`, with an optional scope; for example, `fix(video): preserve frame ownership during teardown` or `docs: add repository agent guidance`. Use the same convention for PR titles so squash commits retain it.
+- When creating commits or PRs, include OpenAI as a co-author and identify the model used to write the code. Keep credentials and private runtime captures out of commit/PR content.
+- PR descriptions should state the problem, resulting behavior, relevant checks and remaining runtime/device limitations. Do not present historical validation, configured stream values, successful compilation or signing as measured runtime results.

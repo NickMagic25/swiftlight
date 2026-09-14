@@ -14,8 +14,8 @@ let package = Package(
     platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17)],
     products: [
         .library(name: "SwiftlightCore", targets: ["SwiftlightCore"]),
-        // The Xcode app project consumes these modules as local-package products.
-        // Keep the command-line SwiftPM build as the source of truth for them too.
+        // The primary Xcode app project consumes these shared modules as local-package products.
+        // Keep SwiftPM support for module tests, replay tooling, and the secondary app packager.
         .library(name: "SwiftlightHost", targets: ["SwiftlightHost"]),
         .library(name: "SwiftlightTransport", targets: ["SwiftlightTransport"]),
         .library(name: "SwiftlightVideo", targets: ["SwiftlightVideo"]),
