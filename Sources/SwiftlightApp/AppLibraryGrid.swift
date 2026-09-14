@@ -9,6 +9,7 @@ struct AppLibraryGrid: View {
     let loadingAllowed: Bool
     let requestArtwork: (RemoteApp) -> Void
     let launch: (RemoteApp) -> Void
+    let quit: (RemoteApp) -> Void
     @FocusState private var focusedAppID: Int?
 
     var body: some View {
@@ -17,6 +18,13 @@ struct AppLibraryGrid: View {
                 AppCoverButton(app: app, image: artwork.images[app.id], isRunning: runningAppID == app.id,
                                isFocused: focusedAppID == app.id) { launch(app) }
                     .focused($focusedAppID, equals: app.id)
+                    .contextMenu {
+                        Button(runningAppID == app.id ? "Resume" : "Play") { launch(app) }
+                        if runningAppID == app.id {
+                            Divider()
+                            Button("Quit Remote Application…", role: .destructive) { quit(app) }
+                        }
+                    }
                     .onAppear { requestArtwork(app) }
                     .onChange(of: loadingAllowed) { _, allowed in
                         if allowed { requestArtwork(app) }

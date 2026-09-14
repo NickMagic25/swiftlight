@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-13",
+  "feature": "Idle host polling and remote application controls",
+  "automated": {
+    "command": "SWIFTLIGHT_RUN_HARDWARE_TESTS=0 swift test --disable-sandbox --manifest-cache none",
+    "passed": 103,
+    "skipped_hardware_tests": 13,
+    "failures": 0,
+    "new_regression_tests": 14,
+    "log": "artifacts/remote-session-full-tests.log",
+    "window_lifecycle": "PASS (scripts/validate-stream-window-lifecycle.py)",
+    "packaged_build": "PASS (scripts/build-app.sh, strict code-signature verification)",
+    "environment": "Full suite rerun outside the filesystem/network sandbox after its local TLS listener and system image decoding were blocked. Hardware tests were disabled."
+  },
+  "live_ui": {
+    "build": ".build/Swiftlight.app",
+    "verified": [
+      "Paired host library loads and displays Resume on its running Desktop app",
+      "Running Desktop context menu contains Resume and Quit Remote Application",
+      "Quit confirmation identifies Desktop; Cancel preserves the running session",
+      "Selecting Balatro while Desktop runs offers Quit Desktop and start Balatro with Quit and Start and Cancel actions",
+      "Switch confirmation layout is readable; Cancel preserves the running session",
+      "Computer ellipsis menu no longer contains Quit Remote Application"
+    ],
+    "not_exercised": [
+      "Confirmed quit-and-start against the real host, including media playback in the replacement app",
+      "Timed five-second polling cadence and externally initiated running-app changes on the real host",
+      "Real sleep/wake and network-loss recovery"
+    ],
+    "note": "The existing remote Desktop session was left running. Protocol ordering, quit failure, changed confirmations, stale polling, automatic banner updates, and lifecycle pauses are covered by the regression fixtures."
+  }
+}

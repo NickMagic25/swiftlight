@@ -15,3 +15,14 @@ Record the macOS version, signed app build, host application/version, host HTTP 
 9. For stream verification, record the negotiated codec/HDR state, native/safe content geometry, requested/actual resolution, audio, input, reconnect behavior and visible frame progression using the broader acceptance matrix. A successful library or launch response alone does not prove a healthy media stream.
 
 Keep real device/host results separate from fixture tests. If a step fails, record the displayed error and operation stage without secrets, plus host service logs with authentication material redacted.
+
+## Remote session controls
+
+1. With Swiftlight idle on a paired computer's library, start an app using another client. Confirm its **Resume** banner appears within roughly five seconds of a completed status check. Change or quit the remote app and confirm the banner moves or disappears without pressing Refresh.
+2. Right-click the running tile. Confirm **Resume** and **Quit Remote Application…** appear, while other tiles have only **Play**. Confirm Quit is absent from the computer's ellipsis menu. Cancel the quit confirmation and verify the host app remains running.
+3. Select another app. Confirm the dialog names the running app and the selected app. Cancel, then repeat and choose **Quit and Start**. Verify the old app exits before the selected app launches, and verify live video, audio, and input in the new stream.
+4. Change the host's running app while the confirmation is open. Confirm accepting it presents a new confirmation for the newly running app. Where the host denies quitting another client's app, confirm Swiftlight reports the error and does not start the selected app.
+5. Disconnect locally. Confirm the banner returns automatically and the host app stays running. Change the selected computer during a slow status request; confirm no response from the old computer updates the new library. During streaming and Mac sleep, confirm no background status requests occur; after disconnect/wake, confirm checks resume.
+6. Temporarily make the host unreachable. Confirm the library remains visible, its running banner clears, no repeated error dialogs appear, and status recovers after connectivity returns.
+
+Fixture coverage: `swift test --filter RemoteSessionTests` exercises the production client model, polling scheduler, and host protocol through an in-memory server. It does not validate native context-menu/dialog presentation or a real media stream. The reference flows are in Moonlight Qt's `AppView.qml`/`computermanager.cpp` and Moonlight iOS/VoidLink's `MainFrameViewController.m`/`DiscoveryWorker.m`.

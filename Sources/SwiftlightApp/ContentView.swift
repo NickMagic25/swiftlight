@@ -6,7 +6,6 @@ struct ContentView: View {
     @ObservedObject var model: ClientModel
     @State private var showingAddHost = false
     @State private var showingSettings = false
-    @State private var confirmingQuit = false
     @State private var confirmingRemove = false
     var body: some View {
         Group {
@@ -79,9 +78,17 @@ struct ContentView: View {
         .alert("Swiftlight", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) {
             Button("OK") { model.message = nil }
         } message: { Text(model.message ?? "") }
-        .confirmationDialog("Quit the remote application?", isPresented: $confirmingQuit) {
-            Button("Quit Remote Application", role: .destructive) { model.quitRemoteApplication() }
-        } message: { Text("This ends the application on the host. Disconnect leaves it running.") }
+        .confirmationDialog(model.remoteApplicationAction?.title ?? "Quit remote application?",
+                            isPresented: Binding(get: { model.remoteApplicationAction != nil },
+                                                 set: { if !$0 { model.remoteApplicationAction = nil } }),
+                            titleVisibility: .visible, presenting: model.remoteApplicationAction) { action in
+            Button(action.nextApp == nil ? "Quit Remote Application" : "Quit and Start", role: .destructive) {
+                model.confirmRemoteApplicationAction(action)
+            }
+            Button("Cancel", role: .cancel) { model.remoteApplicationAction = nil }
+        } message: { action in
+            Text("This closes \(action.runningApp.name) on the host and ends its current stream. Any unsaved progress may be lost.")
+        }
         .confirmationDialog("Remove this computer and its saved pairing?", isPresented: $confirmingRemove) {
             Button("Remove Computer", role: .destructive) { model.removeHost() }
         }
@@ -109,7 +116,6 @@ struct ContentView: View {
                             Button("Pair Computer") { model.showingPairing = true }.disabled(model.hostInfo?.isPaired == true)
                             Button("Unpair and Pair Again") { model.unpair() }
                             Button("Remove Computer…", role: .destructive) { confirmingRemove = true }
-                            if (model.hostInfo?.currentAppID ?? 0) > 0 { Button("Quit Remote Application…", role: .destructive) { confirmingQuit = true } }
                         } label: { Image(systemName: "ellipsis").font(.title3) }
                             .menuStyle(.button).swiftlightGlassButton().fixedSize().disabled(model.busy)
                             .accessibilityLabel("Computer options")
@@ -120,12 +126,14 @@ struct ContentView: View {
                             Label("Pair this computer", systemImage: "lock.shield")
                         } description: { Text("Connect securely to your Sunshine or Apollo host, then choose a game or desktop.") }
                         actions: { Button("Pair Computer") { model.showingPairing = true }.swiftlightGlassButton(prominent: true) }
-                    } else if model.apps.isEmpty && !model.busy {
+                    } else if model.libraryApps.isEmpty && !model.busy {
                         ContentUnavailableView("No applications loaded", systemImage: "square.grid.2x2", description: Text("Refresh the computer to load its application library."))
                     } else {
-                        AppLibraryGrid(apps: model.apps, runningAppID: model.hostInfo?.currentAppID,
+                        AppLibraryGrid(apps: model.libraryApps, runningAppID: model.hostInfo?.currentAppID,
                                        artwork: model.artwork, loadingAllowed: !model.isSessionActive,
-                                       requestArtwork: { model.loadArtwork(for: $0) }, launch: model.launch)
+                                       requestArtwork: { model.loadArtwork(for: $0) }, launch: model.launch,
+                                       quit: model.requestQuitRemoteApplication)
+                            .disabled(model.busy || model.isSessionActive)
                     }
                     if model.state.phase == .suspending { Button("Resume after Sleep") { model.resumeSuspended() }.swiftlightGlassButton(prominent: true) }
                     if model.isSessionActive {

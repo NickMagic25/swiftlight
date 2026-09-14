@@ -52,6 +52,7 @@ let package = Package(
         .executableTarget(name: "SwiftlightApp", dependencies: ["SwiftlightCore", "SwiftlightVideo", "SwiftlightHost", "SwiftlightTransport"]),
         .executableTarget(name: "SwiftlightReplay", dependencies: ["SwiftlightVideo", .product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")]),
         .testTarget(name: "SwiftlightHostTests", dependencies: ["SwiftlightHost"]),
+        .testTarget(name: "SwiftlightAppTests", dependencies: ["SwiftlightApp"]),
         .testTarget(name: "SwiftlightTransportTests", dependencies: ["SwiftlightTransport", "CStreamBridge"]),
         .testTarget(name: "SwiftlightCoreTests", dependencies: ["SwiftlightCore"]),
         .testTarget(name: "SwiftlightVideoTests", dependencies: ["SwiftlightVideo"])

@@ -6,6 +6,16 @@ import SwiftlightHost
 import SwiftlightTransport
 import SwiftlightVideo
 
+struct RemoteApplicationAction: Identifiable {
+    let id = UUID()
+    let hostID: String
+    let runningApp: RemoteApp
+    let nextApp: RemoteApp?
+    var title: String {
+        nextApp.map { "Quit \(runningApp.name) and start \($0.name)?" } ?? "Quit \(runningApp.name)?"
+    }
+}
+
 @MainActor final class ClientModel: ObservableObject {
     @Published var hosts: [SavedHost] = []
     @Published var selectedHostID: String?
@@ -16,6 +26,7 @@ import SwiftlightVideo
     @Published var state = SessionState()
     @Published var busy = false
     @Published var message: String?
+    @Published var remoteApplicationAction: RemoteApplicationAction?
     @Published var pairingPIN: String?
     @Published var showingPairing = false
     @Published var activeApp: RemoteApp?
@@ -63,9 +74,19 @@ import SwiftlightVideo
     private var suspendedHostID: String?
     private var intentGate = SessionIntentGate()
     private var quittingRemote = false
+    private let hostPoller: IdleHostPoller
+    private var sleeping = false
+    private var shuttingDown = false
     var selectedHost: SavedHost? { hosts.first { $0.id == selectedHostID } }
     var isSessionActive: Bool { [.connecting, .negotiating, .streaming, .reconfiguring, .disconnecting].contains(state.phase) }
-    init() {
+    var libraryApps: [RemoteApp] {
+        guard let id = hostInfo?.currentAppID, id > 0, hostInfo?.isPaired == true,
+              !apps.contains(where: { $0.id == id }) else { return apps }
+        return apps + [RemoteApp(id: id, name: "Running application")]
+    }
+    init(startServices: Bool = true, pollingInterval: Duration = .seconds(5)) {
+        hostPoller = IdleHostPoller(interval: pollingInterval)
+        guard startServices else { return }
         if let data = UserDefaults.standard.data(forKey: "streamStatisticsPreferences"),
            let saved = try? JSONDecoder().decode(StreamStatisticsPreferences.self, from: data) { statisticsPreferences = saved }
         if let data = UserDefaults.standard.data(forKey: "defaultSettings"), let saved = try? JSONDecoder().decode(StreamSettings.self, from: data) { settings = saved }
@@ -81,7 +102,11 @@ import SwiftlightVideo
             Task { @MainActor in self?.suspend() }
         }.store(in: &observers)
         NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification).sink { [weak self] _ in
-            Task { @MainActor in self?.message = "Mac woke from sleep. Choose Resume when your host is ready." }
+            Task { @MainActor in
+                guard let self else { return }
+                self.sleeping = false; self.resumeHostPolling(immediately: true)
+                if self.suspendedApp != nil { self.message = "Mac woke from sleep. Choose Resume when your host is ready." }
+            }
         }.store(in: &observers)
         Task {
             do { hosts = try await hostStore.load() }
@@ -113,12 +138,12 @@ import SwiftlightVideo
         case .releaseInput: break // The native surface releases before calling us.
         }
     }
-    func selectHost(_ host: SavedHost) {
+    func selectHost(_ host: SavedHost, using hostClient: HostClient? = nil) {
         guard !isSessionActive, !quittingRemote, !busy else { return }
         intentGate.retire()
         artwork.cancel(clear: true)
         selectedHostID = host.id; apps = []; hostInfo = nil; pairingPIN = nil
-        client = HostClient(address: host.address, hostID: host.id)
+        client = hostClient ?? HostClient(address: host.address, hostID: host.id)
         loadProfile(host.id)
         refreshHost()
     }
@@ -130,20 +155,55 @@ import SwiftlightVideo
         }
     }
     private func beginControl() -> UInt64 {
+        hostPoller.stop(); remoteApplicationAction = nil
         controlTask?.cancel(); controlGeneration &+= 1; busy = true
         return controlGeneration
     }
     private func finishControl(_ generation: UInt64) {
         guard generation == controlGeneration else { return }
         busy = false; pairingPIN = nil; controlTask = nil
+        resumeHostPolling()
     }
     private func ensureControl(_ generation: UInt64, selection: String? = nil) throws {
         try Task.checkCancellation()
         guard generation == controlGeneration, selection == nil || selection == selectedHostID else { throw CancellationError() }
     }
     private func applyHostInfo(_ info: HostInfo) {
-        hostInfo = info
-        hostStatus = info.isPaired ? (info.isStreaming ? "Paired · App running" : "Paired") : "Ready to pair"
+        if hostInfo != info { hostInfo = info }
+        let status = info.isPaired ? (info.isStreaming ? "Paired · App running" : "Paired") : "Ready to pair"
+        if hostStatus != status { hostStatus = status }
+    }
+    private func resumeHostPolling(immediately: Bool = false) {
+        guard client != nil, selectedHostID != nil, !isSessionActive, !busy, !quittingRemote,
+              stoppingTask == nil, !sleeping, !shuttingDown else { return }
+        hostPoller.start(immediately: immediately) { [weak self] in await self?.pollHostStatus() }
+    }
+    private func pollHostStatus() async {
+        guard let client, let selection = selectedHostID, !isSessionActive, !busy,
+              !showingPairing, !sleeping, !shuttingDown else { return }
+        do {
+            let info = try await client.serverInfo()
+            try Task.checkCancellation()
+            guard selectedHostID == selection else { return }
+            let needsApps = hostInfo?.isPaired != true || apps.isEmpty ||
+                (info.currentAppID > 0 && !apps.contains(where: { $0.id == info.currentAppID }))
+            applyHostInfo(info)
+            if !info.isPaired { apps = []; artwork.cancel(clear: true) }
+            else if needsApps { try await loadApps(using: client, selection: selection, generation: controlGeneration) }
+        } catch is CancellationError {} catch {
+            guard !Task.isCancelled, selectedHostID == selection else { return }
+            // Background failures update status without repeated alerts or erasing
+            // the library. Clear the running marker until it can be verified again.
+            hostInfo = nil
+            switch error {
+            case HostError.certificateChanged, HostError.identityChanged:
+                hostStatus = "Trust needs review"; apps = []; artwork.cancel(clear: true)
+                hostPoller.stop()
+            case HostError.notPaired, HostError.permissionDenied:
+                hostStatus = "Permission required"; apps = []; artwork.cancel(clear: true)
+            default: hostStatus = "Offline · Retrying automatically"
+            }
+        }
     }
     private func controlFailed(_ error: Error, generation: UInt64) {
         guard generation == controlGeneration, !Task.isCancelled else { return }
@@ -282,7 +342,54 @@ import SwiftlightVideo
         }
     }
     func launch(_ app: RemoteApp) {
+        prepareLaunch(app)
+    }
+    private func prepareLaunch(_ app: RemoteApp, quitting expectedAppID: Int? = nil) {
+        guard let client, let host = selectedHost, !isSessionActive, !busy, !quittingRemote,
+              stoppingTask == nil, !shuttingDown else { return }
+        let ticket = intentGate.issue(hostID: host.id)
+        let generation = beginControl()
+        message = nil; hostStatus = expectedAppID == nil ? "Checking session…" : "Quitting remote application…"
+        controlTask = Task {
+            defer { finishControl(generation) }
+            do {
+                let info = try await client.prepareApplication(app.id, quitting: expectedAppID)
+                try ensureControl(generation, selection: host.id)
+                guard intentGate.accepts(ticket, selectedHostID: selectedHostID) else { return }
+                applyHostInfo(info)
+                // Release the host-control gate before entering the stream lifecycle.
+                busy = false
+                startStreaming(app)
+            } catch is CancellationError {} catch let conflict as RunningApplicationConflict {
+                guard generation == controlGeneration, !Task.isCancelled,
+                      intentGate.accepts(ticket, selectedHostID: selectedHostID) else { return }
+                applyHostInfo(conflict.hostInfo)
+                requestRemoteAction(runningAppID: conflict.hostInfo.currentAppID, nextApp: app)
+            } catch {
+                guard generation == controlGeneration, !Task.isCancelled else { return }
+                message = error.localizedDescription
+                if let hostInfo { applyHostInfo(hostInfo) }
+            }
+        }
+    }
+    func requestQuitRemoteApplication(_ app: RemoteApp) {
+        guard !isSessionActive, !busy, hostInfo?.currentAppID == app.id else { return }
+        requestRemoteAction(runningAppID: app.id)
+    }
+    private func requestRemoteAction(runningAppID: Int, nextApp: RemoteApp? = nil) {
+        guard let hostID = selectedHostID else { return }
+        let running = apps.first { $0.id == runningAppID } ?? RemoteApp(id: runningAppID, name: "Running application")
+        remoteApplicationAction = RemoteApplicationAction(hostID: hostID, runningApp: running, nextApp: nextApp)
+    }
+    func confirmRemoteApplicationAction(_ action: RemoteApplicationAction) {
+        remoteApplicationAction = nil
+        guard action.hostID == selectedHostID, !isSessionActive, !busy else { return }
+        if let nextApp = action.nextApp { prepareLaunch(nextApp, quitting: action.runningApp.id) }
+        else { quitRemoteApplication(expectedAppID: action.runningApp.id) }
+    }
+    private func startStreaming(_ app: RemoteApp) {
         guard let client, let host = selectedHost, !isSessionActive, !busy, !quittingRemote, stoppingTask == nil else { return }
+        hostPoller.stop()
         artwork.cancel()
         diagnosticTimeline = StreamDiagnosticTimeline()
         diagnosticSettings = settings; diagnosticFailure = nil
@@ -301,7 +408,7 @@ import SwiftlightVideo
                 display = launchDisplay.0; hdrHeadroom = launchDisplay.1
                 let info = try await client.serverInfo(); try ensureCurrent(generation)
                 if info.currentAppID > 0 && info.currentAppID != app.id {
-                    throw SettingsError.invalid("Another application is running on this host. Resume it or explicitly quit it before launching \(app.name).")
+                    throw RunningApplicationConflict(hostInfo: info)
                 }
                 activeStreamSettings = settings
                 // Snapshot before awaiting launch so host and transport always request
@@ -331,7 +438,7 @@ import SwiftlightVideo
                     guard let queryItems = URLComponents(string: "http://localhost/?" + extensionQuery)?.queryItems else { throw HostError.invalidResponse }
                     launchRequest.additionalQuery = queryItems
                 }
-                let launchResponse = info.currentAppID == app.id ? try await client.resume(launchRequest) : try await client.launch(launchRequest)
+                let launchResponse = try await client.launchOrResume(launchRequest)
                 try ensureCurrent(generation)
                 let pipeline = StreamingPipeline(renderOptions: renderOptions)
                 let formats: UInt32 = selection.codec == .av1 ? (selection.hdr ? 0x2000 : 0x1000) : (selection.hdr ? 0x200 : 0x100)
@@ -348,7 +455,15 @@ import SwiftlightVideo
                 state.apply(.negotiated, generation: generation)
                 activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled, .idleDisplaySleepDisabled], reason: "Streaming a game")
                 try await transport.start(); try ensureCurrent(generation)
-            } catch is CancellationError {} catch {
+            } catch is CancellationError {} catch let conflict as RunningApplicationConflict {
+                guard state.generation == generation, !Task.isCancelled else { return }
+                applyHostInfo(conflict.hostInfo)
+                disconnect()
+                let stoppedGeneration = state.generation
+                await stoppingTask?.value
+                guard selectedHostID == host.id, state.generation == stoppedGeneration, !shuttingDown else { return }
+                requestRemoteAction(runningAppID: conflict.hostInfo.currentAppID, nextApp: app)
+            } catch {
                 guard state.generation == generation else { return }
                 diagnosticFailure = "\(String(reflecting: type(of: error))) code \((error as NSError).code)"
                 state.apply(.failure(error.localizedDescription), generation: generation); message = error.localizedDescription; teardown()
@@ -386,6 +501,7 @@ import SwiftlightVideo
             await Task.detached { oldPipeline?.close() }.value
             state.apply(.stopped); stoppingTask = nil
             if let hostInfo { applyHostInfo(hostInfo) }
+            resumeHostPolling(immediately: true)
         }
     }
     func reconnect() {
@@ -398,6 +514,7 @@ import SwiftlightVideo
         }
     }
     func suspend() {
+        sleeping = true; hostPoller.stop()
         guard isSessionActive else { return }
         intentGate.retire(); suspendedApp = activeApp; suspendedHostID = selectedHostID
         state.apply(.suspend); teardown()
@@ -411,7 +528,7 @@ import SwiftlightVideo
             state.apply(.disconnect); state.apply(.stopped); launch(app)
         }
     }
-    func quitRemoteApplication() {
+    private func quitRemoteApplication(expectedAppID: Int) {
         guard let client, let hostID = selectedHostID, !busy, !quittingRemote else { return }
         quittingRemote = true; disconnect(); let generation = beginControl()
         controlTask = Task {
@@ -419,14 +536,23 @@ import SwiftlightVideo
             await stoppingTask?.value
             do {
                 try ensureControl(generation, selection: hostID)
-                try await client.quitApplication()
+                try await client.quitApplication(expectedAppID: expectedAppID)
                 let info = try await client.serverInfo(); try ensureControl(generation, selection: hostID)
                 applyHostInfo(info)
                 if info.isPaired { try await loadApps(using: client, selection: hostID, generation: generation) }
-            } catch is CancellationError {} catch { controlFailed(error, generation: generation) }
+            } catch is CancellationError {} catch let conflict as RunningApplicationConflict {
+                guard generation == controlGeneration, !Task.isCancelled else { return }
+                applyHostInfo(conflict.hostInfo)
+                requestRemoteAction(runningAppID: conflict.hostInfo.currentAppID)
+            } catch {
+                guard generation == controlGeneration, !Task.isCancelled else { return }
+                message = error.localizedDescription
+                if let hostInfo { applyHostInfo(hostInfo) }
+            }
         }
     }
     func shutdown() async {
+        shuttingDown = true; hostPoller.stop(); remoteApplicationAction = nil
         artwork.cancel(clear: true)
         controlTask?.cancel(); disconnect()
         await stoppingTask?.value

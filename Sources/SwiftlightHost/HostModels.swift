@@ -146,6 +146,13 @@ public struct RemoteApp: Hashable, Codable, Sendable, Identifiable {
     }
 }
 
+/// Carries the fresh status that requires a new user decision before switching apps.
+public struct RunningApplicationConflict: Error, LocalizedError, Sendable {
+    public let hostInfo: HostInfo
+    public init(hostInfo: HostInfo) { self.hostInfo = hostInfo }
+    public var errorDescription: String? { "Another application is running on this host." }
+}
+
 /// Ephemeral launch material must also be passed unchanged to moonlight-common-c.
 public struct StreamLaunchRequest: Sendable, CustomDebugStringConvertible {
     public let appID: Int

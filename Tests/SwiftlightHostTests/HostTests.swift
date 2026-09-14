@@ -63,6 +63,13 @@ import Testing
     #expect(throws: HostError.permissionDenied) { try permissionApp.apps() }
 }
 
+@Test func idleServerDoesNotExposeTheLastPlayedAppAsRunning() throws {
+    for (state, expected) in [("SUNSHINE_SERVER_BUSY", 17), ("SUNSHINE_SERVER_FREE", 0), ("MJOLNIR_SERVER_FREE", 0)] {
+        let xml = try HostXML(data: Data("<root status_code=\"200\"><hostname>Host</hostname><uniqueid>fixture</uniqueid><appversion>7.1</appversion><state>\(state)</state><currentgame>17</currentgame></root>".utf8))
+        #expect(try xml.serverInfo(defaultHTTPSPort: 47984, authenticated: true).currentAppID == expected)
+    }
+}
+
 @Test func cryptoInteroperabilityAndTamperRejection() throws {
     // AES-128 ECB known-answer vector (FIPS 197 Appendix C.1).
     let key = try Data(strictHex: "000102030405060708090A0B0C0D0E0F")
