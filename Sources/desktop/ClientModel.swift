@@ -414,7 +414,7 @@ import SwiftlightVideo
                 let config = preparation.transportConfiguration(address: host.address.host,
                     sessionURL: launchResponse.sessionURL, displayRefreshHz: display.refreshHz)
                 let transport = try StreamTransport(configuration: config, callbacks: .init(setup: { pipeline.setup($0) }, video: { pipeline.receive($0) },
-                    event: { [weak self] event in Task { @MainActor [weak self] in self?.handle(event, generation: generation) } }))
+                    event: { [weak model = self] event in Task { @MainActor in model?.handle(event, generation: generation) } }))
                 self.pipeline = pipeline; self.transport = transport
                 statisticsRequest = request; statisticsSelection = selection
                 streamDetail = "Requested \(request.size.width) × \(request.size.height) · \(request.fps) FPS · \(Double(request.bitrateKbps) / 1000) Mbps · \(selection.codec.rawValue.uppercased()) \(selection.hdr ? "HDR10" : "SDR")"

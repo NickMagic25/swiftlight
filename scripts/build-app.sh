@@ -57,6 +57,7 @@ staged_app="$stage_dir/Swiftlight.app"
 mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources/Licenses"
 cp -f "$bin_path/swiftlight-desktop" "$staged_app/Contents/MacOS/Swiftlight"
 cp -f App/Info.plist "$staged_app/Contents/Info.plist"
+cp -f App/AppIcon.icns "$staged_app/Contents/Resources/AppIcon.icns"
 if [[ -n "${RELEASE_TAG:-}" ]]; then
   python3 scripts/release-version.py "$RELEASE_TAG" --build-number "${BUILD_NUMBER:-1}" --plist "$staged_app/Contents/Info.plist"
 fi

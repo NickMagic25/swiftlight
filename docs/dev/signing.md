@@ -10,6 +10,34 @@ The terminal recipe writes `.build/xcode/Build/Products/Debug/Swiftlight.app`; t
 
 A local signed build or archive is not a notarized, distribution-qualified installer. Follow [Xcode Cloud](xcode-cloud.md) and [release validation](releases.md) for archive export, required license notices, notarization and clean-Mac acceptance. Keychain authorization may still require normal user interaction with a correctly signed app.
 
+### Mac App Store and TestFlight
+
+Both Xcode Mac configurations sign with `App/Swiftlight-macOS.entitlements` and
+enable App Sandbox. Outgoing network access supports host control and pairing;
+incoming network access supports the bound UDP sockets used by streaming.
+User-selected read/write access supports the fixture picker and diagnostic save
+panels. These settings are scoped to the macOS SDK, so iPhone/iPad signing does
+not receive Mac sandbox entitlements. See Apple's
+[App Sandbox configuration](https://developer.apple.com/documentation/xcode/configuring-the-macos-app-sandbox).
+
+The Mac bundle includes `App/AppIcon.icns`, generated from the same 1024-pixel
+artwork used by iPhone/iPad. It includes the required 512-point @2x representation.
+After changing the mobile artwork, run `bash scripts/generate-macos-icon.sh`
+and include the resulting ICNS in the change. Both Xcode and the secondary
+packager copy this icon into the Mac bundle.
+
+Rebuild the archive after changing resources or entitlements; an existing
+Organizer archive retains its old icon and signature. Verify the new archive
+with `codesign -d --entitlements :- /path/to/Swiftlight.app` and inspect
+`Contents/Resources/AppIcon.icns` before uploading. App Store Connect validation,
+and live discovery, pairing, streaming and diagnostic export under the sandbox,
+remain separate acceptance checks. Existing unsandboxed app data and Keychain
+access also need migration/runtime verification; do not reset pairing state to
+work around access errors.
+
+The secondary Developer ID shell packager keeps its existing signing policy;
+it is not the Mac App Store/TestFlight packaging path.
+
 ## Secondary SwiftPM app packager
 
 `scripts/build-app.sh` remains available for the existing GitHub release and packaging workflow. It produces `.build/Swiftlight.app`. The following signing table, environment variables and bundle-replacement guarantees apply to that script.

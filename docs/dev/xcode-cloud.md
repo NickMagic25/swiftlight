@@ -216,6 +216,10 @@ reason merely to hide an unexpected dependency import.
 The icon lives in `App/MobileAssets.xcassets`. Reproduce its opaque 1024-pixel
 PNG with `CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache" swift
 scripts/generate-mobile-icon.swift`. The platform applies its own icon mask.
+Then run `bash scripts/generate-macos-icon.sh` to update `App/AppIcon.icns`
+from that same artwork. The Mac resource includes all standard sizes through
+512-point @2x. Mac Xcode builds also enable App Sandbox with the network and
+user-selected file permissions described in [signing](signing.md#mac-app-store-and-testflight).
 
 ## Preserve the macOS release channel
 

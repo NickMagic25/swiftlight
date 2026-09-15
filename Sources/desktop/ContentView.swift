@@ -34,7 +34,9 @@ struct ContentView: View {
             } else {
                 NavigationSplitView {
                     List(selection: Binding(get: { model.selectedHostID }, set: { id in
-                        if let host = model.hosts.first(where: { $0.id == id }) { model.selectHost(host) }
+                        Task { @MainActor in
+                            if let host = model.hosts.first(where: { $0.id == id }) { model.selectHost(host) }
+                        }
                     })) {
                         Section("Your Computers") {
                             ForEach(model.hosts) { host in

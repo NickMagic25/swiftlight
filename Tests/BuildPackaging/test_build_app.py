@@ -73,7 +73,7 @@ def run_case(root, source, case):
     bootstrap = root / "scripts/bootstrap-dependencies.sh"
     bootstrap.write_text("#!/bin/bash\nexit 0\n")
     bootstrap.chmod(0o755)
-    for relative in ["App/Info.plist", "LICENSE", ".build/dependencies/licenses/native.txt",
+    for relative in ["App/Info.plist", "App/AppIcon.icns", "LICENSE", ".build/dependencies/licenses/native.txt",
                      "Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt",
                      ".build/checkouts/moonlight-apple-decoder/LICENSE", "bin/swiftlight-desktop"]:
         path = root / relative
@@ -115,6 +115,8 @@ def run_case(root, source, case):
         binary = app / "Contents/MacOS/Swiftlight"
         if success:
             require(binary.read_text() == "new-fake-binary", "New bundle was not installed")
+            require((app / "Contents/Resources/AppIcon.icns").read_bytes() ==
+                    (root / "App/AppIcon.icns").read_bytes(), "Mac icon was not packaged")
             builds = [args for command, args in calls if command == "swift" and "--product" in args]
             require(len(builds) == 1 and builds[0][builds[0].index("--product") + 1] == "swiftlight-desktop",
                     "The packager must build the distinct SwiftPM executable product")
