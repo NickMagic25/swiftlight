@@ -2,7 +2,7 @@
 
 ## Xcode app builds
 
-Build and run the app through `Swiftlight.xcodeproj` and the shared `Swiftlight` scheme, following the [development build guide](README.md#build-and-run-the-app-with-xcode). The target uses automatic signing and leaves `DEVELOPMENT_TEAM` empty in the checked-in project. Choose the intended team under **Signing & Capabilities**, or supply `DEVELOPMENT_TEAM=YOUR_TEAM_ID` to `xcodebuild` using your actual team ID.
+Build and run the app through `Swiftlight.xcodeproj` and the shared `Swiftlight` scheme, following the [development build guide](README.md#build-and-run-the-app-with-xcode). One app target supports Mac, iPhone and iPad destinations with automatic signing. Choose the intended team under **Signing & Capabilities**, or supply `DEVELOPMENT_TEAM=YOUR_TEAM_ID` to `xcodebuild` using your actual team ID. The Mac and iOS builds retain their established SDK-specific bundle identifiers; selecting a destination does not create a separate target or change existing app identity. See [Cloud and iOS distribution](xcode-cloud.md) for TestFlight and registered-device exports.
 
 Use a stable development identity and the existing `net.edrisil.swiftlight` bundle identifier for repeated pairing/permission checks. Xcode signing is controlled by its project/build settings; `SIGNING_IDENTITY` and the automatic certificate-selection rules below belong to the secondary shell packager. They do not configure Xcode.
 

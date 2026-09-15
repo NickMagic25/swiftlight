@@ -15,8 +15,8 @@ class MobileExportTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="swiftlight export ")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.archive = self.root / "SwiftlightMobile.xcarchive"
-        self.app = self.archive / "Products/Applications/SwiftlightMobile.app"
+        self.archive = self.root / "Swiftlight-iOS.xcarchive"
+        self.app = self.archive / "Products/Applications/Swiftlight.app"
         self.app.mkdir(parents=True)
         self.bin = self.root / "bin"
         self.bin.mkdir()
@@ -49,7 +49,7 @@ class MobileExportTests(unittest.TestCase):
         self.assertFalse(options["manageAppVersionAndBuildNumber"])
 
     def test_rejects_simulator_and_wrong_product_before_signing(self):
-        for options in ({"platform": "iPhoneSimulator"}, {"family": (1,)},
+        for options in ({"platform": "iPhoneSimulator"}, {"platform": "MacOSX"}, {"family": (1,)},
                         {"identifier": "net.edrisil.swiftlight"}):
             with self.subTest(options=options):
                 result = self.export(**options)

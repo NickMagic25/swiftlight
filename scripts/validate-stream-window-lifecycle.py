@@ -16,7 +16,7 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     build = args.build_dir.resolve()
-    source_path = root / "Sources/SwiftlightApp/StreamWindowController.swift"
+    source_path = root / "Sources/desktop/StreamWindowController.swift"
     source = source_path.read_text()
     start = "@MainActor final class StreamWindowController"
     end = "\nstruct StreamWindowReader:"

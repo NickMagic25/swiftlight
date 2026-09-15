@@ -1,24 +1,56 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>net.edrisil.swiftlight</string>
-<key>CFBundleName</key><string>Swiftlight</string>
-<key>CFBundleDisplayName</key><string>Swiftlight</string>
-<key>CFBundleExecutable</key><string>Swiftlight</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.0.1</string>
-<key>CFBundleVersion</key><string>1</string>
-<key>LSMinimumSystemVersion</key><string>14.0</string>
-<key>LSApplicationCategoryType</key><string>public.app-category.games</string>
-<key>LSSupportsGameMode</key><true/>
-<key>GCSupportsGameMode</key><true/>
-<key>NSHighResolutionCapable</key><true/>
-<key>NSPrincipalClass</key><string>NSApplication</string>
-<key>NSLocalNetworkUsageDescription</key><string>Swiftlight discovers and connects to your game streaming computers on your local network.</string>
-<key>NSBonjourServices</key><array><string>_nvstream._tcp</string></array>
-<!-- GameStream bootstraps user-entered hosts over HTTP before certificate pairing.
-     Hosts may use arbitrary DNS names (including VPN/tailnet names), not just .local.
-     HTTPS still requires the exact paired certificate in HostSessionDelegate.
-     Do not add NSAllowsLocalNetworking: its presence overrides this exception. -->
-<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
-</dict></plist>
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Swiftlight</string>
+	<key>CFBundleExecutable</key>
+	<string>Swiftlight</string>
+	<key>CFBundleIdentifier</key>
+	<string>net.edrisil.swiftlight</string>
+	<key>CFBundleName</key>
+	<string>Swiftlight</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.0.1</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>GCSupportsGameMode</key>
+	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.games</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSSupportsGameMode</key>
+	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_nvstream._tcp</string>
+	</array>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Swiftlight discovers and connects to your game streaming computers on your local network.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+</dict>
+</plist>

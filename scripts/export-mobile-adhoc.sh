@@ -2,15 +2,15 @@
 # Export a signed iOS archive for the team's registered iPhone/iPad devices.
 set -eu
 if [ "$#" -ne 2 ]; then
-  echo 'usage: scripts/export-mobile-adhoc.sh <SwiftlightMobile.xcarchive> <export-directory>' >&2
+  echo 'usage: scripts/export-mobile-adhoc.sh <Swiftlight-iOS.xcarchive> <export-directory>' >&2
   exit 2
 fi
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-if [ ! -d "$1/Products/Applications/SwiftlightMobile.app" ]; then
-  echo 'error: Expected a SwiftlightMobile device archive' >&2
+if [ ! -d "$1/Products/Applications/Swiftlight.app" ]; then
+  echo 'error: Expected a Swiftlight iOS device archive' >&2
   exit 1
 fi
-python3 - "$1/Products/Applications/SwiftlightMobile.app/Info.plist" <<'PY'
+python3 - "$1/Products/Applications/Swiftlight.app/Info.plist" <<'PY'
 import plistlib
 import sys
 

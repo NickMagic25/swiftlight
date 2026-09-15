@@ -1,6 +1,6 @@
 # Stream diagnostic exports
 
-Choose **Stream → Export Last Stream Diagnostics…** after a connection attempt
+On macOS, choose **Stream → Export Last Stream Diagnostics…** after a connection attempt
 ends, or use the same action in the library's computer-options menu. The action
 is disabled until there is a retained report. The native save panel writes JSON
 atomically to the selected location. Canceling the panel keeps the report available.
@@ -107,6 +107,33 @@ has a debug-only native PQ experiment using `bgr10a2Unorm` and Rec.2100 PQ. It l
 space with values above 1.0. Disabling metadata-driven tone mapping can change
 highlight handling, so PQ remains an experiment. See Apple's
 [EDR metadata requirements](https://developer.apple.com/documentation/quartzcore/cametallayer/edrmetadata).
+
+## Mobile debug comparison captures
+
+The mobile client has an explicit DEBUG-only capture path, without the Mac export
+UI. It uses schema 5's shared settings, decoder, renderer, timing populations,
+and safe stream fields. A `capture` object adds the trial label, random run ID,
+checkpoint index, supplied source revision/tree hash, elapsed and stable-state
+durations, warmup/exclusion counts, statistics preferences and visibility match,
+device model/class, low-power state, and declared Game Mode support. Actual Game
+Mode observation remains unavailable in the JSON and requires external evidence.
+Mobile capture omits interface names and audio route identifiers.
+
+Runtime fields without a supported mobile observation are optional and omitted,
+including `displaySyncEnabled`, `displayRefreshHz`, refresh intervals, and update
+granularity. Separate optional fields describe whether the display-sync control
+is supported, the screen's maximum frame rate, and the display link's requested
+frame-rate range. These are not measured presentation cadence.
+`wantsExtendedDynamicRangeContent`, `edrMetadataConfigured`, and the owning display's
+potential/current EDR headroom describe configuration when sampled on attachment,
+layout, or an HDR transition; they do not measure luminance or physical scanout.
+Existing macOS field values and required timing meanings are unchanged.
+
+The capture retains at most three checkpoints per session and 32 files locally.
+Ten seconds of warmup are excluded from the raw renderer arrays, including after
+an observed visibility/control/input change. Other decoder/renderer summary
+windows keep their independent populations. Details, opt-in flags, retrieval,
+and comparison rules are in [mobile debug captures](stream-latency-debugging.md#mobile-debug-captures).
 
 ## Validation
 

@@ -74,13 +74,16 @@ def run_case(root, source, case):
     bootstrap.write_text("#!/bin/bash\nexit 0\n")
     bootstrap.chmod(0o755)
     for relative in ["App/Info.plist", "LICENSE", ".build/dependencies/licenses/native.txt",
-                     "Sources/CStreamBridge/vendor/common-c/LICENSE.txt",
-                     ".build/checkouts/moonlight-apple-decoder/LICENSE", "bin/Swiftlight"]:
+                     "Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt",
+                     ".build/checkouts/moonlight-apple-decoder/LICENSE", "bin/swiftlight-desktop"]:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("new-fake-binary" if relative == "bin/Swiftlight" else "fixture")
+        path.write_text("new-fake-binary" if relative == "bin/swiftlight-desktop" else "fixture")
+    # A cached product from the old name must never enter the packaged app.
+    (root / "bin/Swiftlight").write_text("stale-legacy-binary")
     with (root / "App/Info.plist").open("wb") as destination:
-        plistlib.dump({"CFBundleIdentifier": "net.edrisil.swiftlight", "CFBundleShortVersionString": "0.0.1", "CFBundleVersion": "1"}, destination)
+        plistlib.dump({"CFBundleIdentifier": "net.edrisil.swiftlight", "CFBundleExecutable": "Swiftlight",
+                       "CFBundleShortVersionString": "0.0.1", "CFBundleVersion": "1"}, destination)
     tools = root / "stub-bin"
     tools.mkdir()
     (tools / "tool").write_text(STUB)
@@ -112,6 +115,12 @@ def run_case(root, source, case):
         binary = app / "Contents/MacOS/Swiftlight"
         if success:
             require(binary.read_text() == "new-fake-binary", "New bundle was not installed")
+            builds = [args for command, args in calls if command == "swift" and "--product" in args]
+            require(len(builds) == 1 and builds[0][builds[0].index("--product") + 1] == "swiftlight-desktop",
+                    "The packager must build the distinct SwiftPM executable product")
+            with (app / "Contents/Info.plist").open("rb") as source_plist:
+                info = plistlib.load(source_plist)
+            require(info["CFBundleExecutable"] == "Swiftlight", "Packaged executable identity changed")
             sign = [args for command, args in calls if command == "codesign" and "--sign" in args][0]
             require(sign[sign.index("--sign") + 1] == identity, "Wrong signing identity")
             require("/.Swiftlight-stage." in sign[-1], "Signing did not target the staged bundle")

@@ -30,7 +30,7 @@ Revisit when a supported host can provide trustworthy session-origin information
 
 - Recheck session identity and generation immediately before acting on a confirmation. A changed session requires a new decision; an application ID alone is insufficient.
 - Explain that **Quit and Start New** closes the running host application, disconnects its streams, and may lose unsaved progress. Require the user's explicit choice before quitting.
-- Implement an explicit same-application restart path: cancel, verify the old application has quit, then launch with the Mac's settings. The current [`HostClient.prepareApplication`](../../Sources/SwiftlightHost/HostClient.swift) path deliberately resumes the same application.
+- Implement an explicit same-application restart path: cancel, verify the old application has quit, then launch with the Mac's settings. The current [`HostClient.prepareApplication`](../../Sources/shared/SwiftlightHost/HostClient.swift) path deliberately resumes the same application.
 - Cover locally started sessions, sessions started elsewhere with the other client connected or disconnected, unknown origin, client/host relaunch, same-application replacement between polls, changed confirmations, and denied quits. A failed quit must never launch the replacement.
 - Validate real simultaneous phone/Mac connections and record host display configuration, requested stream mode, encoded dimensions, and playback after both resume and restart. Fixture tests cannot establish display reconfiguration behavior.
 

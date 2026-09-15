@@ -13,6 +13,55 @@ the panel now drawn into the video pass, its accessibility support, and the
 controlled hidden/SwiftUI/Metal/hidden results. Those results do not establish
 a latency improvement or Direct presentation.
 
+## Mobile debug captures
+
+Mobile timing capture is explicit and DEBUG-only. The app requires
+`SWIFTLIGHT_LATENCY_CAPTURE=1` and a `SWIFTLIGHT_LATENCY_TRIAL` of
+`baseline-off`, `baseline-on`, `candidate-off`, or `candidate-on`. Capture labels
+describe statistics visibility; compare actual requested/runtime settings too.
+Optional `SWIFTLIGHT_LATENCY_SOURCE_REVISION` and
+`SWIFTLIGHT_LATENCY_SOURCE_TREE_SHA256` identify a preserved build. Keep a separate
+binary hash and dirty-source manifest; HEAD alone does not identify local changes.
+
+The existing low-rate session monitor captures at 20, 30, and 40 seconds after a
+confirmed drawable presentation. It filters the bounded recent timing arrays
+after a ten-second warmup, restarting that cutoff after an observed statistics,
+controls, or input-admission change. Check `capture.warmupComplete`,
+`statisticsVisibilityMatchesTrial`, steady-state duration, thermal/power state,
+actual runtime policy, and missing presentation counts before comparing results.
+Checkpoints may overlap; do not concatenate their samples as independent frames.
+
+Each connection writes at most three schema 5 JSON files, retaining at most 32,
+in the app container's `Library/Application Support/SwiftlightLatency/` directory.
+Files contain bounded scalar diagnostics, never host addresses, credentials,
+application names, input events, or media. No export UI or automatic upload is
+added. Normal launches and Release builds do not enable capture.
+
+`testLiveLatencyCapture` requires both `TEST_RUNNER_SWIFTLIGHT_LIVE_UI_TESTS=1`
+and `TEST_RUNNER_SWIFTLIGHT_LATENCY_CAPTURE=1`; pass the trial and source fields
+with the same `TEST_RUNNER_` prefix. It forwards those fields into the app, resumes
+only an already-running application on a saved paired computer, changes transient
+statistics visibility, waits 45 seconds without UI interactions, then disconnects
+locally. It leaves saved stream quality unchanged. A passed UI test does not
+verify the exported file's contents: retrieve and inspect the files separately.
+
+```sh
+xcrun devicectl device copy from --device YOUR_DEVICE_UDID \
+  --domain-type appDataContainer \
+  --domain-identifier net.edrisil.swiftlight.ios \
+  --source 'Library/Application Support/SwiftlightLatency' \
+  --destination artifacts/mobile-latency-captures
+python3 scripts/analyze-stream-latency.py artifacts/mobile-latency-captures/*.json
+```
+
+On iOS, runtime refresh timing and display-sync state that the public API cannot
+observe remain unavailable. The screen's maximum frame rate is separately named;
+it is not a measured presentation rate. Game Mode support in the plist is also
+separate from observed activation. Keep the device, host scene, incoming format,
+network/output route, brightness, Game Mode, and Metal HUD state fixed. Repeat
+baseline/off/on trials at least three times each before drawing conclusions.
+Mobile results do not inherit the macOS results below.
+
 ## Initial measured baseline
 
 The September 13, 2026 export requested 3440 × 1440 at 165 FPS, HEVC HDR10,

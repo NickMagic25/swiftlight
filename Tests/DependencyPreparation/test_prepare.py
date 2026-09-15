@@ -44,7 +44,7 @@ class PreparationTests(unittest.TestCase):
         (self.patches / "fix.patch").write_text(
             "diff --git a/value.txt b/value.txt\n--- a/value.txt\n+++ b/value.txt\n"
             "@@ -1 +1 @@\n-before\n+after\n")
-        self.output = self.root / "Sources/CStreamBridge/vendor/common-c"
+        self.output = self.root / "Sources/shared/CStreamBridge/vendor/common-c"
 
     def prepare(self, success=True):
         result = subprocess.run([sys.executable, str(self.root / "scripts/prepare-common-c.py")],
@@ -57,6 +57,8 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual((self.output / "value.txt").read_text(), "after\n")
         self.assertEqual((self.upstream / "value.txt").read_text(), "before\n")
         self.assertEqual((self.root / "value.txt").read_text(), "parent must remain unchanged\n")
+        self.assertEqual({path.name for path in (self.root / "Sources").iterdir()}, {"shared"},
+                         "Preparation must not recreate a legacy top-level module directory")
         self.assertEqual(git(self.upstream, "status", "--porcelain"), "")
         mtime = (self.output / "value.txt").stat().st_mtime_ns
         self.prepare()

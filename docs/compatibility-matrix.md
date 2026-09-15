@@ -1,8 +1,8 @@
 # Compatibility
 
-Swiftlight has a macOS client on Apple silicon and a developing universal iPhone/iPad client for iOS/iPadOS 26 or later. Sunshine and Apollo are the supported host families. The [mobile MVP](mobile.md) builds and runs in both simulator families; physical-device streaming and distribution remain unverified. tvOS has no app adapter yet.
+Swiftlight uses one app target and scheme for Apple silicon Mac, iPhone and iPad destinations. The developing iPhone/iPad experience requires iOS/iPadOS 26 or later. Sunshine and Apollo are the supported host families; tvOS has no app adapter yet. See the [mobile guide](mobile.md) and [current shared-app validation record](dev/shared-client-validation-2026-09-14.md) for destination-specific checks. Earlier simulator and physical iPad records describe the builds actually tested before target unification; they do not establish that a later project configuration passed.
 
-The following feature availability describes the Mac client. The mobile MVP currently exposes SDR, stereo, touch pointer input and connected controllers; see its guide for the remaining device checks.
+The following feature availability describes the Mac client. The mobile MVP exposes SDR/HDR, Stereo/5.1/7.1 and Direct/System Spatial Audio settings, touch pointer input, and connected controllers. Physical HDR, spatial output, and matched latency acceptance remain device-specific checks; see the [mobile guide](mobile.md).
 
 | Feature | Availability |
 | --- | --- |

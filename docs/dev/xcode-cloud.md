@@ -1,8 +1,9 @@
 # Xcode Cloud and App Store Connect
 
 `Swiftlight.xcodeproj` is the app build entrypoint for macOS, iOS and iPadOS.
-The shared `Swiftlight` scheme builds the Mac app; `SwiftlightMobile` builds
-one universal iPhone/iPad app. Xcode Cloud uses the same schemes, pinned
+The single `Swiftlight` app target and shared `Swiftlight` scheme build for
+Mac, iPhone and iPad destinations. Each destination produces `Swiftlight.app`.
+Xcode Cloud uses that same scheme, pinned
 package dependencies and source membership as local Xcode builds.
 
 The repository contains the build hooks and export configuration. Workflows,
@@ -12,10 +13,10 @@ workflows, and a local simulator run does not verify Cloud signing or delivery.
 
 ## Repository support
 
-| Product | Scheme | Bundle identifier | Minimum OS |
+| Destination | Scheme | Bundle identifier | Minimum OS |
 | --- | --- | --- | --- |
 | Mac | `Swiftlight` | `net.edrisil.swiftlight` | macOS 14 |
-| iPhone and iPad | `SwiftlightMobile` | `net.edrisil.swiftlight.ios` | iOS/iPadOS 26 |
+| iPhone and iPad | `Swiftlight` | `net.edrisil.swiftlight.ios` | iOS/iPadOS 26 |
 
 The shared package supplies Core, Host, Transport and Video. The mobile app
 uses UIKit and SwiftUI with the production `MoonlightAppleVideo` decoder and
@@ -24,19 +25,26 @@ Metal renderer. tvOS remains future work.
 Each Cloud action starts in a separate environment. The scripts in
 [`ci_scripts/`](../../ci_scripts/) provide these steps:
 
-- `ci_post_clone.sh` prepares native dependencies for the action's scheme and
+- `ci_post_clone.sh` prepares native dependencies for the action's platform and
   resolves the committed package pins. Mobile archives prepare iOS device
   libraries. Other mobile actions prepare device and simulator libraries,
-  because Cloud build actions can select either destination type. The Mac
-  scheme prepares macOS libraries. iPhone and iPad use the same iOS SDK.
+  because Cloud build actions can select either destination type. macOS
+  actions prepare macOS libraries. iPhone and iPad use the same iOS SDK.
 - `ci_pre_xcodebuild.sh` gives every Cloud build its `CI_BUILD_NUMBER`, including
   branch builds. Release tags also set the marketing version. Set
   `SWIFTLIGHT_RUN_VALIDATION=1` to run the existing SwiftPM, Python and native
   host checks before the action. That gate prepares its own macOS dependencies;
   it does not establish an iPhone or iPad runtime result.
-- The mobile app's license-copy build phase packages the pinned third-party
+- The app target's license-copy build phase packages the pinned third-party
   notices before signing. Missing inputs fail the build. The app also includes
-  its icon and privacy manifest.
+  the resources appropriate to the destination, including the iOS icon and
+  privacy manifest.
+
+Both hooks require `CI_XCODE_SCHEME=Swiftlight` and dispatch using Apple's
+`CI_PRODUCT_PLATFORM` (`iOS` or `macOS`) for the current action. iPad destinations
+report `iOS`. A missing or unsupported platform fails before dependency setup
+or version changes, so a scheme name cannot accidentally select the wrong
+native libraries or plist. See Apple's [Cloud environment variable reference](https://developer.apple.com/documentation/xcode/environment-variable-reference).
 
 Follow the [local build guide](README.md#build-and-run-the-app-with-xcode) to
 prepare a checkout. Mobile commands use `scripts/bootstrap-dependencies.sh
@@ -47,16 +55,18 @@ archive. `--platform all` prepares every supported native SDK variant.
 
 1. Open `Swiftlight.xcodeproj` using an Xcode toolchain that supports the
    repository's Swift 6.3 requirement and the desired iOS SDK. Select the
-   `SwiftlightMobile` target, the intended Apple Developer team and automatic
+   `Swiftlight` target, the intended destination, Apple Developer team and automatic
    signing. Keep personal team values out of committed project settings.
-2. In Xcode's Cloud report navigator, set up the mobile product for
-   `NickMagic25/swiftlight`. Retain the existing macOS product. Grant Apple's
+2. In Xcode's Cloud report navigator, configure the `Swiftlight` scheme's iOS
+   and macOS actions for `NickMagic25/swiftlight`. Retain the existing macOS
+   distribution settings. Grant Apple's
    GitHub integration access to this repository, including its pinned recursive
    dependencies. All requested changes must be present on the remote branch
    before a Cloud build can consume them.
 3. Set up distribution for `net.edrisil.swiftlight.ios`. Associate the existing
    matching App Store Connect record, or create the iOS app record for this
-   target if none exists. iPadOS uses this same record. Confirm the team and
+   destination if none exists. iPadOS uses this same record. The target retains
+   its established platform-specific bundle identifiers and plists. Confirm the team and
    identifier before creating it.
 4. Create an internal TestFlight tester group and add the intended testers.
    Register the physical iPhone and iPad UDIDs in the same Developer team for
@@ -76,12 +86,21 @@ receive a build.
 Configure the following in Xcode Cloud. The names are suggested names, not
 proof that a workflow with that name exists in the account.
 
+For existing iOS workflows, change each action's scheme from the removed
+`SwiftlightMobile` scheme to `Swiftlight`, retaining its iOS platform,
+destinations, start conditions and signing/distribution settings. The Mac
+actions also use `Swiftlight`. Do not create another app target for these
+workflows. Workflow definitions live in Xcode Cloud, not in a checked-in
+workflow file; the repository hooks and this table describe their required
+configuration. Verify the saved remote actions and resulting artifacts after
+the updated project is available on the remote branch.
+
 | Workflow | Start condition | Actions and destinations | Distribution |
 | --- | --- | --- | --- |
 | `Swiftlight PR` | Pull requests targeting `main` | Build `Swiftlight` for macOS; set `SWIFTLIGHT_RUN_VALIDATION=1` | None; preserve the existing Mac gate. |
-| `Swiftlight Mobile PR` | Pull requests targeting `main` | Build `SwiftlightMobile` for Any iOS Simulator; test its UI test target on an iPhone and an iPad; set `SWIFTLIGHT_RUN_VALIDATION=1` | None. |
-| `Swiftlight Mobile beta` | Changes to `main`, plus manual runs | Test the mobile scheme on both device families; archive `SwiftlightMobile` for iOS with Release configuration; set `SWIFTLIGHT_RUN_VALIDATION=1` | Deployment Preparation: **TestFlight (Internal Testing Only)**. Add an internal TestFlight post-action for the tester group; retain the ad-hoc IPA artifact. |
-| `Swiftlight Mobile release` | Protected `ios-v*` tags | Test both families; archive `SwiftlightMobile` for iOS with Release configuration; clean environment and restricted workflow editing; set `SWIFTLIGHT_RUN_VALIDATION=1` | Deployment Preparation: **TestFlight and App Store**. Add the intended TestFlight group; retain the ad-hoc artifact. App Store submission remains a separate action. |
+| `Swiftlight iOS PR` | Pull requests targeting `main` | Build `Swiftlight` for Any iOS Simulator; run `SwiftlightUITests` on an iPhone and an iPad; set `SWIFTLIGHT_RUN_VALIDATION=1` | None. |
+| `Swiftlight iOS beta` | Changes to `main`, plus manual runs | Test `Swiftlight` on both device families; archive `Swiftlight` for iOS with Release configuration; set `SWIFTLIGHT_RUN_VALIDATION=1` | Deployment Preparation: **TestFlight (Internal Testing Only)**. Add an internal TestFlight post-action for the tester group; retain the ad-hoc IPA artifact. |
+| `Swiftlight iOS release` | Protected `ios-v*` tags | Test both families; archive `Swiftlight` for iOS with Release configuration; clean environment and restricted workflow editing; set `SWIFTLIGHT_RUN_VALIDATION=1` | Deployment Preparation: **TestFlight and App Store**. Add the intended TestFlight group; retain the ad-hoc artifact. App Store submission remains a separate action. |
 | `Swiftlight macOS direct` | Protected `macos-v*` tags | Archive `Swiftlight` for macOS | Preserve the Developer ID/direct-distribution migration described below. |
 
 Select one iPhone and one iPad on the latest available iOS/iPadOS 26 runtime.
@@ -118,7 +137,7 @@ review, as described in [distribution workflow configuration](https://developer.
 
 Mobile release tags use `ios-vX.Y.Z`; Cloud Mac releases use `macos-vX.Y.Z`.
 The existing GitHub `v*` workflow remains the macOS direct-download channel.
-The pre-build hook rejects a tag from the wrong product and rejects prerelease,
+The pre-build hook rejects a tag from the wrong action platform and rejects prerelease,
 malformed or ambiguous versions before changing either plist.
 
 For example, mobile tag `ios-v0.2.0` and Cloud build `42` produce marketing
@@ -150,11 +169,12 @@ the signing account for the same team:
 
 ```sh
 scripts/export-mobile-adhoc.sh \
-  .build/archives/SwiftlightMobile.xcarchive \
-  .build/exports/SwiftlightMobile-ad-hoc
+  .build/archives/Swiftlight-iOS.xcarchive \
+  .build/exports/Swiftlight-iOS-ad-hoc
 ```
 
-The helper checks that the archive is the universal Swiftlight iOS device app,
+The helper checks `Products/Applications/Swiftlight.app` in the archive and
+verifies that it is the universal Swiftlight iOS device app,
 then uses [`Mobile-AdHoc-ExportOptions.plist`](../../App/Mobile-AdHoc-ExportOptions.plist).
 Its `release-testing` method is the current Xcode name for ad-hoc distribution.
 It retains the archive's version and team, exports one universal IPA, and allows
@@ -212,7 +232,7 @@ cloud-managed private keys to GitHub.
 
 Do not replace the existing GitHub `Release macOS` workflow until one Cloud
 archive has packaged all required licenses, produced a signed and notarized DMG,
-and passed launch on a clean Gatekeeper-enabled Mac. The mobile license-copy
+and passed launch on a clean Gatekeeper-enabled Mac. The shared license-copy
 phase does not by itself complete this macOS migration. Preserve the existing
 signing secrets until the replacement path has passed those checks.
 

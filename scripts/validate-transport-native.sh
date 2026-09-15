@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 scripts/prepare-common-c.py
 mkdir -p .build/native-transport-tests
-bridge=Sources/CStreamBridge
+bridge=Sources/shared/CStreamBridge
 common="$bridge/vendor/common-c"
 files=("$bridge/StreamBridge.c" "$bridge/AudioRing.c" "$bridge/AudioOutput.c" "$bridge/AudioFormat.c" "$bridge/AudioSpatialOutput.m" "$common"/src/*.c
  "$common"/enet/{callbacks,compress,host,list,packet,peer,protocol,unix}.c

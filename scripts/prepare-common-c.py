@@ -14,7 +14,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / "Dependencies/versions.json"
 PATCHES = ROOT / "patches/moonlight-common-c"
-OUTPUT = ROOT / "Sources/CStreamBridge/vendor/common-c"
+OUTPUT = ROOT / "Sources/shared/CStreamBridge/vendor/common-c"
 STAMP = ".swiftlight-source.json"
 
 

@@ -13,9 +13,9 @@ LICENSE_INPUTS = {
     "OpenSSL.txt": ".build/dependencies/licenses/OpenSSL.txt",
     "Opus.txt": ".build/dependencies/licenses/Opus.txt",
     "MoonlightAppleVideo.txt": ".build/checkouts/moonlight-apple-decoder/LICENSE",
-    "moonlight-common-c.txt": "Sources/CStreamBridge/vendor/common-c/LICENSE.txt",
-    "enet.txt": "Sources/CStreamBridge/vendor/common-c/enet/LICENSE",
-    "nanors.txt": "Sources/CStreamBridge/vendor/common-c/nanors/LICENSE",
+    "moonlight-common-c.txt": "Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt",
+    "enet.txt": "Sources/shared/CStreamBridge/vendor/common-c/enet/LICENSE",
+    "nanors.txt": "Sources/shared/CStreamBridge/vendor/common-c/nanors/LICENSE",
 }
 
 
@@ -31,7 +31,7 @@ class CopyAppLicensesTests(unittest.TestCase):
                 source.parent.mkdir(parents=True, exist_ok=True)
                 source.write_text(f"Original {name}\n")
                 source.chmod(0o444)
-            output = root / "Build Products/SwiftlightMobile.app/Licenses"
+            output = root / "Build Products/Swiftlight.app/Licenses"
             environment = {key: value for key, value in os.environ.items()
                            if key not in ("SWIFTLIGHT_DECODER_PATH", "BUILD_DIR")}
 

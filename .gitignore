@@ -72,4 +72,4 @@ __pycache__/
 *.pyc
 
 # Generated from the pristine common-c submodule and patches/moonlight-common-c.
-/Sources/CStreamBridge/vendor/common-c/
+/Sources/shared/CStreamBridge/vendor/common-c/

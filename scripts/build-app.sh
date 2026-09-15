@@ -44,7 +44,9 @@ fi
 
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
 scripts/bootstrap-dependencies.sh
-swift build --disable-sandbox --manifest-cache none -c "$configuration" --product Swiftlight
+# Keep the secondary SwiftPM product distinct from Xcode's Swiftlight app target
+# so UI test host lookup resolves the app bundle rather than a bare executable.
+swift build --disable-sandbox --manifest-cache none -c "$configuration" --product swiftlight-desktop
 bin_path="$(swift build --disable-sandbox --manifest-cache none -c "$configuration" --show-bin-path)"
 app_path="$PWD/.build/Swiftlight.app"
 stage_dir="$(mktemp -d "$PWD/.build/.Swiftlight-stage.XXXXXX")"
@@ -53,17 +55,17 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 staged_app="$stage_dir/Swiftlight.app"
 mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources/Licenses"
-cp -f "$bin_path/Swiftlight" "$staged_app/Contents/MacOS/Swiftlight"
+cp -f "$bin_path/swiftlight-desktop" "$staged_app/Contents/MacOS/Swiftlight"
 cp -f App/Info.plist "$staged_app/Contents/Info.plist"
 if [[ -n "${RELEASE_TAG:-}" ]]; then
   python3 scripts/release-version.py "$RELEASE_TAG" --build-number "${BUILD_NUMBER:-1}" --plist "$staged_app/Contents/Info.plist"
 fi
 cp -f LICENSE "$staged_app/Contents/Resources/Licenses/Swiftlight.txt"
 cp -f .build/dependencies/licenses/*.txt "$staged_app/Contents/Resources/Licenses/"
-cp -f Sources/CStreamBridge/vendor/common-c/LICENSE.txt "$staged_app/Contents/Resources/Licenses/moonlight-common-c.txt"
+cp -f Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt "$staged_app/Contents/Resources/Licenses/moonlight-common-c.txt"
 decoder_path="${SWIFTLIGHT_DECODER_PATH:-.build/checkouts/moonlight-apple-decoder}"
 cp -f "$decoder_path/LICENSE" "$staged_app/Contents/Resources/Licenses/MoonlightAppleVideo.txt"
-for entry in Sources/CStreamBridge/vendor/common-c/enet/LICENSE Sources/CStreamBridge/vendor/common-c/nanors/LICENSE; do
+for entry in Sources/shared/CStreamBridge/vendor/common-c/enet/LICENSE Sources/shared/CStreamBridge/vendor/common-c/nanors/LICENSE; do
   if [[ -f "$entry" ]]; then cp -f "$entry" "$staged_app/Contents/Resources/Licenses/$(basename "$(dirname "$entry")").txt"; fi
 done
 signing_options=(--force --sign "$signing_identity")

@@ -11,7 +11,7 @@ Swiftlight is a native Apple client for Moonlight game streaming, with a macOS a
 - Choose Stereo, 5.1, or 7.1 audio, with Direct output or System Spatial Audio on compatible AirPods.
 - View optional stream statistics and export the last completed stream's privacy-filtered diagnostics.
 
-The `SwiftlightMobile` Xcode target supports iOS and iPadOS 26 or later, with adaptive navigation, discovery, PIN pairing, application browsing, and a first SDR streaming path. tvOS remains future work. Swiftlight is still under active development; see the [mobile guide](docs/mobile.md), [compatibility guide](docs/compatibility-matrix.md), and [acceptance status](docs/dev/acceptance-matrix.md) for validation boundaries.
+The same `Swiftlight` Xcode app target supports iPhone and iPad destinations on iOS and iPadOS 26 or later, with adaptive navigation, discovery, PIN pairing, cover-art browsing, and full-screen streaming with performance, HDR, and surround/spatial audio settings. tvOS remains future work. Swiftlight is still under active development; see the [mobile guide](docs/mobile.md), [compatibility guide](docs/compatibility-matrix.md), and [acceptance status](docs/dev/acceptance-matrix.md) for validation boundaries.
 
 ## Requirements
 
@@ -35,7 +35,9 @@ In Xcode, select the **Swiftlight** scheme and **My Mac** destination, choose yo
 
 Bootstrap downloads and builds pinned native dependencies on its first run, so internet access is required. Run it again when native dependency inputs change; local Xcode builds do not run it automatically. See [development documentation](docs/dev/README.md) for the terminal `xcodebuild` recipe, signing and verification. `Package.swift` supplies the shared modules and test/replay tooling used by the app.
 
-For iPhone or iPad, prepare dependencies with `scripts/bootstrap-dependencies.sh --platform ios-simulator` for Simulator or `--platform ios` for devices, then choose the **SwiftlightMobile** scheme and the intended iPhone or iPad destination. See the [mobile guide](docs/mobile.md) for build, input, and platform details.
+For iPhone or iPad, prepare dependencies with `scripts/bootstrap-dependencies.sh --platform ios-simulator` for Simulator or `--platform ios` for devices, then keep the **Swiftlight** scheme and select the intended iPhone or iPad destination. See the [mobile guide](docs/mobile.md) for build, input, and platform details.
+
+There is one app target, one scheme and one SwiftUI app entry point. `Sources/` has four folders: `shared` for common features and engine modules, `desktop` for Mac adapters, `mobile` for iPhone/iPad adapters, and `tv` reserved for future TV integration. The target automatically includes the shared app folder and both implemented platform folders; native code uses conditional compilation. Every destination produces `Swiftlight.app`. See the [architecture guide](docs/dev/architecture.md).
 
 ## Connect from your Mac
 

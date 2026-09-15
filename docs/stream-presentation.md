@@ -4,7 +4,7 @@ macOS streams start in full screen by default. The “Start streams in full scre
 
 `StreamSettings.launchInFullScreen` defaults to `true`. Decoding older global or per-host settings without that key preserves their resolution, custom dimensions, frame rate, bitrate, automatic bitrate, codec, HDR, scaling and pointer choices. Only missing fields receive defaults. An explicitly saved `false` survives encoding and decoding.
 
-The shared `StreamPresentationPolicy.launchesFullScreen(on:settings:)` honors the preference on macOS and always returns `true` for iOS, iPadOS and tvOS. This policy does not create a window or scene. The macOS adapter owns native NSWindow transitions and restoration; future iOS/iPadOS/tvOS adapters must implement their platform presentation. The policy alone is not evidence of a completed application on those platforms.
+The shared `StreamPresentationPolicy.launchesFullScreen(on:settings:)` honors the preference on macOS and always returns `true` for iOS, iPadOS and tvOS. This policy does not create a window or scene. The macOS adapter owns native NSWindow transitions and restoration. The iPhone/iPad adapter presents the stream in a SwiftUI full-screen cover with native UIKit display integration; the operating system still owns windowing and system gestures. tvOS presentation remains future work. See the [mobile guide](mobile.md) for controls and platform validation limits.
 
 Presentation and stream resolution are independent. Full-screen launch does not select a resolution, codec or refresh rate. Native, Native — Safe Area, Window and explicit dimensions continue through the existing geometry policy.
 

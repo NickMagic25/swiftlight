@@ -9,8 +9,8 @@ mkdir -p "$output"
 arch="$(uname -m)"
 xcrun --sdk iphonesimulator clang -target "$arch-apple-ios17.0-simulator" \
   -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" -std=c11 -Wall -Wextra -Werror -DSWIFTLIGHT_EXPECT_NO_FILE_STORE \
-  -I Sources/CHostCrypto/include -I .build/dependencies/mobile/include \
-  Sources/CHostCrypto/HostCrypto.c Tests/NativeHostCrypto/main.c \
+  -I Sources/shared/CHostCrypto/include -I .build/dependencies/mobile/include \
+  Sources/shared/CHostCrypto/HostCrypto.c Tests/NativeHostCrypto/main.c \
   -L .build/dependencies/ios-simulator/lib -lcrypto -o "$output/crypto"
 # A linked default/base file-store registration must not survive the mobile
 # source patch. Keep the import report and fail on filesystem metadata APIs.

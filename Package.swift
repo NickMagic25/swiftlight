@@ -14,7 +14,7 @@ let nativeIncludes: [CSetting] = [
     .unsafeFlags(["-I", nativeInclude], .when(platforms: [.macOS])),
     .unsafeFlags(["-I", nativeMobileInclude], .when(platforms: [.iOS]))
 ]
-// Xcode's mobile target supplies SDK-specific LIBRARY_SEARCH_PATHS for device
+// Xcode's multiplatform app target supplies SDK-specific LIBRARY_SEARCH_PATHS for device
 // versus simulator. SwiftPM platform conditions cannot distinguish those SDKs.
 let nativeLibrarySearch: [LinkerSetting] = [
     .unsafeFlags(["-L", nativeLibrary], .when(platforms: [.macOS]))
@@ -29,19 +29,21 @@ let package = Package(
         .library(name: "SwiftlightHost", targets: ["SwiftlightHost"]),
         .library(name: "SwiftlightTransport", targets: ["SwiftlightTransport"]),
         .library(name: "SwiftlightVideo", targets: ["SwiftlightVideo"]),
-        .executable(name: "Swiftlight", targets: ["SwiftlightApp"]),
+        // Keep the secondary packager's executable distinct from the Xcode app
+        // target, so UI-test host lookup resolves Swiftlight.app unambiguously.
+        .executable(name: "swiftlight-desktop", targets: ["SwiftlightApp"]),
         .executable(name: "swiftlight-replay", targets: ["SwiftlightReplay"])
     ],
     dependencies: [decoder],
     targets: [
-        .target(name: "SwiftlightCore"),
-        .target(name: "CHostCrypto", publicHeadersPath: "include",
+        .target(name: "SwiftlightCore", path: "Sources/shared/SwiftlightCore"),
+        .target(name: "CHostCrypto", path: "Sources/shared/CHostCrypto", publicHeadersPath: "include",
                 cSettings: nativeIncludes,
                 linkerSettings: nativeLibrarySearch + [.linkedLibrary("crypto")]),
-        .target(name: "SwiftlightHost", dependencies: ["CHostCrypto"]),
+        .target(name: "SwiftlightHost", dependencies: ["CHostCrypto"], path: "Sources/shared/SwiftlightHost"),
         // bootstrap-dependencies.sh prepares these sources from the pinned common-c submodule
         // and the explicit patch series. The upstream checkout remains pristine.
-        .target(name: "CStreamBridge", sources: ["StreamBridge.c", "AudioOutput.c", "AudioRing.c", "AudioFormat.c", "AudioSpatialOutput.m", "vendor/common-c/src",
+        .target(name: "CStreamBridge", path: "Sources/shared/CStreamBridge", sources: ["StreamBridge.c", "AudioOutput.c", "AudioRing.c", "AudioFormat.c", "AudioSpatialOutput.m", "vendor/common-c/src",
                 "vendor/common-c/enet/callbacks.c", "vendor/common-c/enet/compress.c", "vendor/common-c/enet/host.c",
                 "vendor/common-c/enet/list.c", "vendor/common-c/enet/packet.c", "vendor/common-c/enet/peer.c",
                 "vendor/common-c/enet/protocol.c", "vendor/common-c/enet/unix.c", "vendor/common-c/nanors/rs.c",
@@ -57,10 +59,14 @@ let package = Package(
                 ], linkerSettings: nativeLibrarySearch + [.linkedLibrary("crypto"), .linkedLibrary("opus"),
                     .linkedFramework("AudioToolbox"), .linkedFramework("CoreAudio"), .linkedFramework("CoreMedia"),
                     .linkedFramework("AVFoundation")]),
-        .target(name: "SwiftlightTransport", dependencies: ["CStreamBridge", "SwiftlightCore"]),
-        .target(name: "SwiftlightVideo", dependencies: [.product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")]),
-        .executableTarget(name: "SwiftlightApp", dependencies: ["SwiftlightCore", "SwiftlightVideo", "SwiftlightHost", "SwiftlightTransport"]),
-        .executableTarget(name: "SwiftlightReplay", dependencies: ["SwiftlightVideo", .product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")]),
+        .target(name: "SwiftlightTransport", dependencies: ["CStreamBridge", "SwiftlightCore"], path: "Sources/shared/SwiftlightTransport"),
+        .target(name: "SwiftlightVideo", dependencies: [.product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")], path: "Sources/shared/SwiftlightVideo"),
+        .executableTarget(name: "SwiftlightApp", dependencies: ["SwiftlightCore", "SwiftlightVideo", "SwiftlightHost", "SwiftlightTransport"],
+            path: "Sources",
+            exclude: ["mobile", "tv", "shared/SwiftlightCore", "shared/SwiftlightHost", "shared/CHostCrypto",
+                      "shared/SwiftlightTransport", "shared/CStreamBridge", "shared/SwiftlightVideo", "shared/SwiftlightReplay"],
+            sources: ["desktop", "shared/SwiftlightApp"]),
+        .executableTarget(name: "SwiftlightReplay", dependencies: ["SwiftlightVideo", .product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")], path: "Sources/shared/SwiftlightReplay"),
         .testTarget(name: "SwiftlightHostTests", dependencies: ["SwiftlightHost"]),
         .testTarget(name: "SwiftlightAppTests", dependencies: ["SwiftlightApp"]),
         .testTarget(name: "SwiftlightTransportTests", dependencies: ["SwiftlightTransport", "CStreamBridge"]),
