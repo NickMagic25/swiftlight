@@ -30,6 +30,31 @@ public struct DisplayGeometry: Sendable, Equatable {
     }
 }
 
+/// Native display pixels are distinct from UIKit's logical backing pixels in
+/// scaled display modes. The platform adapter supplies the owning screen values.
+public enum NativeDrawableGeometry {
+    public static func size(viewSize: CGSize, screenSize: CGSize, nativeSize: CGSize,
+                            nativeScale: CGFloat) -> CGSize? {
+        func valid(_ size: CGSize) -> Bool {
+            size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0
+        }
+        guard valid(viewSize), valid(screenSize), valid(nativeSize),
+              nativeScale.isFinite, nativeScale > 0 else { return nil }
+
+        let pixels: CGSize
+        if viewSize == screenSize {
+            // UIScreen.nativeBounds remains in its native orientation. Use the
+            // exact screen dimensions to avoid a fractional-scale rounding border.
+            pixels = (screenSize.width > screenSize.height) == (nativeSize.width > nativeSize.height)
+                ? nativeSize : CGSize(width: nativeSize.height, height: nativeSize.width)
+        } else {
+            pixels = CGSize(width: viewSize.width * nativeScale, height: viewSize.height * nativeScale)
+        }
+        guard valid(pixels) else { return nil }
+        return CGSize(width: max(1, pixels.width.rounded()), height: max(1, pixels.height.rounded()))
+    }
+}
+
 public struct ViewportTransform: Sendable {
     public let source: CGSize
     public let viewport: CGRect
@@ -55,5 +80,21 @@ public struct ViewportTransform: Sendable {
         guard destination.contains(point), viewport.contains(point), viewport.width > 0, viewport.height > 0 else { return nil }
         return CGPoint(x: (point.x - viewport.minX) / viewport.width * source.width,
                        y: (point.y - viewport.minY) / viewport.height * source.height)
+    }
+    /// Converts a point in the view's coordinates into the drawable's coordinates
+    /// before testing the rendered viewport. Integer scaling must use drawable
+    /// pixels even when the display's native scale is fractional.
+    public func videoPoint(_ point: CGPoint, from viewBounds: CGRect) -> CGPoint? {
+        func valid(_ rect: CGRect) -> Bool {
+            rect.origin.x.isFinite && rect.origin.y.isFinite &&
+                rect.size.width.isFinite && rect.size.height.isFinite &&
+                rect.size.width > 0 && rect.size.height > 0
+        }
+        guard point.x.isFinite, point.y.isFinite, valid(viewBounds), valid(destination),
+              viewBounds.contains(point) else { return nil }
+        let mapped = CGPoint(
+            x: destination.minX + (point.x - viewBounds.minX) / viewBounds.width * destination.width,
+            y: destination.minY + (point.y - viewBounds.minY) / viewBounds.height * destination.height)
+        return videoPoint(mapped)
     }
 }

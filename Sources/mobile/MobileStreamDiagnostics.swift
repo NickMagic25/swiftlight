@@ -11,6 +11,17 @@ import os
 /// Explicit debug trials reuse the renderer's bounded scalar timing records.
 /// No media callback, UI publication, or normal-release polling is added.
 @MainActor final class MobileStreamDiagnostics {
+    /// Explicit capture-only experiment. Normal and Release launches retain the
+    /// validated linear HDR output; this never changes persisted preferences.
+    var renderOptions: StreamRenderOptions {
+        var options = StreamRenderOptions()
+        #if DEBUG
+        options.nativePQOutput = nativePQOutput
+        options.useFrameAutoreleasePool = useFrameAutoreleasePool
+        #endif
+        return options
+    }
+
     static func makeIfEnabled(settings: StreamSettings) -> MobileStreamDiagnostics? {
         #if DEBUG
         let environment = ProcessInfo.processInfo.environment
@@ -29,6 +40,8 @@ import os
     private let runID = UUID().uuidString
     private let sourceRevision: String?
     private let sourceTreeSHA256: String?
+    private let nativePQOutput: Bool
+    private let useFrameAutoreleasePool: Bool
     private let startUptime = ProcessInfo.processInfo.systemUptime
     private var timeline = StreamDiagnosticTimeline()
     private var firstPresentationSeconds: Double?
@@ -48,6 +61,8 @@ import os
 
     private init(settings: StreamSettings, trial: String, environment: [String: String]) {
         self.settings = settings; self.trial = trial
+        nativePQOutput = environment["SWIFTLIGHT_LATENCY_NATIVE_PQ"] == "1"
+        useFrameAutoreleasePool = environment["SWIFTLIGHT_LATENCY_FRAME_POOL"] != "0"
         sourceRevision = Self.hexadecimal(environment["SWIFTLIGHT_LATENCY_SOURCE_REVISION"], lengths: [40, 64])
         sourceTreeSHA256 = Self.hexadecimal(environment["SWIFTLIGHT_LATENCY_SOURCE_TREE_SHA256"], lengths: [64])
     }
@@ -76,6 +91,7 @@ import os
         // Before the first confirmed presentation, inspect no more than once a
         // second. Once armed, only the three scheduled checkpoints take snapshots.
         nextInspectionSeconds = now + 1
+        pipeline?.refreshPresentationDiagnostics?()
         guard let renderer = pipeline?.renderStatistics else { return }
         if firstPresentationSeconds == nil {
             firstPresentationSeconds = renderer.presentationTimings
@@ -87,7 +103,7 @@ import os
         capture(pipeline: pipeline, transport: transport, request: request, stream: stream, renderer: renderer,
                 statisticsOverlayVisible: statisticsOverlayVisible, controlsVisible: controlsVisible,
                 inputEnabled: inputEnabled, statisticsPreferences: statisticsPreferences,
-                phase: "streaming", terminal: false, now: now)
+                phase: "streaming", terminal: false, now: CACurrentMediaTime())
         #endif
     }
 
@@ -101,6 +117,7 @@ import os
         guard !finished else { return }
         finished = true
         guard sampleCount < Self.checkpoints.count else { return }
+        pipeline?.refreshPresentationDiagnostics?()
         let now = CACurrentMediaTime()
         observePresentationState(statisticsVisible: statisticsOverlayVisible, controlsVisible: controlsVisible,
                                  inputEnabled: inputEnabled, now: now)

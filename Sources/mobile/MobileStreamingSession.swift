@@ -98,7 +98,7 @@ import UIKit
             try ensureCurrent(generation)
             let address = await client.address
             try ensureCurrent(generation)
-            let pipeline = StreamingPipeline()
+            let pipeline = StreamingPipeline(renderOptions: latencyCapture?.renderOptions ?? .init())
             let configuration = preparation.transportConfiguration(address: address.host,
                 sessionURL: response.sessionURL, displayRefreshHz: display.refreshHz)
             let transport = try StreamTransport(configuration: configuration, callbacks: .init(

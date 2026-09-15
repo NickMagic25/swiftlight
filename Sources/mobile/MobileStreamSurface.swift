@@ -99,6 +99,7 @@ private struct MobileStreamSurface: UIViewRepresentable {
     func updateUIView(_ view: MobileStreamView, context: Context) {
         view.inputEnabled = inputEnabled
         view.updateStatistics(rows: statisticsRows, visible: statisticsVisible, position: statisticsPosition)
+        view.refreshPresentationDiagnostics()
     }
     static func dismantleUIView(_ view: MobileStreamView, coordinator: ()) { view.stop() }
 }
@@ -134,6 +135,8 @@ private final class MobileFrameSignal: @unchecked Sendable {
     private var signal: MobileFrameSignal?
     private var lastFrame: DecodedFrame?
     private var hdrLayerState = MobileHDRLayerState()
+    private var hierarchyCapture = MobilePresentationHierarchyCapture()
+    private var recordedHierarchyTime: Double?
     private var redraw = false
     private var lastTouch: CGPoint?
     private var stopped = false
@@ -242,6 +245,9 @@ private final class MobileFrameSignal: @unchecked Sendable {
             metalLayer.maximumDrawableCount = settings.maximumDrawableCount
             metalLayer.presentsWithTransaction = false
         } catch { pipeline.reportRendererFailure() }
+        #if DEBUG
+        pipeline.refreshPresentationDiagnostics = { [weak self] in self?.refreshPresentationDiagnostics() }
+        #endif
     }
     required init?(coder: NSCoder) { fatalError("Use the streaming initializer") }
 
@@ -249,6 +255,7 @@ private final class MobileFrameSignal: @unchecked Sendable {
         super.didMoveToWindow()
         guard !stopped else { return }
         guard window != nil else { suspendPresentation(); return }
+        updateDrawableGeometry()
         requestKeyboardFocus()
         guard displayLink == nil, signal == nil else {
             updateDisplayLinkFrameRate()
@@ -306,16 +313,30 @@ private final class MobileFrameSignal: @unchecked Sendable {
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let scale = traitCollection.displayScale
-        metalLayer.contentsScale = scale
-        let size = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
-        if metalLayer.drawableSize != size {
-            metalLayer.drawableSize = size; redraw = true; signal?.signal(); transport.releaseAllInputs()
-        }
+        updateDrawableGeometry()
         updateDisplayLinkFrameRate()
         refreshStatisticsOverlay()
         updateStatisticsAccessibility()
         recordPresentationRuntime()
+    }
+    @discardableResult private func updateDrawableGeometry() -> Bool {
+        guard let screen = window?.windowScene?.screen,
+              let size = NativeDrawableGeometry.size(viewSize: bounds.size, screenSize: screen.bounds.size,
+                  nativeSize: screen.nativeBounds.size, nativeScale: screen.nativeScale) else { return false }
+        // UIKit's logical display scale can render above the panel resolution in
+        // scaled display modes. A Metal surface must use the owning screen's
+        // native scale and exact full-screen pixel size to avoid downsampling.
+        let scale = screen.nativeScale
+        let changed = contentScaleFactor != scale || metalLayer.contentsScale != scale || metalLayer.drawableSize != size
+        guard changed else { return false }
+        contentScaleFactor = scale
+        metalLayer.contentsScale = scale
+        metalLayer.drawableSize = size
+        redraw = true; signal?.signal(); transport.releaseAllInputs()
+        refreshStatisticsOverlay()
+        updateStatisticsAccessibility()
+        recordPresentationRuntime()
+        return true
     }
     private func updateDisplayLinkFrameRate() {
         guard let displayLink, let screen = window?.windowScene?.screen else { return }
@@ -326,9 +347,21 @@ private final class MobileFrameSignal: @unchecked Sendable {
         guard current.minimum != next.minimum || current.maximum != next.maximum || current.preferred != next.preferred else { return }
         displayLink.preferredFrameRateRange = next
     }
+    /// Reuse low-rate UI updates and explicit capture checkpoints. Hidden
+    /// statistics stop UI publication, so checkpoints also refresh the snapshot.
+    func refreshPresentationDiagnostics() {
+        #if DEBUG
+        guard !stopped, let hierarchy = hierarchyCapture.capture(from: self),
+              hierarchy.capturedAtMediaTimeSeconds != recordedHierarchyTime else { return }
+        recordPresentationRuntime()
+        #endif
+    }
     private func recordPresentationRuntime() {
         let range = displayLink?.preferredFrameRateRange
         let hdr = MobileHDRDisplayCapabilities.capture(from: window)
+        let screen = window?.windowScene?.screen
+        let hierarchy = hierarchyCapture.capture(from: self)
+        recordedHierarchyTime = hierarchy?.capturedAtMediaTimeSeconds
         pipeline.recordPresentationRuntime(PresentationRuntimeDiagnostics(
             pacing: settings.videoPacing.rawValue, displaySyncEnabled: nil,
             maximumDrawableCount: metalLayer.maximumDrawableCount, maximumGPUFramesInFlight: 3,
@@ -345,15 +378,44 @@ private final class MobileFrameSignal: @unchecked Sendable {
             wantsExtendedDynamicRangeContent: metalLayer.wantsExtendedDynamicRangeContent,
             edrMetadataConfigured: metalLayer.edrMetadata != nil,
             displayPotentialEDRHeadroom: hdr.potentialHeadroom,
-            displayCurrentEDRHeadroom: hdr.currentHeadroom))
+            displayCurrentEDRHeadroom: hdr.currentHeadroom,
+            viewWidthPoints: Double(bounds.width), viewHeightPoints: Double(bounds.height),
+            viewContentScale: Double(contentScaleFactor), layerContentsScale: Double(metalLayer.contentsScale),
+            screenWidthPoints: screen.map { Double($0.bounds.width) },
+            screenHeightPoints: screen.map { Double($0.bounds.height) },
+            screenScale: screen.map { Double($0.scale) }, screenNativeScale: screen.map { Double($0.nativeScale) },
+            screenNativeWidthPixels: screen.map { Int($0.nativeBounds.width) },
+            screenNativeHeightPixels: screen.map { Int($0.nativeBounds.height) },
+            presentationHierarchy: hierarchy))
     }
     func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
+        if pipeline.renderOptions.useFrameAutoreleasePool {
+            autoreleasepool { renderDisplayLinkUpdate(link, update: update) }
+        } else { renderDisplayLinkUpdate(link, update: update) }
+    }
+    private func renderDisplayLinkUpdate(_ link: CAMetalDisplayLink, update: CAMetalDisplayLink.Update) {
         guard displayLink === link, window != nil else { return }
+        // This drawable was acquired before the callback. If the display changed,
+        // render the next drawable with its new native dimensions instead.
+        guard !updateDrawableGeometry() else { return }
+        // Layout may already have applied the new size after this drawable was
+        // acquired. Validate the supplied texture as well as the layer state.
+        guard update.drawable.texture.width == Int(metalLayer.drawableSize.width),
+              update.drawable.texture.height == Int(metalLayer.drawableSize.height),
+              update.drawable.texture.pixelFormat == metalLayer.pixelFormat else { return }
         render(into: update.drawable, timing: .init(displayCallbackSeconds: CACurrentMediaTime(),
             targetDeadlineSeconds: update.targetTimestamp, targetPresentationSeconds: update.targetPresentationTimestamp))
     }
     private func renderImmediate() {
+        // Bound temporary drawable lifetimes to this submission instead of the
+        // outer UIKit run-loop pool. GPU TextureLease ownership is independent.
+        if pipeline.renderOptions.useFrameAutoreleasePool {
+            autoreleasepool { renderImmediateFrame() }
+        } else { renderImmediateFrame() }
+    }
+    private func renderImmediateFrame() {
         guard !stopped, signal != nil, renderer != nil, window != nil, bounds.width > 0, bounds.height > 0 else { return }
+        updateDrawableGeometry()
         let incoming = pipeline.takeLatestFrame()
         guard let frame = incoming ?? (redraw ? lastFrame : nil) else { return }
         // Metadata applies to the next drawable. Retain one frame for a later
@@ -393,14 +455,16 @@ private final class MobileFrameSignal: @unchecked Sendable {
                 selectedAtSeconds: selected, drawableAcquisitionMilliseconds: timing.drawableAcquisitionMilliseconds)
             if try renderer.render(frame, into: drawable,
                 scaleMode: settings.scaling == .fill ? .fill : settings.scaling == .integer ? .integer : .fit,
+                outputColorSpace: hdrLayerState.outputColorSpace,
                 submissionTiming: submission, completion: { [pipeline] result in
                     if !result.succeeded { pipeline.reportRendererFailure() }
                 }) { redraw = false }
         } catch { pipeline.reportRendererFailure() }
     }
     @discardableResult private func applyHDRMetadata(_ frame: DecodedFrame) throws -> Bool {
-        guard try hdrLayerState.apply(color: frame.color, to: metalLayer) else { return false }
-        pipeline.recordEDRMetadataUpdate(nativePQ: false)
+        guard try hdrLayerState.apply(color: frame.color, to: metalLayer,
+                                     nativePQOutput: pipeline.renderOptions.nativePQOutput) else { return false }
+        pipeline.recordEDRMetadataUpdate(nativePQ: hdrLayerState.outputColorSpace == .rec2020PQ)
         recordPresentationRuntime()
         return true
     }
@@ -453,8 +517,9 @@ private final class MobileFrameSignal: @unchecked Sendable {
     private func positionPointer(at point: CGPoint) -> Bool {
         guard let frame = lastFrame else { return false }
         let crop = frame.contentRect
-        let transform = ViewportTransform(source: crop.size, destination: bounds, scaling: settings.scaling)
-        guard let position = transform.videoPoint(point) else { return false }
+        let transform = ViewportTransform(source: crop.size,
+            destination: CGRect(origin: .zero, size: metalLayer.drawableSize), scaling: settings.scaling)
+        guard let position = transform.videoPoint(point, from: bounds) else { return false }
         transport.mousePosition(x: Int16(clamping: Int(position.x + crop.minX)), y: Int16(clamping: Int(position.y + crop.minY)),
             width: Int16(clamping: frame.width), height: Int16(clamping: frame.height))
         return true
@@ -549,7 +614,7 @@ private final class MobileFrameSignal: @unchecked Sendable {
         let fontScale = preferredFontScale.isFinite ? min(2, max(1, preferredFontScale)) : 1
         let size = CGSize(width: max(96, bounds.width - 2 * inset), height: max(1, bounds.height - 2 * inset))
         let maximumRows = max(0, min(24, Int((size.height - 48 * fontScale) / (18 * fontScale))))
-        let key = StatisticsRasterKey(rows: statisticsRows, position: statisticsPosition, scale: min(4, max(1, traitCollection.displayScale)),
+        let key = StatisticsRasterKey(rows: statisticsRows, position: statisticsPosition, scale: min(4, max(1, metalLayer.contentsScale)),
                                       fontScale: fontScale, size: size, inset: inset, maximumRows: maximumRows)
         guard key != statisticsRasterKey else { return }
         statisticsRasterKey = key; statisticsRevision &+= 1; statisticsTask?.cancel()

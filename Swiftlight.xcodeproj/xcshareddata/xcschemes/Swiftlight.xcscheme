@@ -55,13 +55,6 @@
       showGraphicsOverview = "Yes"
       logGraphicsOverview = "Yes"
       allowLocationSimulation = "YES">
-      <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "MTL_HUD_ENABLED"
-            value = "1"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-      </EnvironmentVariables>
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
          <BuildableReference

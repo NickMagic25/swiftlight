@@ -8,6 +8,14 @@ The shared `StreamPresentationPolicy.launchesFullScreen(on:settings:)` honors th
 
 Presentation and stream resolution are independent. Full-screen launch does not select a resolution, codec or refresh rate. Native, Native — Safe Area, Window and explicit dimensions continue through the existing geometry policy.
 
+On iPhone and iPad, the stream renders at the physical display's native pixel
+size, including scaled display modes. Resized windows use the owning display's
+native scale. This preserves the selected stream resolution while avoiding an
+oversized presentation surface; touch input and statistics remain aligned with
+the video. The operating system still selects Direct or Composited presentation.
+See the [iPad presentation investigation](dev/ipad-presentation-2026-09-14.md) for
+measurement evidence and current limits.
+
 During a full-screen stream, macOS presentation uses `hideMenuBar` and `hideDock`, as requested. Conflicting `autoHideMenuBar`, `autoHideDock` and `autoHideToolbar` options are removed. No process-switching or Force Quit restrictions are added. Exit, session teardown and window detachment restore the previous options, retaining AppKit's current full-screen bit and removing the full-screen-only toolbar option when the window has exited full screen. Windowed streaming does not apply this override.
 
 The native transition uses the documented [full-screen content-size delegate hook](https://developer.apple.com/documentation/appkit/nswindowdelegate/window%28_%3Awillusefullscreencontentsize%3A%29) to request the destination screen's entire size, and the [presentation-options hook](https://developer.apple.com/documentation/appkit/nswindowdelegate/window%28_%3Awillusefullscreenpresentationoptions%3A%29) to supply the stream's presentation policy before the transition. A delegate proxy first calls the existing delegate's implementation and overrides those two results only for the active stream window. Other optional selectors are forwarded. Teardown restores the original weak delegate only when the proxy is still installed, so a later SwiftUI delegate replacement is preserved. Existing full-screen windows retain a bounded frame-fit fallback; its presence alone is not evidence that AppKit accepts the requested size.

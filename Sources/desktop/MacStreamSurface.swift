@@ -334,12 +334,24 @@ private final class FramePresentationSignal: @unchecked Sendable {
         }
     }
     func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
+        if pipeline.renderOptions.useFrameAutoreleasePool {
+            autoreleasepool { renderDisplayLinkUpdate(update) }
+        } else { renderDisplayLinkUpdate(update) }
+    }
+    private func renderDisplayLinkUpdate(_ update: CAMetalDisplayLink.Update) {
         let entered = CACurrentMediaTime()
         renderAvailableFrame(into: update.drawable, timing: PresentationSubmissionTiming(
             displayCallbackSeconds: entered, targetDeadlineSeconds: update.targetTimestamp,
             targetPresentationSeconds: update.targetPresentationTimestamp, selectedAtSeconds: CACurrentMediaTime()))
     }
     private func renderAvailableFrame() {
+        // Release temporary Metal/drawable references after CPU submission,
+        // without waiting for the outer AppKit run loop to drain its pool.
+        if pipeline.renderOptions.useFrameAutoreleasePool {
+            autoreleasepool { renderAvailableFrameInPool() }
+        } else { renderAvailableFrameInPool() }
+    }
+    private func renderAvailableFrameInPool() {
         guard frameSignal != nil, window != nil else { return }
         if pipeline.renderOptions.cacheEDRMetadata || pipeline.renderOptions.configureEDRBeforeAcquire {
             let incoming = pipeline.takeLatestFrame()

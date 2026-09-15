@@ -15,6 +15,10 @@ a latency improvement or Direct presentation.
 
 ## Mobile debug captures
 
+The [iPad presentation latency investigation](ipad-presentation-2026-09-14.md)
+records the scaled-display drawable mismatch and its correction. Its physical
+presentation measurements remain separate from the macOS results below.
+
 Mobile timing capture is explicit and DEBUG-only. The app requires
 `SWIFTLIGHT_LATENCY_CAPTURE=1` and a `SWIFTLIGHT_LATENCY_TRIAL` of
 `baseline-off`, `baseline-on`, `candidate-off`, or `candidate-on`. Capture labels
@@ -22,6 +26,20 @@ describe statistics visibility; compare actual requested/runtime settings too.
 Optional `SWIFTLIGHT_LATENCY_SOURCE_REVISION` and
 `SWIFTLIGHT_LATENCY_SOURCE_TREE_SHA256` identify a preserved build. Keep a separate
 binary hash and dirty-source manifest; HEAD alone does not identify local changes.
+
+`SWIFTLIGHT_LATENCY_NATIVE_PQ=1` additionally selects the existing experimental
+packed-PQ renderer during a valid Debug capture. It preserves HDR10 metadata and
+never changes saved preferences or the normal linear-output default. Compare
+actual `outputColorSpace`, `layerPixelFormat`, and `edrMetadataConfigured`; an SDR
+frame does not become PQ merely because the flag is set. This is a diagnostic
+experiment, not accepted production HDR or Direct-display support.
+
+Native frame submissions use an autorelease pool by default. During a valid
+mobile Debug capture, `SWIFTLIGHT_LATENCY_FRAME_POOL=0` disables that boundary for
+an explicit A/B control; `1` or an omitted flag keeps it enabled. The latency UI
+test forwards this flag using the `TEST_RUNNER_` prefix. Compare the recorded
+`renderOptions.useFrameAutoreleasePool` on the same preserved binary. Normal and
+Release launches retain the pool and do not change saved preferences.
 
 The existing low-rate session monitor captures at 20, 30, and 40 seconds after a
 confirmed drawable presentation. It filters the bounded recent timing arrays
@@ -40,10 +58,22 @@ added. Normal launches and Release builds do not enable capture.
 `testLiveLatencyCapture` requires both `TEST_RUNNER_SWIFTLIGHT_LIVE_UI_TESTS=1`
 and `TEST_RUNNER_SWIFTLIGHT_LATENCY_CAPTURE=1`; pass the trial and source fields
 with the same `TEST_RUNNER_` prefix. It forwards those fields into the app, resumes
-only an already-running application on a saved paired computer, changes transient
+an already-running application on a saved paired computer, changes transient
 statistics visibility, waits 45 seconds without UI interactions, then disconnects
 locally. It leaves saved stream quality unchanged. A passed UI test does not
 verify the exported file's contents: retrieve and inspect the files separately.
+The separate `TEST_RUNNER_SWIFTLIGHT_LATENCY_ALLOW_IDLE_DESKTOP=1` opt-in permits
+the exact Desktop application when no Running tile exists. The test cancels a
+remote-quit/switch confirmation instead of authorizing it. Other live tests
+remain resume-only.
+
+Exploratory trials can supply both `TEST_RUNNER_SWIFTLIGHT_LATENCY_PACING`
+(`immediate` or `displayLink`) and
+`TEST_RUNNER_SWIFTLIGHT_LATENCY_DRAWABLE_COUNT` (`2` or `3`). The test uses Settings
+to apply them, registers restoration before changing either value, and verifies
+the original values after teardown. Request quality, HDR and audio remain fixed.
+Keep the captured actual settings with the results, and reject a lower-delay
+configuration if it loses the requested presentation cadence.
 
 ```sh
 xcrun devicectl device copy from --device YOUR_DEVICE_UDID \

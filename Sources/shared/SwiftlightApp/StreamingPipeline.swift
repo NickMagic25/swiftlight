@@ -8,6 +8,8 @@ struct StreamRenderOptions: Codable, Equatable, Sendable {
     var configureEDRBeforeAcquire = false
     var captureScheduledCallback = true
     var nativePQOutput = false
+    /// Native render-loop lifetime boundary; disable only in explicit debug A/B captures.
+    var useFrameAutoreleasePool = true
     var showMetalHUD = false
     /// Diagnostic only; honored by the macOS surface in DEBUG builds.
     var useRootMetalLayer = false
@@ -46,6 +48,18 @@ struct PresentationRuntimeDiagnostics: Codable, Sendable {
     var edrMetadataConfigured: Bool? = nil
     var displayPotentialEDRHeadroom: Double? = nil
     var displayCurrentEDRHeadroom: Double? = nil
+    var viewWidthPoints: Double? = nil
+    var viewHeightPoints: Double? = nil
+    var viewContentScale: Double? = nil
+    var layerContentsScale: Double? = nil
+    var screenWidthPoints: Double? = nil
+    var screenHeightPoints: Double? = nil
+    var screenScale: Double? = nil
+    var screenNativeScale: Double? = nil
+    /// UIScreen native bounds retain the screen's native orientation.
+    var screenNativeWidthPixels: Int? = nil
+    var screenNativeHeightPixels: Int? = nil
+    var presentationHierarchy: PresentationHierarchyDiagnostics? = nil
 }
 
 /// The lock protects only admission and the decoder reference. The decoder owns its
@@ -53,6 +67,11 @@ struct PresentationRuntimeDiagnostics: Codable, Sendable {
 /// the AU; teardown closes admission, joins common-c, then destroys that owner.
 final class StreamingPipeline: @unchecked Sendable {
     let renderOptions: StreamRenderOptions
+    #if DEBUG
+    /// Explicit capture checkpoints refresh a weak native surface on MainActor.
+    /// This is never invoked by media workers or normal streaming publication.
+    @MainActor var refreshPresentationDiagnostics: (@MainActor () -> Void)?
+    #endif
     init(renderOptions: StreamRenderOptions = .init()) { self.renderOptions = renderOptions }
     private let lock = NSLock()
     private var decoder: VideoDecoder?

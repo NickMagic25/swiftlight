@@ -101,6 +101,7 @@ Direct `swift test`, replay builds and app-source harnesses remain supported too
 - [Cross-client session resume follow-up (deferred)](cross-client-session-resume.md)
 - [Presentation latency investigation](latency-optimization-2026-09-13.md)
 - [Stream latency debugging](stream-latency-debugging.md)
+- [iPad presentation latency investigation](ipad-presentation-2026-09-14.md)
 - [Stream deadlock validation](stream-deadlock-validation.md)
 - [Statistics overlay validation](statistics-metal-overlay-2026-09-13.md)
 - [Statistics and shortcut validation](stream-statistics-validation.md)

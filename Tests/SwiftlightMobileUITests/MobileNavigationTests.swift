@@ -421,18 +421,31 @@ import XCTest
         }
         app.launchEnvironment["SWIFTLIGHT_LATENCY_CAPTURE"] = "1"
         app.launchEnvironment["SWIFTLIGHT_LATENCY_TRIAL"] = trial
-        for key in ["SWIFTLIGHT_LATENCY_SOURCE_REVISION", "SWIFTLIGHT_LATENCY_SOURCE_TREE_SHA256"] {
+        for key in ["SWIFTLIGHT_LATENCY_SOURCE_REVISION", "SWIFTLIGHT_LATENCY_SOURCE_TREE_SHA256",
+                    "SWIFTLIGHT_LATENCY_NATIVE_PQ", "SWIFTLIGHT_LATENCY_FRAME_POOL"] {
             if let value = environment[key] { app.launchEnvironment[key] = value }
         }
         launch()
         try openSavedLibrary()
-        let running = try revealRunningApplication()
-        let runningID = running.identifier
+        try applyLatencyPerformanceOverride(environment)
+        let application = try latencyApplication(
+            allowIdleDesktop: environment["SWIFTLIGHT_LATENCY_ALLOW_IDLE_DESKTOP"] == "1")
+        let runningID = application.identifier
         try await rotate(to: .landscapeLeft)
-        running.tap() // Resume only; keep the saved request, pacing and buffer count.
+        application.tap() // Keep the request and audio; only explicit test overrides change pacing/buffers.
         let surface = app.descendants(matching: .any)["streamSurface"].firstMatch
-        guard surface.waitForExistence(timeout: 30), app.buttons["Cancel"].waitForNonExistence(timeout: 30) else {
-            XCTFail("The existing remote application must resume and deliver video")
+        let streamAppeared = surface.waitForExistence(timeout: 30)
+        for title in ["Quit and Start", "Quit Remote Application"] {
+            let destructiveAction = app.buttons[title]
+            if destructiveAction.exists {
+                attachScreenshot("Latency capture stopped at a remote quit confirmation")
+                cancelConfirmation(destructiveAction)
+                throw XCTSkip("Latency capture never quits or replaces a running remote application")
+            }
+        }
+        guard streamAppeared, app.buttons["Cancel"].waitForNonExistence(timeout: 30) else {
+            attachScreenshot("Latency source did not deliver video")
+            XCTFail("The selected latency application must deliver video without a remote quit")
             return
         }
         let statistics = app.descendants(matching: .any)["streamStatistics"].firstMatch
@@ -467,6 +480,86 @@ import XCTest
         XCTAssertEqual(try revealRunningApplication().identifier, runningID,
                        "Latency testing must leave the remote application running")
         #endif
+    }
+
+    /// Explicit exploratory measurements use the real Settings UI. Register
+    /// restoration before changing either value so XCTest failures also restore
+    /// the user's global settings; no host request, audio or HDR fields change.
+    private func applyLatencyPerformanceOverride(_ environment: [String: String]) throws {
+        let pacingArgument = environment["SWIFTLIGHT_LATENCY_PACING"]
+        let buffersArgument = environment["SWIFTLIGHT_LATENCY_DRAWABLE_COUNT"]
+        guard pacingArgument != nil || buffersArgument != nil else { return }
+        let pacingChoices = ["immediate": "On decoded frame", "displayLink": "Display paced"]
+        let bufferChoices = ["2": "2", "3": "3 (default)"]
+        guard let pacingArgument, let buffersArgument,
+              let pacingChoice = pacingChoices[pacingArgument],
+              let buffersChoice = bufferChoices[buffersArgument] else {
+            XCTFail("Supply both latency overrides: pacing immediate/displayLink and drawable count 2/3")
+            return
+        }
+        openSettings()
+        let pacing = app.buttons["videoPacing"]
+        let buffers = app.buttons["maximumDrawableCount"]
+        revealSetting(pacing)
+        let originalPacing = try XCTUnwrap(pacing.value as? String)
+        revealSetting(buffers)
+        let originalBuffers = try XCTUnwrap(buffers.value as? String)
+        addTeardownBlock { @MainActor [self] in
+            // Terminating the client is local disconnect, never remote quit.
+            // A fresh launch discards an interrupted stream, menu or draft.
+            app.terminate()
+            launch()
+            openSettings()
+            chooseSetting(app.buttons["videoPacing"], option: originalPacing)
+            chooseSetting(app.buttons["maximumDrawableCount"], option: originalBuffers)
+            app.buttons["saveStreamSettings"].tap()
+            XCTAssertTrue(app.buttons["cancelStreamSettings"].waitForNonExistence(timeout: 5))
+            openSettings()
+            let restoredPacing = app.buttons["videoPacing"]
+            revealSetting(restoredPacing)
+            XCTAssertEqual(restoredPacing.value as? String, originalPacing,
+                           "Latency teardown must restore the saved frame pacing")
+            let restoredBuffers = app.buttons["maximumDrawableCount"]
+            revealSetting(restoredBuffers)
+            XCTAssertEqual(restoredBuffers.value as? String, originalBuffers,
+                           "Latency teardown must restore the saved drawable count")
+            attachScreenshot("Latency pacing and drawable count restored")
+            app.buttons["cancelStreamSettings"].tap()
+        }
+        chooseSetting(pacing, option: pacingChoice)
+        chooseSetting(buffers, option: buffersChoice)
+        app.buttons["saveStreamSettings"].tap()
+        XCTAssertTrue(app.buttons["cancelStreamSettings"].waitForNonExistence(timeout: 5))
+        openSettings()
+        revealSetting(pacing)
+        XCTAssertEqual(pacing.value as? String, pacingChoice)
+        revealSetting(buffers)
+        XCTAssertEqual(buffers.value as? String, buffersChoice)
+        attachScreenshot("Latency test override — \(pacingArgument), \(buffersArgument) drawables")
+        app.buttons["cancelStreamSettings"].tap()
+    }
+
+    /// Desktop fallback is restricted to this explicit latency-test opt-in.
+    /// A host-state race still enters the app's confirmation flow, which this
+    /// test cancels before collecting a capture. Other live tests remain resume-only.
+    private func latencyApplication(allowIdleDesktop: Bool) throws -> XCUIElement {
+        do { return try revealRunningApplication() }
+        catch {
+            guard allowIdleDesktop else { throw error }
+        }
+        let desktop = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND (label == %@ OR label == %@)",
+            "appCard-", "Launch Desktop", "Resume Desktop")).firstMatch
+        // The running-app search can finish at the bottom of a virtualized grid.
+        for _ in 0..<25 {
+            if desktop.exists && desktop.isHittable {
+                attachScreenshot("Latency source uses exact Desktop fallback")
+                return desktop
+            }
+            app.scrollViews.firstMatch.swipeDown()
+        }
+        attachScreenshot("No Running application or exact Desktop tile for latency capture")
+        throw XCTSkip("No already-running application or exact Desktop tile is available; no other app was started")
     }
 
     func testSavedComputerLibraryGridWhenPaired() async throws {

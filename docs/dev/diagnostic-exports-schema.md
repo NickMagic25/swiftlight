@@ -127,7 +127,30 @@ frame-rate range. These are not measured presentation cadence.
 `wantsExtendedDynamicRangeContent`, `edrMetadataConfigured`, and the owning display's
 potential/current EDR headroom describe configuration when sampled on attachment,
 layout, or an HDR transition; they do not measure luminance or physical scanout.
+Mobile geometry also records optional `viewWidthPoints`, `viewHeightPoints`,
+`viewContentScale`, `layerContentsScale`, `screenWidthPoints`, `screenHeightPoints`,
+`screenScale`, `screenNativeScale`, `screenNativeWidthPixels`, and
+`screenNativeHeightPixels`. These distinguish UIKit's logical backing size from
+the panel's physical pixels and the actual drawable dimensions. Native screen
+bounds retain their native orientation; orient them to the screen point bounds
+before comparing width and height. Absent fields in older exports remain
+unavailable. These scalar fields do not identify the host or include screen content.
 Existing macOS field values and required timing meanings are unchanged.
+
+Explicit mobile Debug captures may also include `presentationHierarchy`.
+It records public scalar geometry and layer/view flags at most once per second,
+using low-rate UI updates and the existing explicit capture checkpoints rather
+than a new frame callback or timer. Checkpoints refresh even when hidden
+statistics have stopped SwiftUI publication.
+The snapshot timestamp makes its age observable. Traversal is bounded to 16 view
+and 16 layer ancestors, 64 inspected sibling entries, eight potential-overlap
+records, and 16 same-scene app windows, with truncation flags. Rectangles are
+point-space bounding boxes; transforms and clipping flags must be considered
+before interpreting coverage. An intersecting sibling can be transparent, so
+`aboveSiblings` identifies candidates rather than proving visible overlap.
+Same-level window order and system windows are not established by this snapshot.
+No view/layer names, contents, text, or images are collected. Normal/Release
+launches do not traverse the hierarchy, and older exports omit this field.
 
 The capture retains at most three checkpoints per session and 32 files locally.
 Ten seconds of warmup are excluded from the raw renderer arrays, including after
