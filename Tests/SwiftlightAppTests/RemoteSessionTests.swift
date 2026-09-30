@@ -122,6 +122,63 @@ import Testing
         await model.shutdown()
     }
 
+    @Test func trustFailureDuringPrepareClearsAuthenticatedLibraryWithoutLaunching() async throws {
+        for failure in [HostError.certificateChanged, .identityChanged] {
+            let fixture = try await LibraryFixture.make(running: 17)
+            // Slow polling prevents a later poll from hiding a broken action catch.
+            let model = try await fixture.model(pollingInterval: .seconds(60))
+            await fixture.server.setTrustFailure(failure)
+            model.launch(RemoteApp(id: 18, name: "Game"))
+            try await eventually { !model.busy && model.message != nil }
+            #expect(model.hostInfo == nil && model.apps.isEmpty && model.libraryApps.isEmpty)
+            #expect(model.hostStatus == "Trust needs review")
+            #expect(model.remoteApplicationAction == nil && model.activeApp == nil && !model.isSessionActive)
+            #expect(await fixture.server.mutations.isEmpty)
+            await model.shutdown()
+            #expect(await fixture.vault.pinMutationCount == 0)
+        }
+    }
+
+    @Test func trustFailureBeforeConfirmedQuitClearsLibraryWithoutSendingCancel() async throws {
+        for failure in [HostError.certificateChanged, .identityChanged] {
+            for replacingApp in [false, true] {
+                let fixture = try await LibraryFixture.make(running: 17)
+                let model = try await fixture.model(pollingInterval: .seconds(60))
+                let action = try await remoteAction(model, replacingApp: replacingApp)
+                await fixture.server.setTrustFailure(failure)
+                model.confirmRemoteApplicationAction(action)
+                try await eventually { !model.busy && model.message != nil }
+                #expect(model.hostInfo == nil && model.apps.isEmpty && model.libraryApps.isEmpty)
+                #expect(model.hostStatus == "Trust needs review")
+                #expect(model.remoteApplicationAction == nil && model.activeApp == nil && !model.isSessionActive)
+                #expect(await fixture.server.mutations.isEmpty)
+                await model.shutdown()
+                #expect(await fixture.vault.pinMutationCount == 0)
+            }
+        }
+    }
+
+    @Test func trustFailureVerifyingQuitClearsLibraryAndNeverFallsThroughToLaunch() async throws {
+        for failure in [HostError.certificateChanged, .identityChanged] {
+            for replacingApp in [false, true] {
+                let fixture = try await LibraryFixture.make(running: 17)
+                let model = try await fixture.model(pollingInterval: .seconds(60))
+                let action = try await remoteAction(model, replacingApp: replacingApp)
+                await fixture.server.setTrustFailure(failure, afterCancel: true)
+                model.confirmRemoteApplicationAction(action)
+                try await eventually { !model.busy && model.message != nil }
+                #expect(model.hostInfo == nil && model.apps.isEmpty && model.libraryApps.isEmpty)
+                #expect(model.hostStatus == "Trust needs review")
+                #expect(model.remoteApplicationAction == nil && model.activeApp == nil && !model.isSessionActive)
+                // Only the explicitly confirmed cancel used the original trusted
+                // host. Failed verification cannot launch or resume anything else.
+                #expect(await fixture.server.mutations == ["cancel"])
+                await model.shutdown()
+                #expect(await fixture.vault.pinMutationCount == 0)
+            }
+        }
+    }
+
     @Test func contextQuitOnlyTargetsTheRunningAppAndRefreshesStatus() async throws {
         let fixture = try await LibraryFixture.make(running: 17)
         let model = try await fixture.model()
@@ -201,6 +258,13 @@ import Testing
     }
 }
 
+@MainActor private func remoteAction(_ model: ClientModel, replacingApp: Bool) async throws -> RemoteApplicationAction {
+    if replacingApp { model.launch(RemoteApp(id: 18, name: "Game")) }
+    else { model.requestQuitRemoteApplication(RemoteApp(id: 17, name: "Desktop")) }
+    try await eventually { !model.busy && model.remoteApplicationAction != nil }
+    return try #require(model.remoteApplicationAction)
+}
+
 @MainActor private func eventually(_ condition: @MainActor () async -> Bool) async throws {
     let deadline = ContinuousClock.now + .seconds(3)
     while !(await condition()) {
@@ -213,15 +277,16 @@ private struct LibraryFixture {
     let host: SavedHost
     let client: HostClient
     let server: LibraryServer
+    let vault: LibraryVault
     static func make(id: String = "fixture", running: Int = 0) async throws -> Self {
         let vault = try LibraryVault()
         let address = try HostAddress(id + ".invalid")
         let server = LibraryServer(id: id, running: running)
         let client = HostClient(address: address, hostID: id, identityStore: vault, transport: server)
-        return Self(host: SavedHost(id: id, name: id, address: address), client: client, server: server)
+        return Self(host: SavedHost(id: id, name: id, address: address), client: client, server: server, vault: vault)
     }
-    @MainActor func model() async throws -> ClientModel {
-        let model = ClientModel(startServices: false, pollingInterval: .milliseconds(20))
+    @MainActor func model(pollingInterval: Duration = .milliseconds(20)) async throws -> ClientModel {
+        let model = ClientModel(startServices: false, pollingInterval: pollingInterval)
         model.hosts = [host]
         model.selectHost(host, using: client)
         try await eventually { !model.busy }
@@ -232,11 +297,12 @@ private struct LibraryFixture {
 
 private actor LibraryVault: HostIdentityProviding {
     let envelope: HostIdentityEnvelope
+    var pinMutationCount = 0
     init() throws { envelope = try HostIdentityEnvelope.generate() }
     func identity() -> HostIdentityEnvelope { envelope }
     func pin(_ key: String) -> Data? { Data([1]) }
-    func savePin(_ certificate: Data, keys: [String]) {}
-    func removePins(_ keys: [String]) {}
+    func savePin(_ certificate: Data, keys: [String]) { pinMutationCount += 1 }
+    func removePins(_ keys: [String]) { pinMutationCount += 1 }
 }
 
 /// In-memory wire peer: no network, Keychain, or running host is touched.
@@ -246,6 +312,8 @@ private actor LibraryServer: HostHTTPTransport {
     var operations: [String] = []
     var mutations: [String] { operations.filter { ["cancel", "launch", "resume"].contains($0) } }
     var failure: HostError?
+    var failureAfterCancel: HostError?
+    var reportedID: String?
     var refuseQuit = false
     var hold = false
     var held: CheckedContinuation<Void, Never>?
@@ -253,6 +321,11 @@ private actor LibraryServer: HostHTTPTransport {
     init(id: String, running: Int) { self.id = id; self.running = running }
     func setRunning(_ id: Int) { running = id }
     func setFailure(_ error: HostError?) { failure = error }
+    func setTrustFailure(_ error: HostError, afterCancel: Bool = false) {
+        if afterCancel { failureAfterCancel = error }
+        else if error == .identityChanged { reportedID = id + "-changed" }
+        else { failure = error }
+    }
     func setRefuseQuit(_ value: Bool) { refuseQuit = value }
     func holdNextStatus() { hold = true }
     func releaseStatus() { held?.resume(); held = nil }
@@ -268,10 +341,11 @@ private actor LibraryServer: HostHTTPTransport {
                 // Intentionally ignore cancellation to exercise stale completion rejection.
                 await withCheckedContinuation { held = $0 }
             }
-            return xml("<hostname>Fixture</hostname><uniqueid>\(id)</uniqueid><appversion>7.1.0.0</appversion><PairStatus>1</PairStatus><currentgame>\(snapshot)</currentgame><ServerCodecModeSupport>65793</ServerCodecModeSupport>")
+            return xml("<hostname>Fixture</hostname><uniqueid>\(reportedID ?? id)</uniqueid><appversion>7.1.0.0</appversion><PairStatus>1</PairStatus><currentgame>\(snapshot)</currentgame><ServerCodecModeSupport>65793</ServerCodecModeSupport>")
         case "applist": return xml("<App><ID>17</ID><AppTitle>Desktop</AppTitle></App><App><ID>18</ID><AppTitle>Game</AppTitle></App>")
         case "cancel":
             if !refuseQuit { running = 0 }
+            if let failureAfterCancel { setTrustFailure(failureAfterCancel) }
             return xml("<cancel>1</cancel>")
         case "launch", "resume":
             let query = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems

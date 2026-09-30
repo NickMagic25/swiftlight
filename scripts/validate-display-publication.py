@@ -67,7 +67,7 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     build = args.build_dir.resolve()
-    source = (root / "Sources/SwiftlightApp/MacStreamSurface.swift").read_text()
+    source = (root / "Sources/desktop/MacStreamSurface.swift").read_text()
     publisher = source.split("@MainActor final class DisplayChangePublisher", 1)[1].split("\nstruct StreamSurface:", 1)[0]
     publisher = "@MainActor final class DisplayChangePublisher" + publisher
     commands = json.loads((build / "description.json").read_text())["swiftCommands"]

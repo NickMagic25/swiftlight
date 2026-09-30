@@ -16,7 +16,7 @@ def main():
                         help='Existing SwiftPM debug object/module directory')
     args = parser.parse_args()
     build = args.build_dir.resolve()
-    source = root / 'Sources/SwiftlightApp/AppArtworkStore.swift'
+    source = root / 'Sources/shared/SwiftlightApp/AppArtworkStore.swift'
     objects = sorted((build / 'SwiftlightHost.build').glob('*.swift.o'))
     objects += sorted((build / 'CHostCrypto.build').glob('*.c.o'))
     description = build / 'description.json'

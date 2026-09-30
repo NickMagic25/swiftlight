@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import signal
 import shutil
 import subprocess
 import sys
@@ -10,7 +11,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-STUB = r'''#!/usr/bin/python3
+STUB = r'''#!/usr/bin/env python3
 import json, os, sys
 from pathlib import Path
 name, args = Path(sys.argv[0]).name, sys.argv[1:]
@@ -51,6 +52,10 @@ class DistributionTests(unittest.TestCase):
         (self.app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleShortVersionString": "0.0.1"}))
         self.bin = self.root / "tools"
         self.bin.mkdir()
+        # Apple's /usr/bin/python3 launcher can consult xcrun, which this
+        # harness replaces. Use the running interpreter for stubs and scripts
+        # so tool discovery never recurses through the fake xcrun.
+        (self.bin / "python3").symlink_to(sys.executable)
         (self.bin / "stub").write_text(STUB)
         (self.bin / "stub").chmod(0o755)
         for name in ("lipo", "codesign", "hdiutil", "xcrun"):
@@ -62,8 +67,18 @@ class DistributionTests(unittest.TestCase):
                         TEST_CALLS=str(self.root / "calls.jsonl"), TMPDIR=str(self.root))
 
     def run_script(self, script, *args):
-        return subprocess.run(["/bin/bash", str(self.root / "scripts" / script), *map(str, args)],
-                              env=self.env, capture_output=True, text=True, timeout=30)
+        command = ["/bin/bash", str(self.root / "scripts" / script), *map(str, args)]
+        with subprocess.Popen(command, env=self.env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, start_new_session=True) as process:
+            try:
+                stdout, stderr = process.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                # Kill the whole fixture tool tree. A late notarytool stub must
+                # never overwrite the next subtest's report after a timeout.
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+                raise
+            return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
     def calls(self):
         path = self.root / "calls.jsonl"

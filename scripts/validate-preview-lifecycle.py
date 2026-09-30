@@ -16,7 +16,7 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     build = args.build_dir.resolve()
-    source = root / "Sources/SwiftlightApp/ReplayPreview.swift"
+    source = root / "Sources/desktop/ReplayPreview.swift"
     objects = sorted((build / "SwiftlightVideo.build").glob("*.swift.o"))
     objects += sorted((build / "MoonlightAppleVideo.build").rglob("*.o"))
     description = build / "description.json"

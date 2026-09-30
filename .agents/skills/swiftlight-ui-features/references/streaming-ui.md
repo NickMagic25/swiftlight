@@ -8,11 +8,11 @@ Inspect the current implementations; these paths are starting points, not frozen
 
 | Source | Reuse or preserve |
 | --- | --- |
-| [ClientModel.swift](../../../../Sources/SwiftlightApp/ClientModel.swift), [SettingsView.swift](../../../../Sources/SwiftlightApp/SettingsView.swift) | User-visible state, settings bindings and teardown. |
-| [StreamShortcuts.swift](../../../../Sources/SwiftlightCore/StreamShortcuts.swift), [SwiftlightApp.swift](../../../../Sources/SwiftlightApp/SwiftlightApp.swift) | Existing shortcut handling and command discovery. |
-| [MacStreamSurface.swift](../../../../Sources/SwiftlightApp/MacStreamSurface.swift) | Visibility updates, cancellable raster work, revision checks, accessibility elements and bounded redraw signals. |
-| [StatisticsOverlayRasterizer.swift](../../../../Sources/SwiftlightApp/StatisticsOverlayRasterizer.swift) | Off-main-thread text rasterization when displayed content changes. |
-| [VideoOverlayBitmap.swift](../../../../Sources/SwiftlightVideo/VideoOverlayBitmap.swift), [MetalVideoRenderer.swift](../../../../Sources/SwiftlightVideo/MetalVideoRenderer.swift) | Bounded bitmap data, cached texture upload and overlay drawing in the video's existing render pass/drawable. |
+| [ClientModel.swift](../../../../Sources/desktop/ClientModel.swift), [SettingsView.swift](../../../../Sources/desktop/SettingsView.swift) | User-visible state, settings bindings and teardown. |
+| [StreamShortcuts.swift](../../../../Sources/shared/SwiftlightCore/StreamShortcuts.swift), [SwiftlightApp.swift](../../../../Sources/shared/SwiftlightApp/SwiftlightApp.swift) | Existing shortcut handling and command discovery. |
+| [MacStreamSurface.swift](../../../../Sources/desktop/MacStreamSurface.swift) | Visibility updates, cancellable raster work, revision checks, accessibility elements and bounded redraw signals. |
+| [StatisticsOverlayRasterizer.swift](../../../../Sources/shared/SwiftlightApp/StatisticsOverlayRasterizer.swift) | Off-main-thread text rasterization when displayed content changes. |
+| [VideoOverlayBitmap.swift](../../../../Sources/shared/SwiftlightVideo/VideoOverlayBitmap.swift), [MetalVideoRenderer.swift](../../../../Sources/shared/SwiftlightVideo/MetalVideoRenderer.swift) | Bounded bitmap data, cached texture upload and overlay drawing in the video's existing render pass/drawable. |
 
 Prefer extending this shared mechanism for additional in-stream visuals. The current `setOverlay` interface represents one overlay: do not simply replace the statistics texture with the new feature. Support independent visibility and correct coexistence, generalizing or composing the bounded overlay representation only as needed for the request.
 

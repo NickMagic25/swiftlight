@@ -1,5 +1,10 @@
 # macOS implementation report
 
+This is a historical record of the initial Mac implementation and its follow-ups.
+Commands, dependency pins, counts and platform limits below describe those runs.
+For the current single-target source layout and mobile work, see [architecture](architecture.md),
+[mobile](../mobile.md) and [shared-app validation](shared-client-validation-2026-09-14.md).
+
 Swiftlight now contains a native macOS application, shared core/host/transport/video modules, native dependency bootstrap, a signed local app bundle, server-free replay/validation, and acceptance/compatibility documentation. It is **not release-complete**. The initial clean validation was offline. Later live checks verified saved pairing, authenticated library access, a short HEVC 10-bit Desktop stream, input capture/release, and local disconnect. The agent did not enter the PIN. Full-screen geometry matched the tested 3440 × 1440 external display. Broader display configurations, sustained playback, lifecycle/codec coverage and explicit remote quit remain unverified.
 
 ## Implemented
@@ -53,7 +58,7 @@ Normal macOS application launch, empty host library, and settings accessibility/
 
 ## Remaining release gates
 
-The acceptance matrix is the authoritative status source. Its current totals are16 PASS,0 FAIL,1 SKIP,17 BLOCKED and2 TODO. The TODO rows are the future iOS/iPadOS and tvOS applications. The SKIP row is evidence-gated native/lossless output; canonical output remains the validated baseline.
+The acceptance matrix is the authoritative status source. At this recorded baseline its totals were16 PASS,0 FAIL,1 SKIP,17 BLOCKED and2 TODO. The TODO rows then represented the iOS/iPadOS and tvOS applications. The SKIP row is evidence-gated native/lossless output; canonical output remains the validated baseline.
 
 | Non-PASS macOS release requirements | Exact prerequisite/check |
 |---|---|

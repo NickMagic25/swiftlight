@@ -4,9 +4,17 @@ macOS streams start in full screen by default. The “Start streams in full scre
 
 `StreamSettings.launchInFullScreen` defaults to `true`. Decoding older global or per-host settings without that key preserves their resolution, custom dimensions, frame rate, bitrate, automatic bitrate, codec, HDR, scaling and pointer choices. Only missing fields receive defaults. An explicitly saved `false` survives encoding and decoding.
 
-The shared `StreamPresentationPolicy.launchesFullScreen(on:settings:)` honors the preference on macOS and always returns `true` for iOS, iPadOS and tvOS. This policy does not create a window or scene. The macOS adapter owns native NSWindow transitions and restoration; future iOS/iPadOS/tvOS adapters must implement their platform presentation. The policy alone is not evidence of a completed application on those platforms.
+The shared `StreamPresentationPolicy.launchesFullScreen(on:settings:)` honors the preference on macOS and always returns `true` for iOS, iPadOS and tvOS. This policy does not create a window or scene. The macOS adapter owns native NSWindow transitions and restoration. The iPhone/iPad adapter presents the stream in a SwiftUI full-screen cover with native UIKit display integration; the operating system still owns windowing and system gestures. tvOS presentation remains future work. See the [mobile guide](mobile.md) for controls and platform validation limits.
 
 Presentation and stream resolution are independent. Full-screen launch does not select a resolution, codec or refresh rate. Native, Native — Safe Area, Window and explicit dimensions continue through the existing geometry policy.
+
+On iPhone and iPad, the stream renders at the physical display's native pixel
+size, including scaled display modes. Resized windows use the owning display's
+native scale. This preserves the selected stream resolution while avoiding an
+oversized presentation surface; touch input and statistics remain aligned with
+the video. The operating system still selects Direct or Composited presentation.
+See the [iPad presentation investigation](dev/ipad-presentation-2026-09-14.md) for
+measurement evidence and current limits.
 
 During a full-screen stream, macOS presentation uses `hideMenuBar` and `hideDock`, as requested. Conflicting `autoHideMenuBar`, `autoHideDock` and `autoHideToolbar` options are removed. No process-switching or Force Quit restrictions are added. Exit, session teardown and window detachment restore the previous options, retaining AppKit's current full-screen bit and removing the full-screen-only toolbar option when the window has exited full screen. Windowed streaming does not apply this override.
 
