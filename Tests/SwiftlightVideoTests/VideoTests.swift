@@ -55,7 +55,7 @@ final class VideoTests: XCTestCase {
     }
 
     func testLifecycleAndSynchronousRejectionConsumesNothing() throws {
-        for codec in VideoCodec.allCases {
+        for codec in [VideoCodec.hevc, .av1] {
             let decoder = try VideoDecoder(codec: codec)
             XCTAssertEqual(decoder.submit(CompressedFrame(bytes: Data(), id: 1)), .rejected(2))
             XCTAssertNotEqual(decoder.submit(CompressedFrame(bytes: Data([0xFF, 0x01, 0x7F]), id: 2)), .accepted)
@@ -68,7 +68,7 @@ final class VideoTests: XCTestCase {
     }
 
     func testTruncatedRealAccessUnitConsumesNothing() throws {
-        for codec in VideoCodec.allCases {
+        for codec in [VideoCodec.hevc, .av1] {
             let first = try load("\(codec.rawValue)-sdr8")[0]
             let decoder = try VideoDecoder(codec: codec)
             XCTAssertNotEqual(decoder.submit(CompressedFrame(bytes: first.bytes.prefix(1), id: 10)), .accepted)
@@ -119,7 +119,7 @@ final class VideoTests: XCTestCase {
 
     func testBoundedHandoffResetAndTerminalAccounting() throws {
         try requireHardware()
-        for codec in VideoCodec.allCases {
+        for codec in [VideoCodec.hevc, .av1] {
             let decoder = try VideoDecoder(codec: codec, maxFramesInFlight: 2)
             let inputs = try load("\(codec.rawValue)-sdr8")
             for input in inputs {
@@ -173,7 +173,7 @@ final class VideoTests: XCTestCase {
     func testConfigurationChangesWithPendingAcceptedWork() throws {
         try requireHardware()
         let renderer = try MetalVideoRenderer()
-        for codec in VideoCodec.allCases {
+        for codec in [VideoCodec.hevc, .av1] {
             let decoder = try VideoDecoder(codec: codec)
             var initial = try load("\(codec.rawValue)-sdr8")[0]
             var changed = try load("\(codec.rawValue)-reconfigure")[0]

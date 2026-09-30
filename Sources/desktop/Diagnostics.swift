@@ -22,6 +22,7 @@ private struct LiveDiagnostics: Encodable {
     let failure: String?
     let timeline: StreamDiagnosticTimeline?
     let decoder: DecoderStatistics?
+    let decodedColor: DecodedColorDiagnostics?
     let renderer: RenderStatistics?
     let presentationRuntime: PresentationRuntimeDiagnostics?
     let statisticsOverlayVisible: Bool
@@ -39,6 +40,7 @@ private struct LiveDiagnostics: Encodable {
     let receivedFrames: UInt64?
     let acquiredFrames: UInt64?
     let acquiredBytes: UInt64?
+    let compressedStaleSkips: UInt64?
     let timingCaveat = "Captured before teardown; outstanding media callbacks may not be reflected. Timing summaries use bounded recent populations, not whole-session averages. Timeline samples at most once per second plus a final sample, retaining at most 600 entries. Host-to-display adds half RTT as an estimate; no synchronized host clock or physical scanout measurement."
 }
 extension ClientModel {
@@ -75,7 +77,8 @@ extension ClientModel {
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development",
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
             settings: diagnosticSettings, failure: diagnosticFailure, timeline: diagnosticTimeline,
-            decoder: pipeline?.statistics, renderer: pipeline?.renderStatistics,
+            decoder: pipeline?.statistics, decodedColor: pipeline?.decodedColorDiagnostics,
+            renderer: pipeline?.renderStatistics,
             presentationRuntime: pipeline?.presentationDiagnostics,
             statisticsOverlayVisible: showingStreamStatistics, inputCaptured: inputCaptured,
             renderOptions: pipeline?.renderOptions,
@@ -85,7 +88,7 @@ extension ClientModel {
             pendingAudioMilliseconds: stats?.pendingAudioMilliseconds, audioQueuedFrames: stats?.audioQueuedFrames,
             audioUnderrunFrames: stats?.audioUnderrunFrames, audioOverrunFrames: stats?.audioOverrunFrames,
             receivedFrames: stats?.video.receivedFrames, acquiredFrames: stats?.video.acquiredFrames,
-            acquiredBytes: stats?.video.acquiredBytes)
+            acquiredBytes: stats?.video.acquiredBytes, compressedStaleSkips: stats?.video.compressedStaleSkips)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         encoder.nonConformingFloatEncodingStrategy = .convertToString(positiveInfinity: "Infinity", negativeInfinity: "-Infinity", nan: "NaN")

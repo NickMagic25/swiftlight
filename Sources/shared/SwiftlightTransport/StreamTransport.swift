@@ -35,7 +35,45 @@ public struct VideoStreamDescription: Sendable {
     public let videoFormat: UInt32
     public let width, height, fps: Int
     public var isAV1: Bool { videoFormat & 0x3000 != 0 }
-    public var bitDepth: Int { videoFormat & 0x2200 != 0 ? 10 : 8 }
+    public var isPyrowave: Bool { videoFormat & 0xF0000 != 0 }
+    public var isYUV444: Bool { videoFormat & 0xACC04 != 0 }
+    public var bitDepth: Int { videoFormat & 0xCAA00 != 0 ? 10 : 8 }
+}
+
+/// Payload boundaries are kept even for received data so record resynchronization
+/// and the announced critical-packet prefix use the same packet index as the host.
+public struct PyrowaveFragment: Sendable, Equatable {
+    public enum Kind: UInt32, Sendable { case data = 0, lost = 1, recordStart = 2 }
+    public let offset, length: UInt32
+    public let kind: Kind
+    public init(offset: UInt32, length: UInt32, kind: Kind) {
+        self.offset = offset; self.length = length; self.kind = kind
+    }
+}
+
+/// Host HDR control values captured with the decode unit. Chromaticities use
+/// 1/50000 units; minimum luminance uses 1/10000 nit and other light values use nits.
+/// Optional content/display values remain zero when the host omits them.
+public struct TransportHDRMetadata: Sendable, Equatable {
+    public let redX, redY, greenX, greenY, blueX, blueY, whiteX, whiteY: UInt16
+    public let maxDisplayLuminance, minDisplayLuminance: UInt16
+    public let maxContentLightLevel, maxFrameAverageLightLevel, maxFullFrameLuminance: UInt16
+    public init(redX: UInt16, redY: UInt16, greenX: UInt16, greenY: UInt16, blueX: UInt16, blueY: UInt16,
+                whiteX: UInt16, whiteY: UInt16, maxDisplayLuminance: UInt16, minDisplayLuminance: UInt16,
+                maxContentLightLevel: UInt16, maxFrameAverageLightLevel: UInt16, maxFullFrameLuminance: UInt16) {
+        self.redX = redX; self.redY = redY; self.greenX = greenX; self.greenY = greenY
+        self.blueX = blueX; self.blueY = blueY; self.whiteX = whiteX; self.whiteY = whiteY
+        self.maxDisplayLuminance = maxDisplayLuminance; self.minDisplayLuminance = minDisplayLuminance
+        self.maxContentLightLevel = maxContentLightLevel; self.maxFrameAverageLightLevel = maxFrameAverageLightLevel
+        self.maxFullFrameLuminance = maxFullFrameLuminance
+    }
+    init(_ raw: SFHDRMetadata) {
+        redX = raw.red_x; redY = raw.red_y; greenX = raw.green_x; greenY = raw.green_y
+        blueX = raw.blue_x; blueY = raw.blue_y; whiteX = raw.white_x; whiteY = raw.white_y
+        maxDisplayLuminance = raw.max_display_luminance; minDisplayLuminance = raw.min_display_luminance
+        maxContentLightLevel = raw.max_content_light_level; maxFrameAverageLightLevel = raw.max_frame_average_light_level
+        maxFullFrameLuminance = raw.max_full_frame_luminance
+    }
 }
 
 public struct CompressedVideoFrame: Sendable {
@@ -48,6 +86,25 @@ public struct CompressedVideoFrame: Sendable {
     /// hosts without this extension return nil, rather than a fabricated zero.
     public let hostProcessingLatencyMilliseconds: Double?
     public let isIDR: Bool
+    public let pyrowaveFragments: [PyrowaveFragment]
+    public let pyrowaveCriticalPackets: UInt16
+    public let hdrActive: Bool
+    public let hdrMetadata: TransportHDRMetadata?
+
+    public init(data: Data, frameID: UInt64, receiveTimeUs: UInt64, enqueueTimeUs: UInt64,
+                presentationTimeUs: UInt64, rtpTimestamp: UInt32,
+                receiveUptimeNanoseconds: UInt64, enqueueUptimeNanoseconds: UInt64,
+                hostProcessingLatencyMilliseconds: Double?, isIDR: Bool,
+                pyrowaveFragments: [PyrowaveFragment] = [], pyrowaveCriticalPackets: UInt16 = 0,
+                hdrActive: Bool = false, hdrMetadata: TransportHDRMetadata? = nil) {
+        self.data = data; self.frameID = frameID; self.receiveTimeUs = receiveTimeUs
+        self.enqueueTimeUs = enqueueTimeUs; self.presentationTimeUs = presentationTimeUs
+        self.rtpTimestamp = rtpTimestamp; self.receiveUptimeNanoseconds = receiveUptimeNanoseconds
+        self.enqueueUptimeNanoseconds = enqueueUptimeNanoseconds
+        self.hostProcessingLatencyMilliseconds = hostProcessingLatencyMilliseconds; self.isIDR = isIDR
+        self.pyrowaveFragments = pyrowaveFragments; self.pyrowaveCriticalPackets = pyrowaveCriticalPackets
+        self.hdrActive = hdrActive; self.hdrMetadata = hdrMetadata
+    }
 }
 
 public enum TransportEvent: Sendable {
@@ -81,6 +138,8 @@ public enum TransportError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidConfiguration: "Invalid video or audio stream configuration, or input encryption key."
+        case .connectionFailed(-20003): "The host's PyroWave bitstream revision is incompatible with this client. Update both to matching codec versions."
+        case .connectionFailed(-20004): "The host does not support the selected PyroWave profile."
         case .connectionFailed(let code): "Streaming connection failed (code \(code)). Check the host and network."
         }
     }
@@ -106,12 +165,13 @@ public final class StreamTransport: @unchecked Sendable {
     }
 
     public init(configuration: TransportConfiguration, callbacks: TransportCallbacks) throws {
-        let allowed: UInt32 = 0x3300
+        let allowed: UInt32 = 0xF3300
+        let maximumBitrate = configuration.supportedVideoFormats & 0xF0000 != 0 ? 10_000_000 : 500_000
         guard configuration.inputKey.count == 16, !configuration.address.isEmpty,
               !configuration.appVersion.isEmpty, configuration.supportedVideoFormats != 0,
               configuration.supportedVideoFormats & ~allowed == 0,
               (16...16384).contains(configuration.width), (16...16384).contains(configuration.height),
-              (1...1000).contains(configuration.fps), (500...500000).contains(configuration.bitrateKbps)
+              (1...1000).contains(configuration.fps), (500...maximumBitrate).contains(configuration.bitrateKbps)
         else { throw TransportError.invalidConfiguration }
         owner = CallbackOwner(callbacks)
         var c = SFStreamConfiguration()
@@ -139,6 +199,11 @@ public final class StreamTransport: @unchecked Sendable {
             guard let context, let raw, let bytes = raw.pointee.bytes else { return -1 }
             let callbacks = Unmanaged<CallbackOwner>.fromOpaque(context).takeUnretainedValue().callbacks
             let f = raw.pointee
+            let fragments = f.pyrowave_fragments.map { pointer in
+                UnsafeBufferPointer(start: pointer, count: f.pyrowave_fragment_count).map {
+                    PyrowaveFragment(offset: $0.offset, length: $0.length, kind: PyrowaveFragment.Kind(rawValue: $0.kind) ?? .lost)
+                }
+            } ?? []
             // Acquire a value-owned Data before leaving the callback. No borrowed C pointer
             // escapes; this is bounded to one 32MiB access unit plus decoder input capacity.
             let frame = CompressedVideoFrame(data: Data(bytes: bytes, count: f.length), frameID: f.frame_id,
@@ -146,7 +211,8 @@ public final class StreamTransport: @unchecked Sendable {
                 presentationTimeUs: f.presentation_time_us, rtpTimestamp: f.rtp_timestamp, receiveUptimeNanoseconds: f.receive_uptime_ns,
                 enqueueUptimeNanoseconds: f.enqueue_uptime_ns,
                 hostProcessingLatencyMilliseconds: f.host_processing_latency_tenths_ms == 0 ? nil : Double(f.host_processing_latency_tenths_ms) / 10,
-                isIDR: f.is_idr)
+                isIDR: f.is_idr, pyrowaveFragments: fragments, pyrowaveCriticalPackets: f.pyrowave_critical_packets,
+                hdrActive: f.hdr_active, hdrMetadata: f.hdr_metadata_valid ? TransportHDRMetadata(f.hdr_metadata) : nil)
             return callbacks.video(frame) ? 0 : -1
         }
         cCallbacks.event = { context, kind, a, b, c, message in
@@ -250,12 +316,16 @@ public struct TimingSummary: Sendable, Equatable {
 public struct VideoTransportStatistics: Sendable {
     /// Complete RTP frames, including FEC recovery, before depacketizer filtering.
     public let receivedFrames: UInt64
-    /// Irrecoverable RTP frames: missing packets/FEC blocks or entirely missing
-    /// frames. Excludes decoder queue overflow, IDR/recovery filtering, and speculation.
+    /// RTP frames with unrepaired packet loss, missing FEC blocks, or entirely
+    /// missing frames. Includes delivered partial PyroWave frames; excludes local
+    /// decoder queue overflow, IDR/recovery filtering, and speculation.
     public let networkLostFrames: UInt64
     public var totalFrames: UInt64 { receivedFrames + networkLostFrames }
     /// Acquired decode units and compressed payload bytes; excludes RTP/FEC overhead.
     public let acquiredFrames, acquiredBytes: UInt64
+    /// Independent PyroWave decode units skipped locally before admission when
+    /// a newer complete unit is already queued. Separate from network loss.
+    public let compressedStaleSkips: UInt64
     public let firstReceiveUptimeNanoseconds, lastReceiveUptimeNanoseconds: UInt64?
     public let hostProcessingLatency, reassemblyTime: TimingSummary?
     /// EWMA /16 of |first-packet interarrival minus RTP timestamp interval|.
@@ -265,6 +335,7 @@ public struct VideoTransportStatistics: Sendable {
     init(_ raw: SFVideoTransportStatistics) {
         receivedFrames = raw.received_frames; networkLostFrames = raw.network_lost_frames
         acquiredFrames = raw.acquired_frames; acquiredBytes = raw.acquired_bytes
+        compressedStaleSkips = raw.compressed_stale_skips
         firstReceiveUptimeNanoseconds = raw.first_receive_uptime_ns == 0 ? nil : raw.first_receive_uptime_ns
         lastReceiveUptimeNanoseconds = raw.last_receive_uptime_ns == 0 ? nil : raw.last_receive_uptime_ns
         hostProcessingLatency = TimingSummary(raw.host_processing_latency)

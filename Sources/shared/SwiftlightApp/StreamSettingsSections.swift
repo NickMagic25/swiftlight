@@ -66,9 +66,20 @@ struct StreamVideoSettingsSection: View {
                 Text("Automatic").tag(CodecPreference.auto)
                 Text("HEVC").tag(CodecPreference.hevc)
                 Text("AV1").tag(CodecPreference.av1)
+                Text("PyroWave (wired LAN)").tag(CodecPreference.pyrowave)
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("codec")
+            if settings.codec == .pyrowave {
+                Picker("Chroma sampling", selection: $settings.chromaSampling) {
+                    Text("4:2:0 (lower bandwidth)").tag(StreamChromaSampling.yuv420)
+                    Text("4:4:4 (sharper text)").tag(StreamChromaSampling.yuv444)
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("chromaSampling")
+                Text("PyroWave needs a fast wired connection. 4:4:4 keeps more color detail and uses more bandwidth.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Picker("HDR", selection: $settings.hdr) {
                 Text("Automatic").tag(HDRPreference.auto)
                 Text("On").tag(HDRPreference.on)
@@ -107,7 +118,7 @@ struct StreamQualitySettingsSection: View {
             if !settings.automaticBitrate {
                 VStack(alignment: .leading) {
                     LabeledContent("Bitrate", value: "\(bitrate) Mbps")
-                    Slider(value: $settings.bitrateMbps, in: 1...150, step: 1)
+                    Slider(value: $settings.bitrateMbps, in: 1...(settings.codec == .pyrowave ? 1000 : 150), step: 1)
                         .accessibilityLabel("Bitrate")
                         .accessibilityValue("\(bitrate) megabits per second")
                 }
@@ -118,6 +129,9 @@ struct StreamQualitySettingsSection: View {
         } footer: {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Higher resolutions, frame rates, and bitrates need a faster connection. Available codecs depend on your computer and device.")
+                if settings.codec == .pyrowave {
+                    Text("Automatic PyroWave bitrate scales with pixels, frame rate, HDR, and chroma sampling, up to 900 Mbps. For faster wired links, enter a manual bitrate up to 10000 Mbps. Leave room for audio, error recovery, and other network traffic.")
+                }
                 Text("HDR requires a compatible computer and display. Automatic uses HDR when both support it; On requires HDR; Off uses standard dynamic range. Enable HDR on your computer before starting. Changes apply to your next stream.")
             }
         }

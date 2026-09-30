@@ -53,6 +53,7 @@ CASES = [
     ("verify_failure", {"STUB_FAIL_AT": "verify", "SIGNING_IDENTITY": "-"}, False, None),
     ("plist_failure", {"STUB_FAIL_AT": "plutil", "SIGNING_IDENTITY": "-"}, False, None),
     ("homebrew", {"STUB_HOMEBREW": "1", "SIGNING_IDENTITY": "-"}, False, None),
+    ("missing_pyrowave_license", {"SIGNING_IDENTITY": "-"}, False, None),
     ("invalid_configuration", {"CONFIGURATION": "invalid"}, False, None),
     ("first_install", {"SIGNING_IDENTITY": "-"}, True, "-"),
     ("symlink_destination", {"SIGNING_IDENTITY": "-"}, False, None),
@@ -75,10 +76,15 @@ def run_case(root, source, case):
     bootstrap.chmod(0o755)
     for relative in ["App/Info.plist", "App/AppIcon.icns", "LICENSE", ".build/dependencies/licenses/native.txt",
                      "Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt",
-                     ".build/checkouts/moonlight-apple-decoder/LICENSE", "bin/swiftlight-desktop"]:
+                     ".build/checkouts/moonlight-apple-decoder/LICENSE",
+                     ".build/checkouts/moonlight-apple-decoder/Dependencies/pyrowave/LICENSE", "bin/swiftlight-desktop"]:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("new-fake-binary" if relative == "bin/swiftlight-desktop" else "fixture")
+    pyrowave_license = root / ".build/checkouts/moonlight-apple-decoder/Dependencies/pyrowave/LICENSE"
+    pyrowave_license.write_text("PyroWave fixture notice\n")
+    if name == "missing_pyrowave_license":
+        pyrowave_license.unlink()
     # A cached product from the old name must never enter the packaged app.
     (root / "bin/Swiftlight").write_text("stale-legacy-binary")
     with (root / "App/Info.plist").open("wb") as destination:
@@ -117,6 +123,8 @@ def run_case(root, source, case):
             require(binary.read_text() == "new-fake-binary", "New bundle was not installed")
             require((app / "Contents/Resources/AppIcon.icns").read_bytes() ==
                     (root / "App/AppIcon.icns").read_bytes(), "Mac icon was not packaged")
+            require((app / "Contents/Resources/Licenses/PyroWave.txt").read_bytes() ==
+                    pyrowave_license.read_bytes(), "PyroWave submodule notice was not packaged")
             builds = [args for command, args in calls if command == "swift" and "--product" in args]
             require(len(builds) == 1 and builds[0][builds[0].index("--product") + 1] == "swiftlight-desktop",
                     "The packager must build the distinct SwiftPM executable product")
@@ -142,6 +150,9 @@ def run_case(root, source, case):
             require(binary.read_text() == "old-fake-binary", "Failure changed the old bundle")
         if old:
             require(old.read() == b"old-fake-binary", "Open old executable contents changed")
+        if name == "missing_pyrowave_license":
+            require(not any(command == "codesign" for command, _ in calls),
+                    "Missing PyroWave notice reached signing")
         require(not list((root / ".build").glob(".Swiftlight-stage.*")), "Staging was not cleaned")
         if "SIGNING_IDENTITY" in extra:
             require(not any(command == "security" for command, _ in calls), "Explicit identity performed automatic lookup")

@@ -64,16 +64,18 @@ import UIKit
         self.statisticsPreferences = statisticsPreferences
         showingStatistics = showStatistics
         do {
-            let info = try await client.serverInfo()
+            let route = try await StreamConnectionRoute.resolve(client: client, hostID: host.id)
             try ensureCurrent(generation)
-            guard info.id == host.id else { throw HostError.invalidResponse }
+            let info = route.info
             guard info.currentAppID == 0 || info.currentAppID == app.id else {
                 throw RunningApplicationConflict(hostInfo: info)
             }
             let preparation = try StreamConnectionPreparation(appID: app.id, settings: settings,
                 display: display, host: info,
                 device: .init(hevc: VideoCodec.hevc.hardwareCandidate, av1: VideoCodec.av1.hardwareCandidate,
-                              hdr: hdrDisplay.supportsHDR))
+                              hdr: hdrDisplay.supportsHDR,
+                              pyrowave: VideoCodec.pyrowave.hardwareCandidate, pyrowave444: VideoCodec.pyrowave.hardwareCandidate,
+                              pyrowaveHDR: VideoCodec.pyrowave.hardwareCandidate, pyrowaveHDR444: VideoCodec.pyrowave.hardwareCandidate))
             let request = preparation.request, selection = preparation.selection
             statisticsRequest = request; statisticsSelection = selection
             let audio = AVAudioSession.sharedInstance()
@@ -94,12 +96,10 @@ import UIKit
             audioOutputChannelCount = audio.outputNumberOfChannels
             refreshSpatialPlaybackAvailability()
             observeInterruptions(generation: generation)
-            let response = try await client.launchOrResume(preparation.launchRequest)
-            try ensureCurrent(generation)
-            let address = await client.address
+            let response = try await route.client.launchOrResume(preparation.launchRequest)
             try ensureCurrent(generation)
             let pipeline = StreamingPipeline(renderOptions: latencyCapture?.renderOptions ?? .init())
-            let configuration = preparation.transportConfiguration(address: address.host,
+            let configuration = preparation.transportConfiguration(address: route.address.host,
                 sessionURL: response.sessionURL, displayRefreshHz: display.refreshHz)
             let transport = try StreamTransport(configuration: configuration, callbacks: .init(
                 setup: { pipeline.setup($0) }, video: { pipeline.receive($0) },

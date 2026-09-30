@@ -5,6 +5,16 @@ import Testing
 @testable import SwiftlightVideo
 
 @Suite @MainActor struct StreamStatisticsSamplerTests {
+    @Test func pyrowaveNegotiatedProfileIsIdentifiedWithoutInventingDecodeTiming() {
+        var sampler = StreamStatisticsSampler()
+        let selection = CodecSelection(codec: .pyrowave, hdr: true, chromaSampling: .yuv444, explanation: "Fixture")
+        let negotiated = VideoStreamDescription(videoFormat: 0x80000, width: 1920, height: 1080, fps: 120)
+        let snapshot = sampler.sample(request: nil, selection: selection, negotiated: negotiated,
+            decodedFormat: nil, diagnostics: nil, decoder: nil, renderer: nil, uptime: 10)
+        #expect(snapshot.requestedFormat.contains("4:4:4"))
+        #expect(snapshot.negotiatedVideo == "PyroWave · 10-bit · 4:4:4")
+        #expect(snapshot.decodeTime == nil && snapshot.receivedFramesPerSecond == nil)
+    }
     @Test func requestedAndSetupValuesNeverStandInForObservedVideo() {
         var sampler = StreamStatisticsSampler()
         let request = StreamRequest(size: PixelSize(3840, 2160), fps: 120, bitrateKbps: 40_000)

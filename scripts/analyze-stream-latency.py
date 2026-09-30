@@ -10,7 +10,34 @@ import statistics
 import sys
 
 
+DECODE_METRICS = {
+    "decodeStages.admissionToPreparationStartMilliseconds": "Decode admission -> preparation",
+    "decodeStages.preparationMilliseconds": "Decode CPU preparation",
+    "decodeStages.preparationEndToBackendStartMilliseconds": "Preparation end -> backend entry",
+    "decodeStages.backendPreparationMilliseconds": "Backend entry -> native call",
+    "decodeStages.backendCallMilliseconds": "Backend native call (CPU)",
+    "decodeStages.backendReturnToCallbackMilliseconds": "Backend return -> decoder callback",
+    "decodeStages.backendReturnToGPUCommitMilliseconds": "Backend return -> decode GPU commit",
+    "decodeStages.gpuCommitToStartMilliseconds": "Decode GPU commit -> GPU start",
+    "decodeStages.gpuExecutionMilliseconds": "Decode GPU execution",
+    "decodeStages.gpuEndToCallbackMilliseconds": "Decode GPU end -> decoder callback",
+    "decodeStages.admissionToCallbackMilliseconds": "Decode admission -> decoder callback",
+    "decodeGPUEndToRenderStartMilliseconds": "Decode GPU end -> render start",
+}
+DECODE_GPU_PATH = [
+    "decodeStages.admissionToPreparationStartMilliseconds",
+    "decodeStages.preparationMilliseconds",
+    "decodeStages.preparationEndToBackendStartMilliseconds",
+    "decodeStages.backendPreparationMilliseconds",
+    "decodeStages.backendCallMilliseconds",
+    "decodeStages.backendReturnToGPUCommitMilliseconds",
+    "decodeStages.gpuCommitToStartMilliseconds",
+    "decodeStages.gpuExecutionMilliseconds",
+    "decodeStages.gpuEndToCallbackMilliseconds",
+]
+DECODE_CPU_PATH = DECODE_GPU_PATH[:5] + ["decodeStages.backendReturnToCallbackMilliseconds"]
 METRICS = {
+    **DECODE_METRICS,
     "firstPacketToPresentationMilliseconds": "First packet -> presentation",
     "firstPacketToArrivalMilliseconds": "First packet -> complete-frame enqueue",
     "arrivalToAdmissionMilliseconds": "Complete-frame enqueue -> admission",
@@ -39,6 +66,13 @@ METRICS = {
 }
 SIGNED = {"deadlineToCommitMilliseconds", "targetPresentationToPresentationMilliseconds"}
 PATHS = {
+    "nativeDecode": DECODE_GPU_PATH,
+    "nativeCPUDecode": DECODE_CPU_PATH,
+    "nativeGPU": [
+        "firstPacketToArrivalMilliseconds", "arrivalToAdmissionMilliseconds",
+        *DECODE_GPU_PATH, "decodeCallbackToRenderStartMilliseconds", "renderCPUToCommitMilliseconds",
+        "commitToGPUStartMilliseconds", "gpuExecutionMilliseconds", "gpuEndToPresentationMilliseconds",
+    ],
     "coarse": [
         "firstPacketToDecodeCallbackMilliseconds",
         "decodeCallbackToRenderStartMilliseconds",
@@ -76,13 +110,17 @@ PATHS = {
 }
 TOTAL = "firstPacketToPresentationMilliseconds"
 PATH_TOTALS = {
+    "nativeDecode": "decodeStages.admissionToCallbackMilliseconds",
+    "nativeCPUDecode": "decodeStages.admissionToCallbackMilliseconds",
     "commitGPU": "commitToPresentationMilliseconds",
     "kernelScheduling": "commitToScheduledCallbackMilliseconds",
 }
 GPU_METRICS = {
+    **DECODE_METRICS,
     "firstPacketToGPUEndMilliseconds": "First packet -> GPU end",
     "decodeCallbackToGPUEndMilliseconds": "Decode callback -> GPU end",
     **{key: METRICS[key] for key in [
+        "firstPacketToArrivalMilliseconds", "arrivalToAdmissionMilliseconds",
         "firstPacketToDecodeCallbackMilliseconds", "decodeCallbackToSelectionMilliseconds",
         "decodeCallbackToRenderStartMilliseconds", "selectionToRenderStartMilliseconds",
         "drawableAcquisitionMilliseconds", "renderCPUToCommitMilliseconds",
@@ -93,6 +131,13 @@ GPU_METRICS = {
     ]},
 }
 GPU_PATHS = {
+    "nativeDecode": ("decodeStages.admissionToCallbackMilliseconds", DECODE_GPU_PATH),
+    "nativeCPUDecode": ("decodeStages.admissionToCallbackMilliseconds", DECODE_CPU_PATH),
+    "nativeGPUToRenderGPUEnd": ("firstPacketToGPUEndMilliseconds", [
+        "firstPacketToArrivalMilliseconds", "arrivalToAdmissionMilliseconds", *DECODE_GPU_PATH,
+        "decodeCallbackToRenderStartMilliseconds", "renderCPUToCommitMilliseconds",
+        "commitToGPUStartMilliseconds", "gpuExecutionMilliseconds",
+    ]),
     "firstPacketToGPUEnd": ("firstPacketToGPUEndMilliseconds", [
         "firstPacketToDecodeCallbackMilliseconds", "decodeCallbackToRenderStartMilliseconds",
         "renderCPUToCommitMilliseconds", "commitToGPUStartMilliseconds", "gpuExecutionMilliseconds",
@@ -132,8 +177,9 @@ def summarize(values):
 
 
 def metric_summary(frames, key):
-    valid = [frame[key] for frame in frames if numeric(frame.get(key), key in SIGNED)]
-    missing = sum(frame.get(key) is None for frame in frames)
+    values = [metric_value(frame, key) for frame in frames]
+    valid = [value for value in values if numeric(value, key in SIGNED)]
+    missing = sum(value is None for value in values)
     result = summarize(valid)
     result.update(missing=missing, invalid=len(frames) - missing - len(valid), unit="ms")
     if key in SIGNED:
@@ -141,16 +187,26 @@ def metric_summary(frames, key):
     return result
 
 
+def metric_value(frame, key):
+    """Optional nested decode stages remain unavailable in older exports."""
+    value = frame
+    for component in key.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(component)
+    return value
+
+
 def matched_path(frames, keys, total=TOTAL):
     """All stage distributions and their total use exactly the same frames."""
-    complete = [frame for frame in frames if all(numeric(frame.get(key)) for key in [total] + keys)]
+    complete = [frame for frame in frames if all(numeric(metric_value(frame, key)) for key in [total] + keys)]
     return {
         "totalMetric": total,
         "completeCount": len(complete),
         "incompleteCount": len(frames) - len(complete),
-        "metricsMilliseconds": {key: summarize([frame[key] for frame in complete]) for key in [total] + keys},
+        "metricsMilliseconds": {key: summarize([metric_value(frame, key) for frame in complete]) for key in [total] + keys},
         "sumMinusTotalMilliseconds": summarize([
-            sum(frame[key] for key in keys) - frame[total] for frame in complete
+            sum(metric_value(frame, key) for key in keys) - metric_value(frame, total) for frame in complete
         ]),
     }
 
@@ -214,6 +270,10 @@ def completed_gpu_submissions(renderer):
             frame["calibrationUncertaintyNanoseconds"] for frame in successful
             if numeric(frame.get("calibrationUncertaintyNanoseconds"))
         ]),
+        "decodeGPUClockUncertaintyNanoseconds": summarize([
+            metric_value(frame, "decodeStages.gpuClockUncertaintyNanoseconds") for frame in successful
+            if numeric(metric_value(frame, "decodeStages.gpuClockUncertaintyNanoseconds"))
+        ]),
     }
 
 
@@ -276,6 +336,8 @@ def analyze(path):
         "Individual metric rows can have different valid populations; use matchedPaths for additive comparisons.",
         "The paired GPU stages belong to each presented frame. The independent decoder/GPU arrays are separate rolling populations and must not be subtracted from presentation means.",
         "CPU scheduled/completed/presented callbacks can lag their underlying events. Callback delays and kernel scheduling overlap the main GPU path; do not add them to first-packet latency.",
+        "Optional decodeStages are codec-neutral CPU/native/GPU stages paired with each frame. Backend native call is VT DecodeFrame or PyroWave CPU upload/Metal encoding, not GPU execution. VT-only fields remain unavailable for PyroWave.",
+        "Native decode GPU clocks have their own calibration uncertainty. The decode-GPU-end to render-start interval overlaps decode GPU-end to callback and callback to render; do not add all three together.",
         "Current settings, overlay visibility and FPS describe export time; a rolling window can still contain earlier settings or warmup frames.",
         "Confirmed drawable presentation is not physical panel scanout. No raw cross-clock subtraction is performed.",
     ]
@@ -306,7 +368,7 @@ def analyze(path):
             raise ValueError(f"{owner}.{key} must be an array or null")
         independent[f"{owner}.{key}"] = summarize([value for value in values if numeric(value)])
     transport_keys = [
-        "receivedFrames", "acquiredFrames", "acquiredBytes", "pendingVideoFrames",
+        "receivedFrames", "acquiredFrames", "acquiredBytes", "compressedStaleSkips", "pendingVideoFrames",
         "pendingAudioMilliseconds", "audioQueuedFrames", "audioUnderrunFrames", "audioOverrunFrames",
     ]
     stream = data.get("stream") or {}
@@ -330,6 +392,10 @@ def analyze(path):
         "calibrationUncertaintyNanoseconds": summarize([
             frame["calibrationUncertaintyNanoseconds"] for frame in frames
             if numeric(frame.get("calibrationUncertaintyNanoseconds"))
+        ]),
+        "decodeGPUClockUncertaintyNanoseconds": summarize([
+            metric_value(frame, "decodeStages.gpuClockUncertaintyNanoseconds") for frame in frames
+            if numeric(metric_value(frame, "decodeStages.gpuClockUncertaintyNanoseconds"))
         ]),
         "cadence": cadence(frames, runtime), "independentWindowsMilliseconds": independent,
         "sessionCounters": {"decoder": scalar_fields(decoder), "renderer": scalar_fields(renderer),
@@ -408,7 +474,7 @@ def main():
     if args.output:
         try:
             args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(json.dumps({"analysisVersion": 2, "reports": reports, "errors": errors}, indent=2, allow_nan=False) + "\n")
+            args.output.write_text(json.dumps({"analysisVersion": 3, "reports": reports, "errors": errors}, indent=2, allow_nan=False) + "\n")
         except (OSError, ValueError) as error:
             parser.exit(1, f"Cannot write {args.output}: {error}\n")
     return int(bool(errors))

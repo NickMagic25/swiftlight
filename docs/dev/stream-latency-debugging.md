@@ -13,6 +13,18 @@ the panel now drawn into the video pass, its accessibility support, and the
 controlled hidden/SwiftUI/Metal/hidden results. Those results do not establish
 a latency improvement or Direct presentation.
 
+For controlled route comparisons, a DEBUG app launch can set
+`SWIFTLIGHT_TEST_STREAM_HOST` to an alternate host address (including an optional
+HTTP port). Mac and mobile use it only for that stream attempt's server-info,
+launch/resume and media transport. The saved host ID must already have a local
+certificate pin; the alternate endpoint must pass the same exact certificate,
+mutual-TLS and host-ID checks and report the existing client as paired. No pairing,
+alias pin or saved address is written. Library polling and remote controls keep
+their usual route, Release ignores the variable, and diagnostics never export the
+override address. Compare otherwise matched runs and confirm the actual media
+socket interface; a Tailscale peer using a direct LAN tunnel still differs from
+a stream sent directly to the host's LAN endpoint.
+
 ## Mobile debug captures
 
 The [iPad presentation latency investigation](ipad-presentation-2026-09-14.md)

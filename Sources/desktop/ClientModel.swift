@@ -398,7 +398,9 @@ import SwiftlightVideo
                 let launchDisplay = try await streamWindow.prepare(settings: settings)
                 try ensureCurrent(generation)
                 display = launchDisplay.0; hdrHeadroom = launchDisplay.1
-                let info = try await client.serverInfo(); try ensureCurrent(generation)
+                let route = try await StreamConnectionRoute.resolve(client: client, hostID: host.id)
+                try ensureCurrent(generation)
+                let info = route.info
                 if info.currentAppID > 0 && info.currentAppID != app.id {
                     throw RunningApplicationConflict(hostInfo: info)
                 }
@@ -406,12 +408,14 @@ import SwiftlightVideo
                 let preparation = try StreamConnectionPreparation(appID: app.id, settings: settings,
                     display: display, host: info,
                     device: .init(hevc: VideoCodec.hevc.hardwareCandidate, av1: VideoCodec.av1.hardwareCandidate,
-                                  hdr: hdrHeadroom > 1))
+                                  hdr: hdrHeadroom > 1,
+                                  pyrowave: VideoCodec.pyrowave.hardwareCandidate, pyrowave444: VideoCodec.pyrowave.hardwareCandidate,
+                                  pyrowaveHDR: VideoCodec.pyrowave.hardwareCandidate, pyrowaveHDR444: VideoCodec.pyrowave.hardwareCandidate))
                 let request = preparation.request, selection = preparation.selection
-                let launchResponse = try await client.launchOrResume(preparation.launchRequest)
+                let launchResponse = try await route.client.launchOrResume(preparation.launchRequest)
                 try ensureCurrent(generation)
                 let pipeline = StreamingPipeline(renderOptions: renderOptions)
-                let config = preparation.transportConfiguration(address: host.address.host,
+                let config = preparation.transportConfiguration(address: route.address.host,
                     sessionURL: launchResponse.sessionURL, displayRefreshHz: display.refreshHz)
                 let transport = try StreamTransport(configuration: config, callbacks: .init(setup: { pipeline.setup($0) }, video: { pipeline.receive($0) },
                     event: { [weak model = self] event in Task { @MainActor in model?.handle(event, generation: generation) } }))

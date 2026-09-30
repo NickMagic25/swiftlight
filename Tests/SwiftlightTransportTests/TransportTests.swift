@@ -58,6 +58,40 @@ final class TransportTests: XCTestCase {
             XCTAssertEqual(result, scenario == 0 ? 0 : -1)
         }
     }
+    func testPyrowavePayloadBoundariesLossZerosAndCriticalPacketCount() {
+        XCTAssertTrue(sf_stream_validate_pyrowave_sideband())
+    }
+    func testHDRControlMetadataPreservesRawProtocolUnits() {
+        let raw = SFHDRMetadata(red_x: 32000, red_y: 16500, green_x: 15000, green_y: 30000,
+            blue_x: 7500, blue_y: 3000, white_x: 15635, white_y: 16450,
+            max_display_luminance: 1000, min_display_luminance: 1,
+            max_content_light_level: 1200, max_frame_average_light_level: 400, max_full_frame_luminance: 500)
+        let metadata = TransportHDRMetadata(raw)
+        XCTAssertEqual([metadata.redX, metadata.redY, metadata.greenX, metadata.greenY, metadata.blueX, metadata.blueY,
+            metadata.whiteX, metadata.whiteY], [32000, 16500, 15000, 30000, 7500, 3000, 15635, 16450])
+        XCTAssertEqual([metadata.maxDisplayLuminance, metadata.minDisplayLuminance, metadata.maxContentLightLevel,
+            metadata.maxFrameAverageLightLevel, metadata.maxFullFrameLuminance], [1000, 1, 1200, 400, 500])
+    }
+    func testPyrowaveProfilesAndHighBitratesAreAcceptedExplicitly() throws {
+        let callbacks = TransportCallbacks(setup: { _ in true }, video: { _ in true }, event: { _ in })
+        for (format, depth, chroma444): (UInt32, Int, Bool) in [
+            (0x10000, 8, false), (0x20000, 8, true), (0x40000, 10, false), (0x80000, 10, true)
+        ] {
+            let description = VideoStreamDescription(videoFormat: format, width: 3840, height: 2160, fps: 120)
+            XCTAssertTrue(description.isPyrowave)
+            XCTAssertFalse(description.isAV1)
+            XCTAssertEqual(description.bitDepth, depth)
+            XCTAssertEqual(description.isYUV444, chroma444)
+            let config = TransportConfiguration(address: "localhost", appVersion: "7.1.431.0", rtspURL: nil,
+                serverCodecSupport: 0x07800000, width: 3840, height: 2160, fps: 120, bitrateKbps: 1_000_000,
+                supportedVideoFormats: format, inputKey: Data(repeating: 1, count: 16), inputKeyID: 1)
+            _ = try StreamTransport(configuration: config, callbacks: callbacks)
+        }
+        let ordinary = TransportConfiguration(address: "localhost", appVersion: "7.1.431.0", rtspURL: nil,
+            serverCodecSupport: 0x100, width: 1920, height: 1080, fps: 60, bitrateKbps: 1_000_000,
+            supportedVideoFormats: 0x100, inputKey: Data(repeating: 1, count: 16), inputKeyID: 1)
+        XCTAssertThrowsError(try StreamTransport(configuration: ordinary, callbacks: callbacks))
+    }
     func testAudioRingWrapOverflowAndSilence() throws {
         let ring = try XCTUnwrap(sf_audio_ring_create(4, 2)); defer { sf_audio_ring_destroy(ring) }
         let input: [Float] = [1, 2, 3, 4, 5, 6]

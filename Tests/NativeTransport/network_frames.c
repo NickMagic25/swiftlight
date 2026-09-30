@@ -9,10 +9,12 @@
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "CHECK %s:%d: %s\n", __FILE__, __LINE__, #x); abort(); } } while (0)
 int AppVersionQuad[4] = {7, 1, 431, 0};
 STREAM_CONFIGURATION StreamConfig = {.packetSize = 64};
+int NegotiatedVideoFormat = VIDEO_FORMAT_H265;
 static void discard_log(const char *format, ...) { (void)format; }
 CONNECTION_LISTENER_CALLBACKS ListenerCallbacks = {.logMessage = discard_log};
 static bool enable_speculation;
 static unsigned speculative_notifications, confirmed_notifications, submitted_packets;
+static unsigned submitted_lost_packets;
 static uint64_t tick = 1000000;
 uint64_t PltGetMicroseconds(void) { return ++tick; }
 bool isReferenceFrameInvalidationEnabled(void) { return enable_speculation; }
@@ -22,7 +24,15 @@ void notifyFrameLost(unsigned frame, bool speculative) {
     (void)frame;
     if (speculative) ++speculative_notifications; else ++confirmed_notifications;
 }
-void queueRtpPacket(PRTPV_QUEUE_ENTRY entry) { ++submitted_packets; free(entry->packet); }
+void queueRtpPacket(PRTPV_QUEUE_ENTRY entry) {
+    ++submitted_packets;
+    if (entry->isLost) {
+        ++submitted_lost_packets;
+        const uint8_t *payload = (const uint8_t *)entry->packet + MAX_RTP_HEADER_SIZE + sizeof(NV_VIDEO_PACKET);
+        for (int i = 0; i < StreamConfig.packetSize - (int)sizeof(NV_VIDEO_PACKET); ++i) CHECK(payload[i] == 0);
+    }
+    free(entry->packet);
+}
 static const int packet_size = 80;
 static unsigned char *make_packet(uint32_t frame, uint16_t base, unsigned index, unsigned data_count,
                                   unsigned fec_percent, unsigned block, unsigned last_block) {
@@ -34,6 +44,8 @@ static unsigned char *make_packet(uint32_t frame, uint16_t base, unsigned index,
     nv->flags = FLAG_CONTAINS_PIC_DATA | (index == 0 ? FLAG_SOF : 0) | (index == data_count - 1 ? FLAG_EOF : 0);
     nv->multiFecFlags = 0x10; nv->multiFecBlocks = (last_block << 6) | (block << 4);
     nv->fecInfo = (data_count << 22) | (index << 12) | (fec_percent << 4);
+    memset(bytes + MAX_RTP_HEADER_SIZE + sizeof(NV_VIDEO_PACKET), (int)(index + 1),
+           StreamConfig.packetSize - sizeof(NV_VIDEO_PACKET));
     return bytes;
 }
 static void ingest(PRTP_VIDEO_QUEUE queue, unsigned char *bytes) {
@@ -51,6 +63,7 @@ static void outcome(PRTP_VIDEO_QUEUE queue, uint64_t received, uint64_t lost) {
 static void reset(PRTP_VIDEO_QUEUE queue) {
     RtpvCleanupQueue(queue); RtpvInitializeQueue(queue);
     enable_speculation = false; speculative_notifications = confirmed_notifications = submitted_packets = 0;
+    submitted_lost_packets = 0;
     outcome(queue, 0, 0);
 }
 typedef struct { PRTP_VIDEO_QUEUE queue; _Atomic bool done; } SnapshotRace;
@@ -107,6 +120,25 @@ int main(void) {
     CHECK(!pthread_create(&reader, NULL, read_counters, &race));
     for (unsigned i = 1; i <= 100000; ++i) send_packet(&q, i, (uint16_t)i, 0, 1, 0, 0);
     atomic_store(&race.done, true); CHECK(!pthread_join(reader, NULL)); outcome(&q, 100000, 0);
+    reset(&q); NegotiatedVideoFormat = VIDEO_FORMAT_PYROWAVE;
+    // Independent frames keep intact packet boundaries when an unprotected detail shard is missing.
+    send_packet(&q, 1, 1, 0, 3, 0, 0); send_packet(&q, 1, 1, 2, 3, 0, 0);
+    send_packet(&q, 2, 4, 0, 1, 0, 0);
+    outcome(&q, 1, 1); CHECK(submitted_packets == 4 && submitted_lost_packets == 1);
+    CHECK(speculative_notifications == 0 && confirmed_notifications == 0);
+    reset(&q);
+    // A missing first packet cannot be synthesized: it carries the sequence/frame header.
+    send_packet(&q, 1, 1, 1, 2, 0, 0); send_packet(&q, 2, 3, 0, 1, 0, 0);
+    outcome(&q, 1, 1); CHECK(submitted_packets == 1 && submitted_lost_packets == 0);
+    reset(&q);
+    // Advance to a following FEC block of the same frame, preserving its prior missing detail.
+    send_packet(&q, 1, 1, 0, 3, 0, 1); send_packet(&q, 1, 1, 2, 3, 0, 1);
+    send_packet(&q, 1, 4, 0, 1, 1, 1);
+    outcome(&q, 0, 1); CHECK(submitted_packets == 4 && submitted_lost_packets == 1);
+    reset(&q);
+    // A whole missing block has no announced packet count and still drops the frame.
+    send_packet(&q, 1, 1, 0, 1, 0, 2); send_packet(&q, 1, 3, 0, 1, 2, 2);
+    outcome(&q, 0, 1); CHECK(submitted_packets == 0 && submitted_lost_packets == 0);
     reset(&q); RtpvCleanupQueue(&q);
-    puts("{\"status\":\"PASS\",\"rtp_loss_scenarios\":8,\"concurrent_frame_outcomes\":100000,\"real_reed_solomon_recovery\":true,\"host_used\":false}");
+    puts("{\"status\":\"PASS\",\"rtp_loss_scenarios\":8,\"pyrowave_partial_frame_scenarios\":4,\"concurrent_frame_outcomes\":100000,\"real_reed_solomon_recovery\":true,\"host_used\":false}");
 }

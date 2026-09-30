@@ -50,7 +50,11 @@ let package = Package(
                 "vendor/common-c/nanors/deps/obl/oblas_common.c", "vendor/common-c/nanors/deps/obl/oblas_lite.c"],
                 publicHeadersPath: "include", cSettings: nativeIncludes + [
                     // The native audio wrapper explicitly owns its Objective-C objects and dispatch sources.
-                    .unsafeFlags(["-fblocks", "-fno-objc-arc"]), .headerSearchPath("vendor/common-c/src"), .headerSearchPath("vendor/common-c/enet/include"),
+                    .unsafeFlags(["-fblocks", "-fno-objc-arc"]),
+                    // High-rate RTP assembly and FEC must keep pace with the
+                    // network even when the consuming Swift app is Debug.
+                    .unsafeFlags(["-O2"], .when(configuration: .debug)),
+                    .headerSearchPath("vendor/common-c/src"), .headerSearchPath("vendor/common-c/enet/include"),
                     .headerSearchPath("vendor/common-c/nanors"), .headerSearchPath("vendor/common-c/nanors/deps"),
                     .headerSearchPath("vendor/common-c/nanors/deps/obl"),
                     .define("__APPLE_USE_RFC_3542"), .define("HAS_SOCKLEN_T"), .define("HAS_FCNTL"), .define("HAS_POLL"), .define("HAS_GETADDRINFO"),

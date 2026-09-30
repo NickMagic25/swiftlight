@@ -17,19 +17,18 @@ struct StreamConnectionPreparation: Sendable, CustomStringConvertible, CustomDeb
 
     init(appID: Int, settings: StreamSettings, display: DisplayGeometry, host: HostInfo,
          device: CodecCapabilities) throws {
-        request = try settings.request(display: display)
         // ServerCodecModeSupport uses 0x10000/0x20000 for AV1. These are
         // distinct from common-c's negotiated VIDEO_FORMAT_* bits below.
         let hevcHDR = host.codecSupport & 0x200 != 0
         let av1HDR = host.codecSupport & 0x20000 != 0
-        let hostHDR = settings.codec == .av1 ? av1HDR : settings.codec == .hevc ? hevcHDR : hevcHDR || av1HDR
+        let hostHDR = hevcHDR || av1HDR || host.supportsPyrowaveHDR || host.supportsPyrowaveHDR444
         selection = try CodecSelection.negotiate(preference: settings.codec, hdr: settings.hdr,
+            chromaSampling: settings.chromaSampling,
             host: .init(hevc: host.supportsHEVC, av1: host.supportsAV1, hdr: hostHDR,
-                        hevcHDR: hevcHDR, av1HDR: av1HDR), device: device)
-        let exactHDRSupported = selection.codec == .av1 ? av1HDR : hevcHDR
-        guard !selection.hdr || exactHDRSupported else {
-            throw SettingsError.invalid("Selected codec does not support HDR on this host. Choose another codec or disable HDR.")
-        }
+                        hevcHDR: hevcHDR, av1HDR: av1HDR, pyrowave: host.supportsPyrowave,
+                        pyrowave444: host.supportsPyrowave444, pyrowaveHDR: host.supportsPyrowaveHDR,
+                        pyrowaveHDR444: host.supportsPyrowaveHDR444), device: device)
+        request = try settings.request(display: display, selection: selection)
         var inputKey = Data(count: 16)
         let keyStatus = inputKey.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 16, $0.baseAddress!) }
         guard keyStatus == errSecSuccess else { throw HostError.cryptoFailure }
@@ -52,7 +51,16 @@ struct StreamConnectionPreparation: Sendable, CustomStringConvertible, CustomDeb
     }
 
     func transportConfiguration(address: String, sessionURL: String, displayRefreshHz: Double) -> TransportConfiguration {
-        let formats: UInt32 = selection.codec == .av1 ? (selection.hdr ? 0x2000 : 0x1000) : (selection.hdr ? 0x200 : 0x100)
+        let formats: UInt32
+        switch selection.codec {
+        case .av1: formats = selection.hdr ? 0x2000 : 0x1000
+        case .hevc: formats = selection.hdr ? 0x200 : 0x100
+        case .pyrowave:
+            formats = selection.chromaSampling == .yuv444
+                ? (selection.hdr ? 0x080000 : 0x020000) : (selection.hdr ? 0x040000 : 0x010000)
+        case .auto:
+            preconditionFailure("Transport requires a negotiated codec.")
+        }
         return TransportConfiguration(address: address, appVersion: host.appVersion, gfeVersion: host.gfeVersion,
             rtspURL: sessionURL, serverCodecSupport: host.codecSupport, width: request.size.width,
             height: request.size.height, fps: request.fps, bitrateKbps: request.bitrateKbps,
