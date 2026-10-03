@@ -20,6 +20,16 @@ minimum / maximum / average. Missing valid samples remain **Unavailable**.
 
 These are client-side diagnostics, not a complete input-to-photon or network-delay measurement. FPS is measured from received frames, not repeated screen redraws. Host-to-display is an estimate that uses host-reported processing, client timing, and half of the recent round-trip time; it is not synchronized one-way latency or physical scanout time.
 
+**First packet → display** ends at the operating system's confirmed drawable
+presentation timestamp. It includes frame assembly, decoder queueing and decode,
+rendering, and the wait between render GPU completion and presentation. That wait
+can remain with VSync off. CPU callback arrival is measured separately and does
+not extend the presentation timestamp. Compare this value with another client's
+statistics only after checking that both use the same start and end events; a
+render call returning or GPU work completing is an earlier endpoint. See the
+[post-render timing audit](dev/pyrowave-post-render-audit-2026-10-03.md) for the
+measured breakdown and comparison limits.
+
 Physical iPhone and iPad validation remains pending, including matched timing measurements with the panel hidden and visible. Successful compilation or simulator interaction does not establish that the panel has no effect on device streaming latency. See the [mobile guide](mobile.md) for performance settings, gestures, and current limitations.
 
 For exact field definitions, clock assumptions, and implementation measurements, see [development statistics notes](dev/stream-statistics-implementation.md).
