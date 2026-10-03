@@ -19,6 +19,8 @@ public struct StreamStatisticsSnapshot: Codable, Equatable, Sendable {
     public var networkJitterMilliseconds: Double?
     public var networkLostFrames: UInt64?
     public var totalNetworkFrames: UInt64?
+    /// Backend-specific decode interval: VT submit→callback, or PyroWave native
+    /// admission→GPU completion callback. Both end before rendering/presentation.
     public var decodeTime: StreamTimingSummary?
     public var firstPacketToPresentation: StreamTimingSummary?
     public var currentFirstPacketToPresentationMilliseconds: Double?

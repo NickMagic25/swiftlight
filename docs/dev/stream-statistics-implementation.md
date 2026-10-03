@@ -9,7 +9,7 @@ In **Simple**, **First packet → display** shows the latency of the most recent
 **Detailed** keeps rolling timing summaries in **minimum / maximum / average** order, including **First packet → display**, at the normal 4 Hz update cadence. It also adds negotiated codec, decoded color and the host-to-display estimate. Times use milliseconds. “Unavailable” means a required measurement is absent or invalid, rather than a measured zero. Native measurements and exported diagnostics continue updating independently of the held Simple value.
 
 - **Requested video / format** describe the connection request. **Received video** combines dimensions from decoded output with complete received frames per second measured over a recent window. Received FPS does not count repeated display refreshes. **Negotiated codec** describes the selected codec and bit depth; **Decoded color** describes decoder output, with assumed metadata identified explicitly.
-- **Host processing** is the host-reported processing duration. **Decode time** measures the client's VideoToolbox submission to callback interval. Neither includes the complete streaming journey.
+- **Host processing** is the host-reported processing duration. **Decode time** measures native admission to GPU completion callback for PyroWave, or VideoToolbox submission to callback for HEVC/AV1. Neither includes the complete streaming journey.
 - **Network latency (RTT)** measures the control channel's round trip. **Network jitter** measures variation between frame arrivals relative to their RTP timestamps; host pacing and client scheduling also contribute. It does not isolate network delay. **Frames lost to network** counts irrecoverable RTP frames across the connection, separately from local decoder or presentation drops.
 - **First packet → display** measures a frame's first received packet to its confirmed drawable presentation. **Host → display (estimated)** adds that interval to the same frame's host processing duration, then adds half the recent average RTT. Half RTT assumes symmetric transit, and the RTT samples use a separate window. This is an estimate without synchronized host clocks, physical scanout measurement or input-to-photon timing.
 
@@ -69,7 +69,30 @@ Logs: `artifacts/transport-telemetry-asan.log`, `artifacts/transport-telemetry-t
 
 ## Decoder and presentation timing
 
-The overlay polls bounded snapshots at the existing 4 Hz UI cadence. Native frame callbacks update counters and scalar metadata without publishing SwiftUI state or waiting for the GPU. Decode time is the decoder's VideoToolbox submit-to-callback interval, summarized as min/max/mean over its most recent 1024 valid single-sample intervals. AV1 show-existing events and multi-sample aggregate completions are excluded. This interval ends before renderer import, GPU conversion, or presentation.
+The overlay polls bounded snapshots at the existing 4 Hz UI cadence. Native frame
+callbacks update counters and scalar metadata without publishing SwiftUI state or
+waiting for the GPU. The existing **Decode time** row keeps its stable `decode`
+identifier and codec-neutral label; Simple shows the recent mean and Detailed
+shows minimum / maximum / mean over at most 1024 valid samples.
+
+For PyroWave, `pyrowaveAdmissionToCallbackMilliseconds` records native decoder
+admission to the GPU command completion callback for successful output frames
+with an actual GPU-frame lease. It includes CPU outer-framing adaptation, native
+codec parsing, upload, Metal encoding, GPU scheduling/execution and callback
+delivery. It excludes earlier RTP reassembly and compressed-queue waiting, and
+ends before renderer entry, render GPU work or drawable presentation. Failed,
+cancelled, dropped and missing/reversed timestamp intervals are excluded.
+
+HEVC and AV1 retain the separate
+`singleSampleVTSubmitToCallbackMilliseconds` population: VideoToolbox submission
+to decode callback for valid single-sample intervals. AV1 show-existing events
+and multi-sample aggregate completions remain excluded. This scope excludes
+pre-submission framing preparation and later rendering/presentation, so the two
+codec timings must not be treated as identical stage measurements. An empty or
+invalid-only population produces no summary and remains **Unavailable** in both
+panel detail modes. The shared sampler preserves the valid sample count and
+min/max/mean without mixing populations or substituting requested frame rate.
+
 
 “First packet → display” begins at the exact frame's first received packet and ends at its first confirmed `MTLDrawable.presentedTime`. It includes access-unit reassembly, admission/decoder work, and client presentation scheduling. A positive, finite drawable timestamp is required; a zero timestamp remains unconfirmed. Repeated redraws do not create new timing samples, and an earlier presentation notification delivered out of order replaces the same frame's sample. The renderer retains at most 1024 distinct confirmed frames; summaries exclude entries with unavailable timing.
 

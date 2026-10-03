@@ -1,6 +1,6 @@
 # Offline video validation
 
-Run the repository's `scripts/validate-offline.sh` on a Mac with hardware HEVC/AV1 decoding and Metal access. The suite must report unavailable codecs as BLOCKED, never PASS. A fresh checkout uses the committed synthetic fixtures, without Sunshine, credentials, encoders, or downloads beyond initial source dependencies.
+Run the repository's `scripts/validate-offline.sh` on a Mac with hardware HEVC/AV1 decoding and Apple7 Metal access for PyroWave. The suite must report unavailable codecs as BLOCKED, never PASS. HEVC/AV1 use committed synthetic fixtures. PyroWave inputs are generated locally by a test-only encoder from the pinned fork; no streaming host, credentials, captured media or downloads beyond initial source dependencies are needed.
 
 Individual commands after `swift build --product swiftlight-replay`:
 
@@ -14,6 +14,28 @@ Individual commands after `swift build --product swiftlight-replay`:
 .build/debug/swiftlight-replay --fixture fixtures/hevc-sdr8/manifest.json --mode paced --output artifacts/hevc-sdr8-paced.json
 SWIFTLIGHT_RUN_HARDWARE_TESTS=1 swift test --filter VideoTests
 ```
+
+For the direct PyroWave path, generate the two small deterministic ramp inputs and run the production adapter tests:
+
+```sh
+python3 scripts/prepare-pyrowave-fixtures.py
+SWIFTLIGHT_RUN_HARDWARE_TESTS=1 \
+  SWIFTLIGHT_PYROWAVE_FIXTURE_PATH="$PWD/.build/pyrowave-fixtures" \
+  CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache" \
+  swift test --disable-sandbox --manifest-cache none --filter PyrowaveDecoderTests
+```
+
+`prepare-pyrowave-fixtures.py` compiles the fork's encoder into an ignored test executable and writes dimensions, input-pattern definition, encoder revision/source/binary identities and compressed hashes to `.build/pyrowave-fixtures/provenance.json`. The encoder is excluded from application targets. The same 128×128 4:2:0 and odd-sized 127×97 4:4:4 bitstreams exercise both R8 and R16 output profiles; output depth selects normalized texture storage without re-encoding their coefficients. Override the fixture directory with `SWIFTLIGHT_PYROWAVE_FIXTURE_PATH`. Hardware tests skip when opt-in, device support or fixtures are unavailable; a skipped test is no acceptance evidence.
+
+`PyrowaveDecoderTests` submits packets through `VideoDecoder(codec: .pyrowave)` and its production native bridge. It compares all three decoded planes to the independently specified lossy ramp, renders retained frames before and after reset/destruction through the production Metal renderer, verifies two-frame admission and exact terminal accounting, and checks damaged detail versus critical packets followed by recovery on the next independent frame. GPU blits, CPU maps and waits exist only in this correctness suite. `PyrowaveRenderingTests` separately checks planar code normalization and chroma geometry with synthetic GPU planes. Neither suite establishes visible presentation, physical HDR, live interoperability or latency.
+
+PyroWave codec acceptance is delegated to the pinned native parser and readiness
+API. Bridge framing tests cover outer lengths, fragment maps and aligned intact
+ranges; they are not an independent coefficient-grammar oracle. Native rejection
+cases must reach the production submission path, leave the rejected context
+caller-owned and preserve accepted/terminal accounting, then demonstrate recovery
+with a valid independent frame. Historical validation reports describe the
+validator and dependency revision used in those runs.
 
 Correctness mode uses the production owner, accepted/terminal bookkeeping, latest-frame handoff, CoreVideo texture import, and production Metal shader. It drains one access unit at a time to check exact frame identity, dimensions, depth, hardware output, and display count. Every visible RGB sample is compared against a CPU double-precision reference derived from decoded Y/UV pixels, including real chroma interpolation and the declared matrix/transfer/primaries. CPU mapping and completion waits exist only in this diagnostic path. The final buffer is rendered again after decoder reset and destruction; all retained-frame owners must then return to zero.
 

@@ -226,6 +226,7 @@
 			inputPaths = (
 				"$(SRCROOT)/Package.resolved",
 				"$(SRCROOT)/scripts/copy-app-licenses.sh",
+				"$(SRCROOT)/Dependencies/pyrowave/LICENSE",
 				"$(SRCROOT)/LICENSE",
 				"$(SRCROOT)/.build/dependencies/licenses/OpenSSL.txt",
 				"$(SRCROOT)/.build/dependencies/licenses/Opus.txt",

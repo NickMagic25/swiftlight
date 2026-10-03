@@ -6,7 +6,7 @@ Swiftlight is a native Apple client for Moonlight game streaming, with a macOS a
 
 - Pair with a Sunshine or Apollo computer and browse its applications with cover artwork.
 - Stream in native full screen or in a resizable window.
-- Choose HEVC or AV1 when the host and Mac support it, with HDR available when the complete host, decoder, and display path supports HDR.
+- Choose HEVC, AV1 or explicit [PyroWave](docs/pyrowave.md) when the host and device support the selected profile, with HDR available when the complete host, decoder and display path support it.
 - Use keyboard, mouse, and physical controllers, including relative and absolute mouse modes.
 - Choose Stereo, 5.1, or 7.1 audio, with Direct output or System Spatial Audio on compatible AirPods.
 - View optional stream statistics and export the last completed stream's privacy-filtered diagnostics.
@@ -76,7 +76,7 @@ Run the offline checks with:
 scripts/validate-offline.sh
 ```
 
-Engineering notes, validation records, benchmark methodology, dependency maintenance, and release signing instructions are collected in [`docs/dev/`](docs/dev/README.md). The project keeps the reusable Apple decoder in the pinned **MoonlightAppleVideo** package; it does not use FFmpeg or a software fallback.
+Engineering notes, validation records, benchmark methodology, dependency maintenance, and release signing instructions are collected in [`docs/dev/`](docs/dev/README.md). HEVC and AV1 use the pinned **MoonlightAppleVideo** package. PyroWave uses the pinned fork submodule directly through its native Metal decoder, with retained GPU planes shared by the renderer. There is no FFmpeg or software fallback.
 
 ## License
 

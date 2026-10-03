@@ -50,6 +50,19 @@ report. No report is uploaded automatically.
   separate from network loss and decoded-frame mailbox replacement. Older reports
   omit this optional counter; its absence does not establish zero skips.
 
+The decoder's additive `pyrowaveAdmissionToCallbackMilliseconds` array contains
+at most 1,024 valid native admission → GPU completion callback durations from
+successful PyroWave output frames. It includes CPU preparation, record parsing,
+coefficient upload, Metal encoding, GPU scheduling/execution and completion
+callback delivery, ending before rendering or presentation. Failed/cancelled/
+dropped outputs and absent or reversed timestamps do not enter this population.
+`singleSampleVTSubmitToCallbackMilliseconds` retains its VideoToolbox-only
+submit → callback meaning for HEVC/AV1, excluding multi-sample aggregates and
+show-existing events. `stream.decodeTime` and the shared panel row summarize the
+active measured population; these scopes differ by codec and are not combined.
+No valid samples means an unavailable summary, rather than measured zero. Older
+schema-5 exports may omit the PyroWave array; absence is unavailable, not zero.
+
 The renderer exports two independent populations:
 
 | Field | Population and meaning |
@@ -78,7 +91,7 @@ durations, alongside the enclosing frame/submission identity:
 
 | Decode stage | Meaning |
 | --- | --- |
-| `admissionToPreparationStartMilliseconds`, `preparationMilliseconds` | Admission to parser entry, then CPU framing/coefficient validation and input preparation. |
+| `admissionToPreparationStartMilliseconds`, `preparationMilliseconds` | Admission to input-preparation entry, then CPU outer-framing adaptation and input preparation for PyroWave, or package preparation for HEVC/AV1. PyroWave codec parsing belongs to the native backend stage below. |
 | `preparationEndToBackendStartMilliseconds` | Preparation end to backend entry, including any first-frame configuration. |
 | `backendPreparationMilliseconds` | Backend entry to its native call; PyroWave packet parsing/output acquisition, or VT sample construction. |
 | `backendCallMilliseconds` | Native call CPU duration: PyroWave shared-buffer upload and Metal encoding, or VT DecodeFrame. This is not GPU execution. |

@@ -1,6 +1,6 @@
 # PyroWave streaming
 
-PyroWave is an intra-frame GPU wavelet codec supported by compatible Vibepollo hosts. It uses substantially more bandwidth than HEVC or AV1 and is intended for a fast wired LAN. Swiftlight uses the PyroWave implementation in its `MoonlightAppleVideo` decoder package and the shared Metal rendering path on Mac, iPhone and iPad. Device availability is checked before connecting; physical-device streaming and performance still require their own validation.
+PyroWave is an intra-frame GPU wavelet codec supported by compatible Vibepollo hosts. It uses substantially more bandwidth than HEVC or AV1 and is intended for a fast wired LAN. Swiftlight decodes PyroWave directly with the pinned `Dependencies/pyrowave` submodule from your fork’s `codex/metal-improvements` branch and uses the shared Metal rendering path on Mac, iPhone and iPad. HEVC and AV1 continue through `MoonlightAppleVideo`. Device availability is checked before connecting; physical-device streaming and performance still require their own validation.
 
 ## Choose PyroWave
 
@@ -23,7 +23,7 @@ For a faster wired link, turn off **Automatic bitrate** and enter a manual value
 Start at a conservative resolution, frame rate and bitrate. Raise one value at a time while checking network loss, decode cadence and confirmed presentation in the [statistics panel](stream-statistics.md). Compare controlled runs on the same host, device, route and display mode before making a latency or quality claim. A simulator or an offscreen Metal test does not establish live streaming performance.
 
 High-rate PyroWave streaming requires optimized native decoding and packet
-processing even when the Swift app uses Debug. The decoder package and Swiftlight's
+processing even when the Swift app uses Debug. The native PyroWave bridge and Swiftlight's
 native transport keep optimization enabled with debug symbols and assertions.
 Swiftlight also replaces obsolete queued PyroWave
 access units before decoding; every frame includes its own sequence header, so
@@ -38,3 +38,17 @@ separates CPU preparation, Metal execution and confirmed presentation at explici
 ## Settings design
 
 The shared Mac, iPhone and iPad settings use native SwiftUI menu pickers with typed selections and accessible labels. Chroma controls appear when PyroWave is selected, keeping the additional choice close to its codec. These choices follow Apple's [settings](https://developer.apple.com/design/human-interface-guidelines/settings), [pickers](https://developer.apple.com/design/human-interface-guidelines/pickers), [Picker API](https://developer.apple.com/documentation/swiftui/picker), [accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility), [macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos), [iOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ios) and [iPadOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ipados) guidance reviewed on September 30, 2026. Launched-app, keyboard, VoiceOver, large-text and physical-device checks remain separate acceptance gates.
+
+## Metal implementation
+
+The submodule records an immutable commit from `codex/metal-improvements`, rather
+than following the branch automatically. Its [performance investigation](../Dependencies/pyrowave/metal/PERFORMANCE.md)
+distinguishes shared-library fixes from optional benchmark experiments. Swiftlight
+uses the production library shaders; it does not define the CLI's experimental
+shader hooks. Codec parsing and decode readiness use the pinned library's native
+API; Swiftlight's bridge handles outer transport framing, input bounds and GPU
+ownership without a second coefficient-validation pass. Removing the MAV wrapper
+removes redundant CPU preparation and
+compressed copies, but does not by itself reduce the wavelet GPU work. See
+[video ownership](dev/video-lifetime.md#direct-pyrowave-ownership) for the bounded
+submission and retained-texture contract.

@@ -27,7 +27,7 @@ fork's generated shader-string header.
 
 Decoder CI now checks out recursive submodules. Swiftlight's two packaging
 paths copy `Dependencies/pyrowave/LICENSE`, and the Xcode license phase declares
-its `PyroWave.txt` output. See [dependency maintenance](dependencies.md#pyrowave-in-the-decoder-package)
+its `PyroWave.txt` output. See [dependency maintenance](dependencies.md#direct-pyrowave-dependency)
 for local initialization and publication order.
 
 ## Local commit checkpoint

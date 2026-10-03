@@ -14,6 +14,7 @@ case "$platform" in
   *) echo "Unsupported dependency platform: $platform" >&2; exit 2 ;;
 esac
 python3 scripts/prepare-common-c.py
+python3 scripts/verify-pyrowave.py
 prefix="$repo_root/.build/dependencies"
 sources="$repo_root/.build/dependency-sources"
 mkdir -p "$prefix" "$sources"

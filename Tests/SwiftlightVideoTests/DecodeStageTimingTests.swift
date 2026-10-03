@@ -1,17 +1,18 @@
 import XCTest
 import MoonlightAppleVideo
+import CNativeVideoABI
 @testable import SwiftlightVideo
 
 final class DecodeStageTimingTests: XCTestCase {
-    private func traces() -> (mav_trace, mav_decode_trace) {
+    private func traces() -> (mav_trace, sva_decode_trace) {
         var trace = mav_trace()
         trace.valid = UInt32(MAV_TRACE_PREPARATION | MAV_TRACE_CALLBACK)
         trace.admission_ns = 10_000_000; trace.preparation_start_ns = 10_000_000
         trace.preparation_end_ns = 11_000_000; trace.callback_ns = 20_000_000
-        var backend = mav_decode_trace()
-        backend.struct_size = UInt32(MemoryLayout<mav_decode_trace>.size); backend.version = UInt32(MAV_ABI_VERSION)
-        backend.valid = UInt32(MAV_DECODE_TRACE_BACKEND_START | MAV_DECODE_TRACE_BACKEND_SUBMIT |
-            MAV_DECODE_TRACE_BACKEND_RETURN | MAV_DECODE_TRACE_GPU_COMMIT | MAV_DECODE_TRACE_GPU_EXECUTION)
+        var backend = sva_decode_trace()
+        backend.struct_size = UInt32(MemoryLayout<sva_decode_trace>.size); backend.version = UInt32(SVA_TRACE_VERSION)
+        backend.valid = UInt32(SVA_BACKEND_START | SVA_BACKEND_SUBMIT |
+            SVA_BACKEND_RETURN | SVA_GPU_COMMIT | SVA_GPU_EXECUTION)
         backend.backend_start_ns = 12_000_000; backend.backend_submit_ns = 13_000_000
         backend.backend_return_ns = 14_000_000; backend.gpu_commit_ns = 15_000_000
         backend.gpu_start_ns = 16_000_000; backend.gpu_end_ns = 18_000_000
@@ -95,7 +96,7 @@ final class DecodeStageTimingTests: XCTestCase {
         stages = try XCTUnwrap(DecodeStageTiming(trace: trace, backend: backend, internalSamples: 1, showExisting: false))
         XCTAssertEqual(stages.preparationMilliseconds, 1)
         XCTAssertNil(stages.backendStartNanoseconds)
-        backend.version = UInt32(MAV_ABI_VERSION); backend.struct_size = 8
+        backend.version = UInt32(SVA_TRACE_VERSION); backend.struct_size = 8
         stages = try XCTUnwrap(DecodeStageTiming(trace: trace, backend: backend, internalSamples: 1, showExisting: false))
         XCTAssertNil(stages.backendStartNanoseconds)
     }
@@ -110,23 +111,18 @@ final class DecodeStageTimingTests: XCTestCase {
         }
     }
 
-    func testLegacyCompletionCopyPreservesProducerSizeAndIgnoresPoisonedTail() throws {
-        let legacySize = try XCTUnwrap(MemoryLayout<mav_completion>.offset(of: \.decode_trace))
+    func testCompletionCopyRejectsShortMetadataAndIgnoresTrailingBytes() throws {
         var source = mav_completion()
-        source.struct_size = UInt32(legacySize); source.version = UInt32(MAV_ABI_VERSION)
+        source.struct_size = UInt32(MemoryLayout<mav_completion>.size); source.version = UInt32(MAV_ABI_VERSION)
         source.frame_id = 31; source.generation = 9
-        let pointer = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<mav_completion>.size,
+        let pointer = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<mav_completion>.size + 64,
             alignment: MemoryLayout<mav_completion>.alignment)
         defer { pointer.deallocate() }
-        pointer.initializeMemory(as: UInt8.self, repeating: 0xa5, count: MemoryLayout<mav_completion>.size)
-        withUnsafeBytes(of: source) { pointer.copyMemory(from: $0.baseAddress!, byteCount: legacySize) }
-        var copied = try XCTUnwrap(copyBorrowedDecoderCompletion(pointer.assumingMemoryBound(to: mav_completion.self)))
-        XCTAssertEqual(copied.struct_size, UInt32(legacySize))
+        pointer.initializeMemory(as: UInt8.self, repeating: 0xa5, count: MemoryLayout<mav_completion>.size + 64)
+        withUnsafeBytes(of: source) { pointer.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        let copied = try XCTUnwrap(copyBorrowedDecoderCompletion(pointer.assumingMemoryBound(to: mav_completion.self)))
+        XCTAssertEqual(copied.struct_size, source.struct_size)
         XCTAssertEqual(copied.frame_id, 31); XCTAssertEqual(copied.generation, 9)
-        XCTAssertEqual(copied.decode_trace.version, 0)
-        var backend = mav_decode_trace()
-        backend.struct_size = UInt32(MemoryLayout<mav_decode_trace>.size); backend.version = UInt32(MAV_ABI_VERSION)
-        XCTAssertEqual(mav_completion_get_decode_trace(&copied, &backend), MAV_API_UNAVAILABLE)
         source.struct_size = 8
         withUnsafePointer(to: &source) { XCTAssertNil(copyBorrowedDecoderCompletion($0)) }
     }

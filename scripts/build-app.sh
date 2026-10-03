@@ -66,7 +66,7 @@ cp -f .build/dependencies/licenses/*.txt "$staged_app/Contents/Resources/License
 cp -f Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt "$staged_app/Contents/Resources/Licenses/moonlight-common-c.txt"
 decoder_path="${SWIFTLIGHT_DECODER_PATH:-.build/checkouts/moonlight-apple-decoder}"
 cp -f "$decoder_path/LICENSE" "$staged_app/Contents/Resources/Licenses/MoonlightAppleVideo.txt"
-cp -f "$decoder_path/Dependencies/pyrowave/LICENSE" "$staged_app/Contents/Resources/Licenses/PyroWave.txt"
+cp -f "Dependencies/pyrowave/LICENSE" "$staged_app/Contents/Resources/Licenses/PyroWave.txt"
 for entry in Sources/shared/CStreamBridge/vendor/common-c/enet/LICENSE Sources/shared/CStreamBridge/vendor/common-c/nanors/LICENSE; do
   if [[ -f "$entry" ]]; then cp -f "$entry" "$staged_app/Contents/Resources/Licenses/$(basename "$(dirname "$entry")").txt"; fi
 done

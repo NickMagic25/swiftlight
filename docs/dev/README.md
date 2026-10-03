@@ -89,6 +89,8 @@ Direct `swift test`, replay builds and app-source harnesses remain supported too
 
 ## Validation and investigations
 
+- [PyroWave native validation handoff and current checks](pyrowave-native-validation-2026-10-03.md)
+
 - [iPhone/iPad MVP validation](mobile-mvp-validation-2026-09-13.md)
 - [Mobile stream controls and physical iPad checks](mobile-stream-controls-2026-09-14.md)
 - [Shared Apple app refactor and validation](shared-client-validation-2026-09-14.md)
@@ -104,6 +106,8 @@ Direct `swift test`, replay builds and app-source harnesses remain supported too
 - [PyroWave native decoder stages and optimization](pyrowave-decoder-latency-2026-09-30.md)
 - [PyroWave Metal source and GPU analysis](pyrowave-metal-analysis-2026-09-30.md)
 - [PyroWave fork submodule conversion](pyrowave-submodule-2026-09-30.md)
+- [Direct PyroWave bridge validation and paced comparison](pyrowave-direct-2026-10-03.md)
+- [PyroWave first-packet-to-presentation breakdown](pyrowave-presentation-latency-2026-10-03.md)
 - [Stream latency debugging](stream-latency-debugging.md)
 - [iPad presentation latency investigation](ipad-presentation-2026-09-14.md)
 - [Stream deadlock validation](stream-deadlock-validation.md)

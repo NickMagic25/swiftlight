@@ -77,11 +77,11 @@ def run_case(root, source, case):
     for relative in ["App/Info.plist", "App/AppIcon.icns", "LICENSE", ".build/dependencies/licenses/native.txt",
                      "Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt",
                      ".build/checkouts/moonlight-apple-decoder/LICENSE",
-                     ".build/checkouts/moonlight-apple-decoder/Dependencies/pyrowave/LICENSE", "bin/swiftlight-desktop"]:
+                     "Dependencies/pyrowave/LICENSE", "bin/swiftlight-desktop"]:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("new-fake-binary" if relative == "bin/swiftlight-desktop" else "fixture")
-    pyrowave_license = root / ".build/checkouts/moonlight-apple-decoder/Dependencies/pyrowave/LICENSE"
+    pyrowave_license = root / "Dependencies/pyrowave/LICENSE"
     pyrowave_license.write_text("PyroWave fixture notice\n")
     if name == "missing_pyrowave_license":
         pyrowave_license.unlink()

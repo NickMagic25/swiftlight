@@ -7,6 +7,7 @@ export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
 export SWIFTLIGHT_RUN_HARDWARE_TESTS=0
 export SWIFTLIGHT_AUDIO_SMOKE=0
 scripts/bootstrap-dependencies.sh
+SWIFTLIGHT_PYROWAVE_CPU_ONLY=1 scripts/validate-pyrowave-native.sh address
 swift test --build-system native --disable-sandbox --manifest-cache none
 python3 docs/dev/host-otp-vectors.py
 python3 -m unittest discover -s Tests/DependencyPreparation -v

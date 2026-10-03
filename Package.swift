@@ -10,6 +10,14 @@ let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let nativeInclude = root + "/.build/dependencies/include"
 let nativeLibrary = root + "/.build/dependencies/lib"
 let nativeMobileInclude = root + "/.build/dependencies/mobile/include"
+// Source pins are verified by bootstrap. The private symbol map also permits
+// comparing a local decoder override that embeds a different PyroWave revision.
+let pyrowaveSymbols = root + "/Sources/shared/CPyrowaveBridge/Private/PyrowaveSymbols.h"
+let pyrowaveSettings: [CXXSetting] = [
+    .unsafeFlags(["-include", pyrowaveSymbols, "-fobjc-arc"]),
+    // Native record parsing and coefficient upload must keep up in Debug.
+    .unsafeFlags(["-O2"], .when(configuration: .debug))
+]
 let nativeIncludes: [CSetting] = [
     .unsafeFlags(["-I", nativeInclude], .when(platforms: [.macOS])),
     .unsafeFlags(["-I", nativeMobileInclude], .when(platforms: [.iOS]))
@@ -64,11 +72,29 @@ let package = Package(
                     .linkedFramework("AudioToolbox"), .linkedFramework("CoreAudio"), .linkedFramework("CoreMedia"),
                     .linkedFramework("AVFoundation")]),
         .target(name: "SwiftlightTransport", dependencies: ["CStreamBridge", "SwiftlightCore"], path: "Sources/shared/SwiftlightTransport"),
-        .target(name: "SwiftlightVideo", dependencies: [.product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")], path: "Sources/shared/SwiftlightVideo"),
+        // Compile only the production decoder. Shader strings are committed
+        // headers; raw Metal sources and CLI experiments are not app resources.
+        .target(name: "CMetalPyrowave", path: "Dependencies/pyrowave/metal",
+            exclude: ["CMakeLists.txt", "DECODE_EXPERIMENTS.md", "PERFORMANCE.md", "README.md", "bench.mm",
+                      "experimental_dequant.msl.h", "experimental_fused_idwt.msl.h", "experimental_idwt.msl.h",
+                      "experimental_native_dequant.msl.h", "experimental_native_idwt.msl.h", "experimental_render.msl.h", "pyrowave.exports",
+                      "pyrowave.xcodeproj", "pyrowave_bench.h", "pyrowave_encoder.mm", "shaders", "tests"],
+            sources: ["pyrowave_common.mm", "pyrowave_decoder.mm", "pyrowave_bitstream.cpp"],
+            publicHeadersPath: ".", cxxSettings: pyrowaveSettings,
+            linkerSettings: [.linkedFramework("Metal"), .linkedFramework("IOSurface"), .linkedFramework("Foundation")]),
+        .target(name: "CPyrowaveBridge", dependencies: ["CMetalPyrowave"],
+            path: "Sources/shared/CPyrowaveBridge", publicHeadersPath: "include",
+            cxxSettings: pyrowaveSettings,
+            linkerSettings: [.linkedFramework("Metal"), .linkedFramework("Foundation"), .linkedFramework("QuartzCore")]),
+        .target(name: "CNativeVideoABI", dependencies: [.product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")],
+            path: "Sources/shared/CNativeVideoABI", publicHeadersPath: "include"),
+        .target(name: "SwiftlightVideo", dependencies: ["CPyrowaveBridge", "CNativeVideoABI",
+                .product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")], path: "Sources/shared/SwiftlightVideo"),
         .executableTarget(name: "SwiftlightApp", dependencies: ["SwiftlightCore", "SwiftlightVideo", "SwiftlightHost", "SwiftlightTransport"],
             path: "Sources",
             exclude: ["mobile", "tv", "shared/SwiftlightCore", "shared/SwiftlightHost", "shared/CHostCrypto",
-                      "shared/SwiftlightTransport", "shared/CStreamBridge", "shared/SwiftlightVideo", "shared/SwiftlightReplay"],
+                      "shared/SwiftlightTransport", "shared/CStreamBridge", "shared/CPyrowaveBridge", "shared/CNativeVideoABI",
+                      "shared/SwiftlightVideo", "shared/SwiftlightReplay"],
             sources: ["desktop", "shared/SwiftlightApp"]),
         .executableTarget(name: "SwiftlightReplay", dependencies: ["SwiftlightVideo", .product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")], path: "Sources/shared/SwiftlightReplay"),
         .testTarget(name: "SwiftlightHostTests", dependencies: ["SwiftlightHost"]),
@@ -77,5 +103,6 @@ let package = Package(
         .testTarget(name: "SwiftlightCoreTests", dependencies: ["SwiftlightCore"]),
         .testTarget(name: "SwiftlightVideoTests", dependencies: ["SwiftlightVideo"])
     ],
-    swiftLanguageModes: [.v6]
+    swiftLanguageModes: [.v6],
+    cxxLanguageStandard: .cxx2b
 )

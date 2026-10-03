@@ -21,8 +21,13 @@ The Mac and mobile coordinators still own their native lifecycle, navigation and
 - `Sources/shared/SwiftlightCore/`: Foundation/CoreGraphics value types for requested settings, host/device capability intersection, safe-area/viewport transforms, session generations and held-input state. No decoder, network socket or UI dependencies.
 - `Sources/shared/SwiftlightHost/` and `Sources/shared/CHostCrypto/`: Bonjour, host HTTP/XML, Keychain identity and certificate pins, standard PIN and Apollo OTP pairing, app control and nonsecret host persistence. The C bridge uses OpenSSL for established GameStream RSA/certificate operations. See [host protocol details](host-protocol-details.md).
 - `Sources/shared/SwiftlightTransport/` and `Sources/shared/CStreamBridge/`: pinned moonlight-common-c transport, pull video ownership, Opus, Direct and System Spatial Audio output, and protocol input. Native audio adapters preserve platform-specific route handling. No video decoder.
-- `Sources/shared/SwiftlightVideo/`: the sole `MoonlightAppleVideo` adapter, latest decoded-frame mailbox, production CoreVideo/Metal importer/shader, bounded instrumentation and offscreen readback validation.
+- `Sources/shared/SwiftlightVideo/`: the HEVC/AV1 `MoonlightAppleVideo` adapter and direct native PyroWave adapter, latest decoded-frame mailbox, production CoreVideo/Metal importer/shader, bounded instrumentation and offscreen readback validation.
 - `Sources/shared/SwiftlightReplay/`: same production decoder and renderer, deterministic correctness and explicitly labeled paced offscreen workloads.
+
+`CPyrowaveBridge` adapts transport framing, bounds input ranges and owns native
+PyroWave submissions and GPU leases. Codec parsing, acceptance and decode
+readiness belong to the pinned PyroWave library; Swiftlight adds no independent
+coefficient-validation pass.
 
 ## Work, bounds and ownership
 
@@ -30,7 +35,7 @@ SwiftUI never observes individual frames. A 250 ms timer samples state and diagn
 
 The adapter owns a serial decoder queue. All submit/wait/drain/reset/destroy calls execute there, away from main, audio, and packet receive threads. Callbacks may execute inline and only retain the borrowed buffer into a lock-protected mailbox and record bounded metrics. They never call decoder control. Accepted input owes one terminal completion; synchronous rejection owes none.
 
-The decoder admits two unresolved AUs. Compressed frames are not handled as a latest-frame queue. A WOULD_BLOCK waits on the package's capacity event; a configuration-related repeat drains and retries the same AU. Failure requests a keyframe or stops the session with a visible compatibility message. The decoded handoff holds one latest frame, replacing obsolete presentation work. The GPU admits at most three command buffers. Each GPU lease retains the CVPixelBuffer and both CVMetalTexture wrappers through completion. Destroying the decoder does not release a still-referenced buffer.
+The decoder admits two unresolved AUs. Compressed frames are not handled as a latest-frame queue. A WOULD_BLOCK waits on the selected native backend's capacity event; a configuration-related repeat drains and retries the same AU. Failure requests a keyframe or stops the session with a visible compatibility message. The decoded handoff holds one latest frame, replacing obsolete presentation work. The GPU admits at most three command buffers. Each render lease retains the CVPixelBuffer and both CVMetalTexture wrappers, or the direct PyroWave three-plane GPU lease, through completion. Destroying the decoder does not release a still-referenced buffer.
 
 The audio ring uses a single producer/single consumer atomic boundary, with a fixed capacity and an underrun-to-silence policy. The real-time callback allocates nothing, takes no blocking lock, and performs no network calls. Opus decode occurs on the transport audio worker. Audio output route changes and real A/V timing need physical validation.
 
