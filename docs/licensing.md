@@ -2,11 +2,12 @@
 
 Swiftlight's existing repository LICENSE is GPL-3.0. This is a GPL source distribution, not an App Store distribution/signing approval. Consult the incorporated license text for obligations; distribution must preserve corresponding-source availability, licenses and notices.
 
-| Component | Pin | License / notice |
+| Component | Source / version | License / notice |
 |---|---|---|
 | Swiftlight | this source tree | repository LICENSE, GPL-3.0 |
-| MoonlightAppleVideo | 8d92ee039dc19fe50dc0158d5098d4c5646c6a56 | decoder repository LICENSE (GPL v3); separate SwiftPM source dependency |
-| PyroWave | `f8844f16f427a94de255eb324eea66c344a3e58b` | [NickMagic25/pyrowave](https://github.com/NickMagic25/pyrowave), fork of Themaister/pyrowave; MIT; Swiftlight `Dependencies/pyrowave/LICENSE` |
+| MoonlightAppleVideo | first-party `Packages/moonlight-apple-decoder/` source in this repository | [decoder LICENSE](../Packages/moonlight-apple-decoder/LICENSE), GPL v3; local SwiftPM/CMake package |
+| PyroWave (Swiftlight direct backend) | `56b007143b471def3e41d5e74d10f73dfc8c8df1` | [NickMagic25/pyrowave](https://github.com/NickMagic25/pyrowave), fork of Themaister/pyrowave; MIT; Swiftlight `Dependencies/pyrowave/LICENSE` |
+| PyroWave (standalone decoder backend) | `488564aa2b5ffca0377938c27a1b67fce817c5b9` | Same fork; MIT; `Packages/moonlight-apple-decoder/Dependencies/pyrowave/LICENSE` |
 | moonlight-common-c | 62e066388f1a1b133e0bee947b9a374311a3354b | Git submodule LICENSE.txt; GPL v3; explicit targeted patch series |
 | ENet | aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1 | recursive submodule LICENSE; MIT |
 | nanors | b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a | recursive submodule licenses, Reed-Solomon implementation and dependencies |

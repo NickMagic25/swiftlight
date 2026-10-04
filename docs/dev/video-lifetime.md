@@ -1,6 +1,6 @@
 # Video boundaries and ownership
 
-`SwiftlightVideo` uses the pinned `MoonlightAppleVideo` C module for HEVC/AV1 and the pinned `Dependencies/pyrowave` Metal library through `CPyrowaveBridge` for PyroWave. The codec selects its native backend internally; there is no decoder plugin selector or software fallback. Swift has no C++ interop. Canonical NV12 and P010 remain the HEVC/AV1 baseline. Experimental `&8v0`/`&xv0` formats and process environment controls are not enabled.
+`SwiftlightVideo` uses the local `MoonlightAppleVideo` C module from `Packages/moonlight-apple-decoder/` for HEVC/AV1 and the pinned `Dependencies/pyrowave` Metal library through `CPyrowaveBridge` for PyroWave. The codec selects its native backend internally; there is no decoder plugin selector or software fallback. Swift has no C++ interop. Canonical NV12 and P010 remain the HEVC/AV1 baseline. Experimental `&8v0`/`&xv0` formats and process environment controls are not enabled.
 
 `VideoDecoder` owns the decoder handle and one private serial worker. Submit, capacity waits, drain, reset, and destruction enter that worker synchronously. The transport's one pull worker submits a complete copied access unit and releases the common-c frame according to submission success. Rejected/would-block inputs produce no terminal completion. Production capacity waits must be bounded, with transport shutdown able to stop new submissions before joining workers. A configuration-change would-block may require draining accepted old work before retrying the same unconsumed AU.
 

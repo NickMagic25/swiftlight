@@ -26,7 +26,7 @@ Enter the other secrets through GitHub's UI or `gh secret set SECRET_NAME --repo
 
 Ensure Actions is enabled, the repository permits the pinned official GitHub Actions, and the account has macOS runner capacity/budget. The build job uses `macos-26` (Apple silicon) and explicitly selects `/Applications/Xcode_26.6.app/Contents/Developer`, matching Swift 6.3 requirements. The app targets macOS 14 or later. This workflow produces an **arm64 DMG**, not an Intel or universal build.
 
-Swiftlight and `moonlight-apple-decoder` are public. GitHub release downloads are therefore publicly accessible; make an explicit distribution decision before directing external users to the release page.
+Swiftlight's repository includes the decoder source and is public. GitHub release downloads are therefore publicly accessible; make an explicit distribution decision before directing external users to the release page.
 
 ## Create the first release
 
@@ -43,7 +43,7 @@ The tag must include the workflow and scripts. Pushing a tag on the current feat
 
 The workflow:
 
-1. Checks out the tagged commit with recursive submodules and resolves the decoder using the committed `Package.resolved` revision.
+1. Checks out the tagged commit with recursive submodules, including both PyroWave inputs. The decoder comes from `Packages/moonlight-apple-decoder/` in that same commit; SwiftPM uses the repository-relative local package dependency.
 2. Runs `scripts/validate-ci.sh`: Swift tests, OTP vectors, dependency preparation tests, release version tests, packaging regression tests, native transport/audio tests under AddressSanitizer and UndefinedBehaviorSanitizer, artwork/display/window lifecycle harnesses, and the decoder source audit.
 3. Builds `Swiftlight` with release optimization. `CFBundleShortVersionString` derives from the tag (`v0.0.1` → `0.0.1`); `CFBundleVersion` uses the positive GitHub workflow run number (unchanged on a rerun). Local builds default to build number `1`, overridable with `BUILD_NUMBER`. Only the staged app is updated; source files are not rewritten by CI. Signs the app with Developer ID, hardened runtime, and a secure timestamp.
 4. Submits the app to Apple, waits for acceptance, staples its ticket, and checks Gatekeeper acceptance.

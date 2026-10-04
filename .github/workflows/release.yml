@@ -40,7 +40,7 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Resolve pinned public decoder dependency
+      - name: Resolve local Swift packages
         run: |
           mkdir -p .build/ModuleCache
           export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"

@@ -12,7 +12,7 @@ LICENSE_INPUTS = {
     "Swiftlight.txt": "LICENSE",
     "OpenSSL.txt": ".build/dependencies/licenses/OpenSSL.txt",
     "Opus.txt": ".build/dependencies/licenses/Opus.txt",
-    "MoonlightAppleVideo.txt": ".build/checkouts/moonlight-apple-decoder/LICENSE",
+    "MoonlightAppleVideo.txt": "Packages/moonlight-apple-decoder/LICENSE",
     "PyroWave.txt": "Dependencies/pyrowave/LICENSE",
     "moonlight-common-c.txt": "Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt",
     "enet.txt": "Sources/shared/CStreamBridge/vendor/common-c/enet/LICENSE",
@@ -21,7 +21,7 @@ LICENSE_INPUTS = {
 
 
 class CopyAppLicensesTests(unittest.TestCase):
-    def test_decoder_override_and_xcode_checkout_use_submodule_notice(self):
+    def test_local_decoder_notice_is_used_despite_legacy_paths(self):
         for route in ("override", "xcode"):
             with self.subTest(route=route), tempfile.TemporaryDirectory(prefix="swiftlight licenses ") as temporary:
                 root = Path(temporary)
@@ -29,8 +29,6 @@ class CopyAppLicensesTests(unittest.TestCase):
                 script.parent.mkdir()
                 shutil.copy2(ROOT / "scripts/copy-app-licenses.sh", script)
                 for name, relative in LICENSE_INPUTS.items():
-                    if name == "MoonlightAppleVideo.txt":
-                        continue
                     source = root / relative
                     source.parent.mkdir(parents=True, exist_ok=True)
                     source.write_text(f"Original {name}\n")
@@ -45,7 +43,7 @@ class CopyAppLicensesTests(unittest.TestCase):
                     decoder = root / "Derived Data/SourcePackages/checkouts/moonlight-apple-decoder"
                     environment["BUILD_DIR"] = str(build_directory)
                 decoder.mkdir(parents=True)
-                (decoder / "LICENSE").write_text("Decoder notice\n")
+                (decoder / "LICENSE").write_text("Stale decoder notice\n")
                 notice = root / "Dependencies/pyrowave/LICENSE"
                 notice.write_text("Submodule notice\n")
                 output = root / "App Licenses"
@@ -53,7 +51,13 @@ class CopyAppLicensesTests(unittest.TestCase):
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual((output / "PyroWave.txt").read_bytes(), notice.read_bytes())
-                self.assertEqual((output / "MoonlightAppleVideo.txt").read_text(), "Decoder notice\n")
+                self.assertEqual((output / "MoonlightAppleVideo.txt").read_text(), "Original MoonlightAppleVideo.txt\n")
+                local_decoder = root / LICENSE_INPUTS["MoonlightAppleVideo.txt"]
+                local_decoder.unlink()
+                result = subprocess.run([str(script), str(output)], env=environment,
+                                        text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
+                local_decoder.write_text("Restored decoder notice\n")
                 notice.unlink()
                 result = subprocess.run([str(script), str(output)], env=environment,
                                         text=True, capture_output=True)

@@ -40,6 +40,10 @@ class PyrowaveVerificationTests(unittest.TestCase):
         git(self.root, "init", "--quiet")
         git(self.root, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet",
             str(self.upstream), "Dependencies/pyrowave")
+        (self.upstream / "LICENSE").write_text("Decoder package revision\n")
+        self.decoder_revision = commit(self.upstream)
+        git(self.root, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet", "--name", "decoder-pyrowave",
+            str(self.upstream), "Packages/moonlight-apple-decoder/Dependencies/pyrowave")
         scripts = self.root / "scripts"
         scripts.mkdir()
         shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
@@ -47,9 +51,14 @@ class PyrowaveVerificationTests(unittest.TestCase):
         self.lock.write_text(json.dumps({"pyrowave": {
             "path": "Dependencies/pyrowave", "revision": self.revision,
             "url": str(self.upstream), "bitstream": "186f0393"
+        }, "decoder-pyrowave": {
+            "submodule": "decoder-pyrowave",
+            "path": "Packages/moonlight-apple-decoder/Dependencies/pyrowave", "revision": self.decoder_revision,
+            "url": str(self.upstream), "bitstream": "186f0393"
         }}))
         commit(self.root)
         self.checkout = self.root / "Dependencies/pyrowave"
+        self.decoder_checkout = self.root / "Packages/moonlight-apple-decoder/Dependencies/pyrowave"
 
     def verify(self, success=True):
         result = subprocess.run([sys.executable, str(self.root / "scripts" / SCRIPT.name)],
@@ -59,11 +68,15 @@ class PyrowaveVerificationTests(unittest.TestCase):
 
     def test_pristine_checkout_and_missing_initialization(self):
         self.assertIn("pristine pinned", self.verify().stdout)
-        git(self.root, "submodule", "deinit", "--force", "--", "Dependencies/pyrowave")
+        git(self.root, "submodule", "deinit", "--force", "--", "Dependencies/pyrowave",
+            "Packages/moonlight-apple-decoder/Dependencies/pyrowave")
         self.assertFalse((self.checkout / "LICENSE").exists())
+        self.assertFalse((self.decoder_checkout / "LICENSE").exists())
         self.verify()
         self.assertEqual(git(self.checkout, "rev-parse", "HEAD"), self.revision)
+        self.assertEqual(git(self.decoder_checkout, "rev-parse", "HEAD"), self.decoder_revision)
         self.assertEqual(git(self.checkout, "status", "--porcelain"), "")
+        self.assertEqual(git(self.decoder_checkout, "status", "--porcelain"), "")
 
     def test_gitlink_pin_mismatch_and_dirty_source_are_preserved(self):
         pin = json.loads(self.lock.read_text())
@@ -90,6 +103,22 @@ class PyrowaveVerificationTests(unittest.TestCase):
         (self.checkout / "metal/extra.h").write_text("Local header\n")
         self.assertIn("modified or untracked", self.verify(success=False).stderr)
         self.assertTrue((self.checkout / "metal/extra.h").exists())
+
+    def test_decoder_pin_and_local_work_are_checked_independently(self):
+        pin = json.loads(self.lock.read_text())
+        pin["decoder-pyrowave"]["revision"] = self.revision
+        self.lock.write_text(json.dumps(pin))
+        self.assertIn("decoder-pyrowave", self.verify(success=False).stderr)
+        self.assertEqual(git(self.decoder_checkout, "rev-parse", "HEAD"), self.decoder_revision)
+        pin["decoder-pyrowave"]["revision"] = self.decoder_revision
+        self.lock.write_text(json.dumps(pin))
+        local = self.decoder_checkout / "LICENSE"
+        local.write_text("Uncommitted decoder package work\n")
+        result = self.verify(success=False)
+        self.assertIn("decoder-pyrowave", result.stderr)
+        self.assertIn("modified or untracked", result.stderr)
+        self.assertEqual(local.read_text(), "Uncommitted decoder package work\n")
+        self.assertEqual(git(self.checkout, "rev-parse", "HEAD"), self.revision)
 
 
 if __name__ == "__main__":

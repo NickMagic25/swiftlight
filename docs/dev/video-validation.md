@@ -59,15 +59,17 @@ That lifecycle regression passed on the development Mac with hardware HEVC decod
 
 Color output is extended linear sRGB. BT.709/BT.601 matrices and SDR transfer signaling are supported alongside BT.2020 nonconstant-luminance/PQ. PQ maps 203 nits to 1.0 EDR; BT.2020 primaries are transformed into the declared linear sRGB layer space. The surface must configure the matching floating-point drawable, extended-linear color space and system tone mapping. This offscreen test does not verify display EDR headroom changes, HDR-to-SDR behavior, physical nits, or mastering/content-light-driven system tone mapping. HLG, other primaries/matrices, and packed native/lossless buffers reject visibly.
 
-Regeneration uses a development-only fixture encoder from decoder revision `8d92ee039dc19fe50dc0158d5098d4c5646c6a56`:
+Regeneration uses the development-only fixture encoder in the local decoder
+package. Existing committed fixtures retain the encoder revision and provenance
+from their original generation; moving the source does not regenerate them:
 
 ```sh
-# In the decoder checkout, build mav-fixture and bootstrap its development AV1 encoder.
-cmake -S ../moonlight-apple-decoder -B ../moonlight-apple-decoder/build -DCMAKE_BUILD_TYPE=Release
-cmake --build ../moonlight-apple-decoder/build --target mav-fixture --parallel 4
-../moonlight-apple-decoder/scripts/bootstrap-aom.sh
-python3 scripts/generate-fixtures.py --decoder ../moonlight-apple-decoder
-python3 scripts/generate-fixtures-accounting.py --decoder ../moonlight-apple-decoder
+# From the Swiftlight root, build mav-fixture and bootstrap its development AV1 encoder.
+cmake -S Packages/moonlight-apple-decoder -B Packages/moonlight-apple-decoder/build -DCMAKE_BUILD_TYPE=Release
+cmake --build Packages/moonlight-apple-decoder/build --target mav-fixture --parallel 4
+Packages/moonlight-apple-decoder/scripts/bootstrap-aom.sh
+python3 scripts/generate-fixtures.py --decoder Packages/moonlight-apple-decoder
+python3 scripts/generate-fixtures-accounting.py --decoder Packages/moonlight-apple-decoder
 ```
 
 Fixture media is generated from the decoder's synthetic pattern, contains no third-party audiovisual material, and is distributed under this repository's license. The manifests retain encoder identity, OS, color metadata, frame boundaries and SHA-256 hashes; `fixtures/provenance.json` also records exact generator binary identities. Hardware HEVC encoders are OS-versioned: regeneration may produce different compressed hashes while preserving the expected properties.

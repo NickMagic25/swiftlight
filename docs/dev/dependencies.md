@@ -1,6 +1,6 @@
-# Upstream dependency maintenance
+# Decoder and upstream dependency maintenance
 
-The source of truth for the protocol implementation is the `Dependencies/moonlight-common-c` Git submodule. Its gitlink and `Dependencies/versions.json` pin revision `62e066388f1a1b133e0bee947b9a374311a3354b`. ENet and nanors are recursively initialized to the exact revisions selected by common-c; a system ENet is not compatible with this build. MoonlightAppleVideo is a separate immutable SwiftPM dependency for VideoToolbox codecs. PyroWave uses the direct native integration described below.
+The source of truth for the protocol implementation is the `Dependencies/moonlight-common-c` Git submodule. Its gitlink and `Dependencies/versions.json` pin revision `62e066388f1a1b133e0bee947b9a374311a3354b`. ENet and nanors are recursively initialized to the exact revisions selected by common-c; a system ENet is not compatible with this build. MoonlightAppleVideo is first-party source in `Packages/moonlight-apple-decoder/`, consumed as a local SwiftPM package for VideoToolbox codecs. PyroWave uses the direct native integration described below.
 
 The selected common-c revision includes three upstream frame-loss recovery fixes beyond the local Moonlight Qt reference's `874ac954`: multi-block RFI recovery (`d85371c`), partially dropped IDR handling (`be43885`), and avoiding speculative losses when RFI is disabled (`62e0663`). These are upstream changes, not Swiftlight patches.
 
@@ -20,7 +20,52 @@ The generated `.swiftlight-source.json` records the pins, patch order and SHA-25
 4. Run `scripts/bootstrap-dependencies.sh`, `scripts/validate-offline.sh`, and the separate `SWIFTLIGHT_SANITIZERS=thread scripts/validate-transport-native.sh`. Build the signed bundle and run the manual host interoperability gates before claiming release validation.
 5. Confirm `git -C Dependencies/moonlight-common-c status --porcelain` is empty, and review `git diff --submodule=log` plus the patch diff.
 
-Fresh clones can use `--recurse-submodules`; bootstrap also initializes missing submodules. A wrong revision or tracked local edit is rejected with an actionable error rather than silently reset. The initial bootstrap requires Git/network access, native build tools, and the pinned SwiftPM decoder repository.
+Fresh clones can use `--recurse-submodules`; bootstrap also initializes missing submodules. A wrong revision or tracked local edit is rejected with an actionable error rather than silently reset. The initial bootstrap requires Git/network access and native build tools. Decoder sources arrive with this repository rather than a separate SwiftPM download.
+
+## First-party decoder package
+
+`Packages/moonlight-apple-decoder/` contains the reusable `MoonlightAppleVideo`
+C ABI, implementation, public headers, tests, fixture tools, integration
+materials and documentation. The import preserves the source from decoder
+commit `dd295065417344a0a5d3d240bce9060d2646851c`. Subsequent decoder and client
+changes share Swiftlight's Git history. This source import does not establish
+new hardware, performance or live-stream acceptance; dated reports retain the
+revisions and checkout paths used for their original runs.
+
+Both the root `Package.swift` and Xcode consume this package using the
+repository-relative `Packages/moonlight-apple-decoder` path. No remote decoder
+revision or decoder lockfile entry is needed. Change the implementation here,
+keep its CMake and SwiftPM source lists consistent, and preserve the public
+ownership and completion contract. Its standalone CMake library and SwiftPM
+ownership smoke remain available for reusable-library validation and other
+consumers. Sources stay outside the app target's synchronized folders.
+
+The decoder's own `Dependencies/pyrowave` submodule remains pinned to
+`488564aa2b5ffca0377938c27a1b67fce817c5b9` for its standalone PyroWave backend.
+Its gitlink lives in this monorepo at
+`Packages/moonlight-apple-decoder/Dependencies/pyrowave`; it is distinct from
+Swiftlight's direct PyroWave submodule and revision. Bootstrap verifies both
+inputs. PyroWave GPU changes belong in the fork, with the reviewed commit
+published before either consumer's gitlink and version-manifest entry change.
+
+From the Swiftlight repository root, after bootstrap:
+
+```sh
+cmake -S Packages/moonlight-apple-decoder -B .build/decoder -DCMAKE_BUILD_TYPE=Release
+cmake --build .build/decoder --parallel 4
+ctest --test-dir .build/decoder --output-on-failure
+mkdir -p .build/ModuleCache
+CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache" \
+  swift run --package-path Packages/moonlight-apple-decoder \
+  --scratch-path "$PWD/.build/decoder-swiftpm" --disable-sandbox --manifest-cache none \
+  -c release mav-swift-smoke
+```
+
+Run the relevant Swiftlight tests and the Xcode app build after decoder changes;
+video changes additionally need the applicable hardware and fixture gates.
+Portable native tests and the ownership smoke do not establish hardware decode,
+GPU output or visible presentation. See the [decoder guide](../../Packages/moonlight-apple-decoder/README.md)
+and [client video validation](video-validation.md) for those checks.
 
 ## Direct PyroWave dependency
 
@@ -50,8 +95,8 @@ bounds and ownership, while PyroWave's native API owns codec parsing and decode
 readiness. It does not duplicate coefficient validation. Changes to codec
 acceptance or GPU decoding belong in the fork and require an intentional pin
 update. `CNativeVideoABI` adapts optional
-metadata/trace functions across the pinned VideoToolbox decoder ABI and local
-development overrides. Neither target creates another VideoToolbox session.
+metadata/trace functions at the local VideoToolbox decoder ABI boundary.
+Neither target creates another VideoToolbox session.
 This direct PyroWave implementation is explicitly authorized for this feature;
 MoonlightAppleVideo continues to own the VideoToolbox path.
 
@@ -59,13 +104,10 @@ Both Xcode and secondary SwiftPM app packaging copy
 `Dependencies/pyrowave/LICENSE` into `Licenses/PyroWave.txt`; missing notices fail
 packaging. A direct dependency update changes the submodule gitlink and version
 manifest together. Publish the reviewed fork commit before pinning it, then
-verify bootstrap and a normal app build with `SWIFTLIGHT_DECODER_PATH` unset.
-The SwiftPM MoonlightAppleVideo pin and both lockfiles are independent of this
-source dependency and stay consistent with each other.
+verify bootstrap and a normal app build using the in-repository decoder package.
+The reusable decoder's separate PyroWave pin changes only when intentionally
+updating that standalone backend.
 
-For an intentional local MoonlightAppleVideo override, initialize that package's
-submodules separately and set `SWIFTLIGHT_DECODER_PATH` to its absolute path.
-Swiftlight bootstrap does not initialize or reset arbitrary override checkouts.
 The [September 30 report](pyrowave-submodule-2026-09-30.md) describes the previous
 decoder-owned submodule checkpoint, not current dependency acceptance.
 

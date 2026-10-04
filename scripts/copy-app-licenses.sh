@@ -8,15 +8,12 @@ if [ "$#" -ne 1 ]; then
 fi
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 destination="$1"
-decoder_root="${SWIFTLIGHT_DECODER_PATH:-$repo_root/.build/checkouts/moonlight-apple-decoder}"
-if [ ! -f "$decoder_root/LICENSE" ] && [ -n "${BUILD_DIR:-}" ] && [ -z "${SWIFTLIGHT_DECODER_PATH:-}" ]; then
-  decoder_root="$BUILD_DIR/../../SourcePackages/checkouts/moonlight-apple-decoder"
-fi
+decoder_root="$repo_root/Packages/moonlight-apple-decoder"
 
 # All platform builds use the same verified upstream license texts. Bootstrap
 # collects Opus/OpenSSL notices here even when their static libraries are built
 # for iOS. Fail on missing inputs rather than shipping an incomplete bundle.
-# SwiftPM checkout files may be read-only. Install normalizes output permissions
+# Source license files may be read-only. Install normalizes output permissions
 # so repeated Xcode builds can replace notices without changing source modes.
 mkdir -p "$destination"
 install -m 644 "$repo_root/LICENSE" "$destination/Swiftlight.txt"

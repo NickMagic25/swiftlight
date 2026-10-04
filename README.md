@@ -39,6 +39,8 @@ For iPhone or iPad, prepare dependencies with `scripts/bootstrap-dependencies.sh
 
 There is one app target, one scheme and one SwiftUI app entry point. `Sources/` has four folders: `shared` for common features and engine modules, `desktop` for Mac adapters, `mobile` for iPhone/iPad adapters, and `tv` reserved for future TV integration. The target automatically includes the shared app folder and both implemented platform folders; native code uses conditional compilation. Every destination produces `Swiftlight.app`. See the [architecture guide](docs/dev/architecture.md).
 
+The reusable **MoonlightAppleVideo** decoder is maintained in [`Packages/moonlight-apple-decoder/`](Packages/moonlight-apple-decoder/README.md) in this repository. SwiftPM and Xcode use that local package. Its standalone CMake builds, tests, fixture tools and documentation remain alongside the decoder source.
+
 ## Connect from your Mac
 
 1. Select **Add Computer** and enter the host address, or choose a Bonjour-discovered host. Custom ports and IPv6 addresses are supported.
@@ -76,7 +78,7 @@ Run the offline checks with:
 scripts/validate-offline.sh
 ```
 
-Engineering notes, validation records, benchmark methodology, dependency maintenance, and release signing instructions are collected in [`docs/dev/`](docs/dev/README.md). HEVC and AV1 use the pinned **MoonlightAppleVideo** package. PyroWave uses the pinned fork submodule directly through its native Metal decoder, with retained GPU planes shared by the renderer. There is no FFmpeg or software fallback.
+Engineering notes, validation records, benchmark methodology, dependency maintenance, and release signing instructions are collected in [`docs/dev/`](docs/dev/README.md). HEVC and AV1 use the local **MoonlightAppleVideo** package. PyroWave uses the pinned fork submodule directly through its native Metal decoder, with retained GPU planes shared by the renderer. There is no FFmpeg or software fallback.
 
 ## License
 

@@ -23,6 +23,13 @@ The Mac and mobile coordinators still own their native lifecycle, navigation and
 - `Sources/shared/SwiftlightTransport/` and `Sources/shared/CStreamBridge/`: pinned moonlight-common-c transport, pull video ownership, Opus, Direct and System Spatial Audio output, and protocol input. Native audio adapters preserve platform-specific route handling. No video decoder.
 - `Sources/shared/SwiftlightVideo/`: the HEVC/AV1 `MoonlightAppleVideo` adapter and direct native PyroWave adapter, latest decoded-frame mailbox, production CoreVideo/Metal importer/shader, bounded instrumentation and offscreen readback validation.
 - `Sources/shared/SwiftlightReplay/`: same production decoder and renderer, deterministic correctness and explicitly labeled paced offscreen workloads.
+- `Packages/moonlight-apple-decoder/`: reusable `MoonlightAppleVideo` C ABI and native VideoToolbox/PyroWave implementations, with standalone SwiftPM and CMake builds, decoder tests, fixture tools and documentation. The root package consumes it with a repository-relative local dependency. Its sources remain outside the app target's synchronized folders.
+
+The decoder and client share one repository. Third-party source inputs remain
+pinned submodules: Swiftlight's direct `Dependencies/pyrowave` and the reusable
+decoder's `Packages/moonlight-apple-decoder/Dependencies/pyrowave` keep their
+independent revisions. Standalone decoder consumers retain its existing ABI and
+build entrypoints. See [decoder maintenance](dependencies.md#first-party-decoder-package).
 
 `CPyrowaveBridge` adapts transport framing, bounds input ranges and owns native
 PyroWave submissions and GPU leases. Codec parsing, acceptance and decode
