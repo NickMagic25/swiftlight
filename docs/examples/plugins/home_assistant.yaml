@@ -1,0 +1,31 @@
+schema_version: 1
+id: home_assistant
+name: Home Assistant Stream Scenes
+description: POST to your configured automation webhooks when any stream starts or ends.
+fields:
+  - id: start_url
+    label: Start webhook URL
+    description: Full URL of your Home Assistant automation webhook.
+    type: secret
+    required: true
+  - id: end_url
+    label: End webhook URL
+    description: Optional webhook for restoring your scene when the stream ends.
+    type: secret
+hooks:
+  - event: stream.started
+    runtime: bash
+    timeout_seconds: 15
+    script: |
+      set -eu
+      /usr/bin/curl --fail --silent --show-error --max-time 10 \
+        --proto '=http,https' --request POST "$SWIFTLIGHT_FIELD_START_URL"
+  - event: stream.ended
+    runtime: bash
+    timeout_seconds: 15
+    script: |
+      set -eu
+      if [ -n "${SWIFTLIGHT_FIELD_END_URL:-}" ]; then
+        /usr/bin/curl --fail --silent --show-error --max-time 10 \
+          --proto '=http,https' --request POST "$SWIFTLIGHT_FIELD_END_URL"
+      fi

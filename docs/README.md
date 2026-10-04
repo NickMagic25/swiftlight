@@ -10,6 +10,7 @@ These pages describe Swiftlight from a player's perspective: connecting to a com
 - [PyroWave streaming](pyrowave.md)
 - [Stream statistics](stream-statistics.md)
 - [Diagnostic exports](diagnostic-exports.md)
+- [Mac stream plugins](plugins.md)
 - [Compatibility](compatibility-matrix.md)
 - [Licensing and distribution](licensing.md)
 

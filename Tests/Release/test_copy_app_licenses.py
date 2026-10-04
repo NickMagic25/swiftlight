@@ -10,6 +10,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 LICENSE_INPUTS = {
     "Swiftlight.txt": "LICENSE",
+    "Yams.txt": "App/Licenses/Yams.txt",
+    "LibYAML.txt": "App/Licenses/LibYAML.txt",
     "OpenSSL.txt": ".build/dependencies/licenses/OpenSSL.txt",
     "Opus.txt": ".build/dependencies/licenses/Opus.txt",
     "MoonlightAppleVideo.txt": "Packages/moonlight-apple-decoder/LICENSE",

@@ -4,7 +4,15 @@ import SwiftlightCore
 
 struct SettingsView: View {
     @ObservedObject var model: ClientModel
+    @AppStorage("settingsPane") private var pane = "stream"
     var body: some View {
+        TabView(selection: $pane) {
+            streamSettings.tabItem { Label("Stream", systemImage: "display") }.tag("stream")
+            PluginSettingsView(manager: model.plugins, hosts: model.hosts)
+                .tabItem { Label("Plugins", systemImage: "puzzlepiece.extension") }.tag("plugins")
+        }
+    }
+    private var streamSettings: some View {
         Form {
             StreamSettingsSections(settings: $model.settings, preferences: $model.statisticsPreferences,
                                    display: model.display, hardwareDetail: model.hardwareDetail)

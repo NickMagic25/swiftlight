@@ -18,6 +18,7 @@ PASS means this exact check ran; source support alone is not a pass.
 | H.264 / YUV444 / HLG | not advertised; explicit rejection | Architecture audit + format tests |
 | Packed native/lossless output | not enabled | SKIP evidence-gated optimization; canonical production path |
 | macOS Intel | source deployment target exists | BLOCKED on build/hardware validation; HEVC capability determines usable configurations |
+| macOS stream start/end plugins | Reviewed YAML, dynamic fields, filtered hooks and bounded Bash/Python/Swift execution | PASS local schema/runtime/lifecycle, signed Settings and Apple silicon sandbox fixtures; real Home Assistant, VirtualHere/USB, primary-app Keychain and host-stream acceptance pending. See [plugin validation](plugins-validation-2026-10-04.md). |
 | iOS/iPadOS 26+ | universal SwiftUI app, shared host/streaming engine, UIKit/Metal/touch and AVAudioSession adapters | iPhone/iPad 26.5 simulator builds, launch and UI checks plus unsigned device archive; physical streaming, 27 runtime and signed distribution remain BLOCKED. See [mobile validation](mobile-mvp-validation-2026-09-13.md). |
 | tvOS | core shared intent | TODO future target/focus/controller UI/audio and separate HDR API path |
 

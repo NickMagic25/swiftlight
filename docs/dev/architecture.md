@@ -14,6 +14,8 @@ The Mac and mobile coordinators still own their native lifecycle, navigation and
 
 `Sources/` contains exactly `shared`, `desktop`, `mobile` and `tv`.
 
+The macOS-only [plugin system](plugin-system.md) uses a package-owned `Sources/shared/SwiftlightPlugins/` module for YAML value models/validation, with its settings, execution and lifecycle adapters in `Sources/desktop/Plugins/` and `ClientModel`. It does not add plugin hooks to mobile sessions or duplicate engine sources in the app target.
+
 - `Sources/shared/SwiftlightApp/`: shared app entry point, settings sections, connection preparation, remote-action presentation and host-control failure policy, statistics sampling/rasterization, `StreamingPipeline`, `ControllerHub`, `AppLibraryGrid`, `AppArtworkStore`, and `GlassStyle`.
 - `Sources/desktop/`: MainActor Mac coordination; AppKit Metal surface, native full screen, scoped keyboard/mouse capture and power activity. Native files use macOS guards.
 - `Sources/mobile/`: MainActor discovery, saved-host selection, PIN pairing, staged settings, and generation-checked session coordination. SwiftUI owns adaptive navigation and sheets; narrow UIKit adapters supply window geometry, Metal presentation, touch input, audio-session routing and stream accessibility. Native files use iOS guards.

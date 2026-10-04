@@ -13,6 +13,7 @@ Swiftlight's existing repository LICENSE is GPL-3.0. This is a GPL source distri
 | nanors | b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a | recursive submodule licenses, Reed-Solomon implementation and dependencies |
 | Opus | 1.5.2 | BSD-style COPYING in downloaded source; statically built, audio only |
 | OpenSSL | 3.6.4 | Apache-2.0 LICENSE.txt in downloaded source; statically built crypto |
+| Yams / libyaml | Yams 6.2.2, exact SwiftPM pin | MIT; bundled notices in `App/Licenses/Yams.txt` and `App/Licenses/LibYAML.txt` |
 
 Bootstrap verifies pinned archive hashes before compilation. Preserve Opus/OpenSSL license copies when distributing the built app. The app bundle build copies notices into Resources. Apple system frameworks are linked through public SDKs. No FFmpeg, Qt, SDL, copied upstream client video decoder, software video decoder or alternative VideoToolbox path is linked into Swiftlight.
 
