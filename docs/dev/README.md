@@ -71,6 +71,8 @@ scripts/validate-offline.sh
 
 Direct `swift test`, replay builds and app-source harnesses remain supported tooling. Harnesses that read `.build/debug` require SwiftPM build artifacts; an Xcode build under `.build/xcode` does not provide that layout. `scripts/validate-ci.sh` prepares the artifacts its harnesses need.
 
+The reusable decoder source is in [`Packages/moonlight-apple-decoder/`](../../Packages/moonlight-apple-decoder/README.md). Swiftlight consumes it as a local package; changes to its implementation, ABI or build definitions also need the standalone CMake/CTest and SwiftPM checks in [decoder maintenance](dependencies.md#first-party-decoder-package), then the applicable client validation. Historical reports retain the external decoder revisions and checkout paths used for those runs.
+
 `scripts/build-app.sh` is the secondary SwiftPM app-packaging path still used by the current GitHub release workflow. It builds the internal `swiftlight-desktop` executable product from the unchanged `SwiftlightApp` module, then packages it as `.build/Swiftlight.app/Contents/MacOS/Swiftlight`. The distinct package-product name prevents Xcode UI-test host lookup from selecting a same-named bare executable instead of the app bundle. The Xcode app target and scheme remain **Swiftlight**. For a supporting direct SwiftPM build, use `swift build --product swiftlight-desktop`; use the packager for its signing and atomic-replacement behavior, and the Xcode project for ordinary app builds and debugging.
 
 ## Engineering references
@@ -78,6 +80,7 @@ Direct `swift test`, replay builds and app-source harnesses remain supported too
 - [Release CI, signing secrets, and DMG distribution](releases.md)
 - [Xcode Cloud and App Store Connect migration](xcode-cloud.md)
 - [Architecture](architecture.md)
+- [First-party decoder and pinned dependency maintenance](dependencies.md)
 - [Transport and ownership](transport.md)
 - [Video lifetime](video-lifetime.md)
 - [Stream statistics implementation](stream-statistics-implementation.md)

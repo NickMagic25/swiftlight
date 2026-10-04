@@ -49,6 +49,7 @@
 		D40000000000000000000014 /* CStreamBridge */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = CStreamBridge; sourceTree = "<group>"; };
 		D40000000000000000000015 /* SwiftlightVideo */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = SwiftlightVideo; sourceTree = "<group>"; };
 		D40000000000000000000016 /* SwiftlightReplay */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = SwiftlightReplay; sourceTree = "<group>"; };
+		D40000000000000000000020 /* Packages */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Packages; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +71,7 @@
 			isa = PBXGroup;
 			children = (
 				D40000000000000000000002 /* Sources */,
+				D40000000000000000000020 /* Packages */,
 				B20000000000000000000015 /* App/MobileAssets.xcassets */,
 				E20000000000000000000001 /* App/AppIcon.icns */,
 				E20000000000000000000002 /* App/Swiftlight-macOS.entitlements */,

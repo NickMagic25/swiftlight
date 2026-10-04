@@ -2,16 +2,14 @@
 import PackageDescription
 import Foundation
 
-// A local override keeps package development separate; release builds use the immutable revision.
-let localDecoder = ProcessInfo.processInfo.environment["SWIFTLIGHT_DECODER_PATH"]
-let decoder: Package.Dependency = localDecoder.map { .package(path: $0) } ??
-    .package(url: "https://github.com/NickMagic25/moonlight-apple-decoder.git", revision: "8d92ee039dc19fe50dc0158d5098d4c5646c6a56")
+// The decoder is first-party source in this repository, shared by every app build.
+let decoder: Package.Dependency = .package(path: "Packages/moonlight-apple-decoder")
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let nativeInclude = root + "/.build/dependencies/include"
 let nativeLibrary = root + "/.build/dependencies/lib"
 let nativeMobileInclude = root + "/.build/dependencies/mobile/include"
 // Source pins are verified by bootstrap. The private symbol map also permits
-// comparing a local decoder override that embeds a different PyroWave revision.
+// linking the decoder package, which embeds its own pinned PyroWave revision.
 let pyrowaveSymbols = root + "/Sources/shared/CPyrowaveBridge/Private/PyrowaveSymbols.h"
 let pyrowaveSettings: [CXXSetting] = [
     .unsafeFlags(["-include", pyrowaveSymbols, "-fobjc-arc"]),

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the direct Metal decoder's immutable source without resetting local work."""
+"""Verify both Metal decoder source pins without resetting local work."""
 import json
 from pathlib import Path
 import re
@@ -20,8 +20,7 @@ def initialized(directory):
         return False
 
 
-def main():
-    pin = json.loads((ROOT / "Dependencies/versions.json").read_text())["pyrowave"]
+def verify(pin, label):
     path, revision = pin["path"], pin["revision"]
     checkout = ROOT / path
     if not checkout.resolve().is_relative_to(ROOT) or not re.fullmatch(r"[0-9a-f]{40}", revision):
@@ -29,7 +28,10 @@ def main():
     entry = git(ROOT, "ls-files", "--stage", "--", path).split()
     if len(entry) != 4 or entry[:3] != ["160000", revision, "0"]:
         raise RuntimeError("PyroWave gitlink and Dependencies/versions.json must reference the same revision")
-    url = git(ROOT, "config", "--file", ".gitmodules", "--get", f"submodule.{path}.url")
+    module = pin.get("submodule", path)
+    if git(ROOT, "config", "--file", ".gitmodules", "--get", f"submodule.{module}.path") != path:
+        raise RuntimeError("PyroWave .gitmodules path and Dependencies/versions.json must match")
+    url = git(ROOT, "config", "--file", ".gitmodules", "--get", f"submodule.{module}.url")
     if url != pin["url"]:
         raise RuntimeError("PyroWave .gitmodules URL and Dependencies/versions.json must match")
     if not initialized(checkout):
@@ -42,7 +44,16 @@ def main():
     for required in ["LICENSE", "metal/pyrowave_metal.h", "metal/shaders/pyrowave_msl.h"]:
         if not (checkout / required).is_file():
             raise RuntimeError(f"PyroWave is missing required source: {required}")
-    print(f"PyroWave {revision[:12]}: pristine pinned Metal sources verified (bitstream {pin['bitstream']})")
+    print(f"{label} {revision[:12]}: pristine pinned Metal sources verified (bitstream {pin['bitstream']})")
+
+
+def main():
+    pins = json.loads((ROOT / "Dependencies/versions.json").read_text())
+    for name in ("pyrowave", "decoder-pyrowave"):
+        try:
+            verify(pins[name], name)
+        except (KeyError, RuntimeError, OSError, ValueError, subprocess.CalledProcessError) as error:
+            raise RuntimeError(f"{name}: {error}") from error
 
 
 if __name__ == "__main__":

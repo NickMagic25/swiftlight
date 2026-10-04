@@ -1,0 +1,13 @@
+/build*/
+/.build/
+/.build-*/
+/.swiftpm/
+/.deps/
+/fixtures/generated/
+/results/
+/install/
+*.dSYM/
+
+/.local/
+__pycache__/
+*.py[cod]

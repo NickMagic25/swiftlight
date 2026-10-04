@@ -54,6 +54,8 @@ CASES = [
     ("plist_failure", {"STUB_FAIL_AT": "plutil", "SIGNING_IDENTITY": "-"}, False, None),
     ("homebrew", {"STUB_HOMEBREW": "1", "SIGNING_IDENTITY": "-"}, False, None),
     ("missing_pyrowave_license", {"SIGNING_IDENTITY": "-"}, False, None),
+    ("missing_decoder_license", {"SIGNING_IDENTITY": "-"}, False, None),
+    ("legacy_decoder_override", {"SIGNING_IDENTITY": "-"}, True, "-"),
     ("invalid_configuration", {"CONFIGURATION": "invalid"}, False, None),
     ("first_install", {"SIGNING_IDENTITY": "-"}, True, "-"),
     ("symlink_destination", {"SIGNING_IDENTITY": "-"}, False, None),
@@ -76,7 +78,7 @@ def run_case(root, source, case):
     bootstrap.chmod(0o755)
     for relative in ["App/Info.plist", "App/AppIcon.icns", "LICENSE", ".build/dependencies/licenses/native.txt",
                      "Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt",
-                     ".build/checkouts/moonlight-apple-decoder/LICENSE",
+                     "Packages/moonlight-apple-decoder/LICENSE",
                      "Dependencies/pyrowave/LICENSE", "bin/swiftlight-desktop"]:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,6 +87,13 @@ def run_case(root, source, case):
     pyrowave_license.write_text("PyroWave fixture notice\n")
     if name == "missing_pyrowave_license":
         pyrowave_license.unlink()
+    decoder_license = root / "Packages/moonlight-apple-decoder/LICENSE"
+    decoder_license.write_text("Monorepo decoder notice\n")
+    if name == "missing_decoder_license":
+        decoder_license.unlink()
+    legacy_decoder = root / ".build/checkouts/moonlight-apple-decoder"
+    legacy_decoder.mkdir(parents=True)
+    (legacy_decoder / "LICENSE").write_text("Stale checkout notice\n")
     # A cached product from the old name must never enter the packaged app.
     (root / "bin/Swiftlight").write_text("stale-legacy-binary")
     with (root / "App/Info.plist").open("wb") as destination:
@@ -112,6 +121,8 @@ def run_case(root, source, case):
                if key not in {"SIGNING_IDENTITY", "CONFIGURATION", "SWIFTLIGHT_DECODER_PATH", "RELEASE_TAG", "BUILD_NUMBER"}
                and not key.startswith("STUB_")}
         env.update(extra)
+        if name in {"legacy_decoder_override", "missing_decoder_license"}:
+            env["SWIFTLIGHT_DECODER_PATH"] = str(legacy_decoder)
         env.update(STUB_ROOT=str(root), PATH=str(tools) + ":/usr/bin:/bin:/usr/sbin:/sbin")
         result = subprocess.run(["/bin/bash", str(root / "scripts/build-app.sh")], env=env,
                                 capture_output=True, text=True, timeout=30)
@@ -125,6 +136,8 @@ def run_case(root, source, case):
                     (root / "App/AppIcon.icns").read_bytes(), "Mac icon was not packaged")
             require((app / "Contents/Resources/Licenses/PyroWave.txt").read_bytes() ==
                     pyrowave_license.read_bytes(), "PyroWave submodule notice was not packaged")
+            require((app / "Contents/Resources/Licenses/MoonlightAppleVideo.txt").read_bytes() ==
+                    decoder_license.read_bytes(), "In-repository decoder notice was not packaged")
             builds = [args for command, args in calls if command == "swift" and "--product" in args]
             require(len(builds) == 1 and builds[0][builds[0].index("--product") + 1] == "swiftlight-desktop",
                     "The packager must build the distinct SwiftPM executable product")
@@ -150,9 +163,9 @@ def run_case(root, source, case):
             require(binary.read_text() == "old-fake-binary", "Failure changed the old bundle")
         if old:
             require(old.read() == b"old-fake-binary", "Open old executable contents changed")
-        if name == "missing_pyrowave_license":
+        if name in {"missing_pyrowave_license", "missing_decoder_license"}:
             require(not any(command == "codesign" for command, _ in calls),
-                    "Missing PyroWave notice reached signing")
+                    "Missing dependency notice reached signing")
         require(not list((root / ".build").glob(".Swiftlight-stage.*")), "Staging was not cleaned")
         if "SIGNING_IDENTITY" in extra:
             require(not any(command == "security" for command, _ in calls), "Explicit identity performed automatic lookup")

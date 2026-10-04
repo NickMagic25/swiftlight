@@ -3,7 +3,7 @@
 
 Pattern and encoder parameters adapted from moonlight-apple-decoder's
 scripts/test-av1-accounting.py (GPL-3.0); synthetic pixels are original
-test data. A pinned development-only parser splits complete coded-frame units.
+test data. The development-only parser splits complete coded-frame units.
 """
 import argparse
 import array
@@ -13,6 +13,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+from fixture_source import decoder_provenance
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PIN = "8d92ee039dc19fe50dc0158d5098d4c5646c6a56"
@@ -39,12 +40,14 @@ def source(path, depth):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--decoder", type=pathlib.Path, default=ROOT.parent / "moonlight-apple-decoder")
+    monorepo_decoder = ROOT / "Packages/moonlight-apple-decoder"
+    parser.add_argument("--decoder", type=pathlib.Path, default=monorepo_decoder)
     options = parser.parse_args()
     decoder = options.decoder.resolve()
-    revision = subprocess.check_output(["git", "-C", str(decoder), "rev-parse", "HEAD"], text=True).strip()
-    if revision != PIN:
-        raise SystemExit(f"Expected decoder revision {PIN}, got {revision}")
+    try:
+        decoder_source = decoder_provenance(decoder, monorepo_decoder, PIN)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     encoder = decoder / ".local/aom-build/aomenc"
     with tempfile.TemporaryDirectory(prefix="swiftlight-av1-fixtures-") as temporary:
         temp = pathlib.Path(temporary)
@@ -88,7 +91,7 @@ def main():
                         "expected_internal_samples": len(units), "expected_show_existing": sum(x["existing"] for x in units),
                         "expected_no_display": sum(not x["display"] for x in units),
                         "color": {"primaries": 1, "transfer": 1, "matrix": 1, "full_range": False},
-                        "generator": {"name": "generate-fixtures-accounting.py", "decoder_revision": revision,
+                        "generator": {"name": "generate-fixtures-accounting.py", **decoder_source,
                                       "source_sha256": sha(raw.read_bytes()), "ivf_sha256": sha(data),
                                       "encoder_binary_sha256": sha(encoder.read_bytes()), "encoder_arguments": args[:-2],
                                       "pattern": "48-frame translating stripes, 256x144, constant U100 V140"}}

@@ -13,5 +13,12 @@
     "revision": "56b007143b471def3e41d5e74d10f73dfc8c8df1",
     "url": "https://github.com/NickMagic25/pyrowave.git",
     "bitstream": "186f0393"
+  },
+  "decoder-pyrowave": {
+    "submodule": "decoder-pyrowave",
+    "path": "Packages/moonlight-apple-decoder/Dependencies/pyrowave",
+    "revision": "488564aa2b5ffca0377938c27a1b67fce817c5b9",
+    "url": "https://github.com/NickMagic25/pyrowave.git",
+    "bitstream": "186f0393"
   }
 }
