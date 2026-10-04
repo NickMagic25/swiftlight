@@ -37,6 +37,16 @@ typedef struct {
     uint64_t frame_id, receive_time_us, enqueue_time_us, presentation_time_us;
     uint32_t rtp_timestamp;
     uint64_t receive_uptime_ns, enqueue_uptime_ns;
+    // All milestones are in CLOCK_UPTIME_RAW, with zero meaning unavailable.
+    // Last-required is the accepted packet's userspace RTP-queue entry time,
+    // including parity when FEC recovers data; unavailable for partial frames.
+    uint64_t last_required_packet_uptime_ns, fec_ready_uptime_ns, queue_offer_uptime_ns;
+    // Pull-worker callback handoff, after validation and flattening the AU.
+    uint64_t transport_handoff_uptime_ns;
+    // Exact depacketized AU bytes, excluding RTP/FEC/header overhead. Partial
+    // frames include zero-filled loss placeholders, identified by the flag.
+    uint64_t payload_bytes;
+    bool transport_partial;
     // Tenths of a millisecond. Zero means unavailable/repeated frame, not zero latency.
     uint16_t host_processing_latency_tenths_ms;
     bool is_idr;

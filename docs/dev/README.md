@@ -89,6 +89,7 @@ Direct `swift test`, replay builds and app-source harnesses remain supported too
 
 ## Validation and investigations
 
+- [PyroWave transport receive span, bitrate comparison and sender pacing lead](pyrowave-transport-latency-2026-10-03.md)
 - [PyroWave post-render timing audit and client comparison endpoints](pyrowave-post-render-audit-2026-10-03.md)
 - [PyroWave native validation handoff and current checks](pyrowave-native-validation-2026-10-03.md)
 

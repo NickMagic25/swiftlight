@@ -1,0 +1,180 @@
+--- a/src/Limelight.h
++++ b/src/Limelight.h
+@@ -198,6 +198,22 @@
+     // time the decode unit is passed to submitDecodeUnit(), the total queue delay
+     // can be calculated. This value is in microseconds.
+     uint64_t enqueueTimeUs;
++
++    // Userspace RTP-queue entry time of the accepted packet that made the final
++    // FEC block recoverable, including a parity packet when recovery is needed.
++    // This is not a kernel/wire arrival timestamp. Zero for partial frames whose
++    // missing packets never arrived, or when instrumentation is unavailable.
++    uint64_t lastRequiredPacketReceiveTimeUs;
++
++    // Time all final data buffers were reconstructed/synthesized and ordered,
++    // immediately before whole-frame depacketization. Partial frames use the
++    // same endpoint but do not claim that every required packet arrived.
++    uint64_t fecReadyTimeUs;
++
++    // Sample immediately before offering the assembled unit to the decode queue
++    // (or direct callback). Unlike enqueueTimeUs, this follows HDR/keyframe work.
++    uint64_t queueOfferTimeUs;
++    bool transportPartial;
+ 
+     // Presentation time in microseconds with the epoch at the first captured frame.
+     // This can be used to aid frame pacing or to drop old frames that were queued too
+--- a/src/RtpVideoQueue.h
++++ b/src/RtpVideoQueue.h
+@@ -8,6 +8,10 @@
+     struct _RTPV_QUEUE_ENTRY* prev;
+     PRTP_PACKET packet;
+     uint64_t receiveTimeUs;
++    // Whole-frame milestones, assigned together before depacketization.
++    uint64_t lastRequiredPacketReceiveTimeUs;
++    uint64_t fecReadyTimeUs;
++    bool transportPartial;
+     uint64_t presentationTimeUs;
+     uint32_t rtpTimestamp;
+     int length;
+@@ -27,6 +31,7 @@
+     RTPV_QUEUE_LIST completedFecBlockList;
+ 
+     uint64_t bufferFirstRecvTimeUs;
++    uint64_t bufferLastRecvTimeUs;
+     uint32_t bufferLowestSequenceNumber;
+     uint32_t bufferHighestSequenceNumber;
+     uint32_t bufferFirstParitySequenceNumber;
+--- a/src/RtpVideoQueue.c
++++ b/src/RtpVideoQueue.c
+@@ -530,6 +530,9 @@
+ }
+ 
+ static void submitCompletedFrame(PRTP_VIDEO_QUEUE queue) {
++    // stageCompleteFecBlock() has finished reconstruction/synthesis and ordering
++    // for every block. Sample once per frame before scanning or depacketization.
++    const uint64_t fecReadyTimeUs = PltGetMicroseconds();
+     // Count a delivered partial PyroWave frame as confirmed network loss rather
+     // than complete reassembly, even if its decoder can salvage the remaining data.
+     bool partial = false;
+@@ -543,6 +546,12 @@
+ 
+         // Parity packets should have been removed by stageCompleteFecBlock()
+         LC_ASSERT(!entry->isParity);
++
++        // Copy the same whole-frame milestones into every entry so out-of-order
++        // packets, recovered data and first-packet selection cannot change them.
++        entry->lastRequiredPacketReceiveTimeUs = partial ? 0 : queue->bufferLastRecvTimeUs;
++        entry->fecReadyTimeUs = fecReadyTimeUs;
++        entry->transportPartial = partial;
+ 
+         // Submit this packet for decoding. It will own freeing the entry now.
+         removeEntryFromList(&queue->completedFecBlockList, entry);
+@@ -667,6 +676,9 @@
+ }
+ 
+ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_QUEUE_ENTRY packetEntry) {
++    // One clock read before RTP/FEC processing. Socket delivery, decryption and
++    // scheduling before this entrypoint are not separately observable here.
++    const uint64_t packetReceiveTimeUs = PltGetMicroseconds();
+     if (isBefore16(packet->sequenceNumber, queue->nextContiguousSequenceNumber)) {
+         // Reject packets behind our current buffer window
+         return RTPF_RET_REJECTED;
+@@ -852,7 +864,8 @@
+         // being able to reconstruct a full frame from it.
+         connectionSawFrame(queue->currentFrameNumber);
+ 
+-        queue->bufferFirstRecvTimeUs = PltGetMicroseconds();
++        queue->bufferFirstRecvTimeUs = packetReceiveTimeUs;
++        queue->bufferLastRecvTimeUs = 0;
+         queue->bufferLowestSequenceNumber = U16(packet->sequenceNumber - fecIndex);
+         queue->nextContiguousSequenceNumber = queue->bufferLowestSequenceNumber;
+         queue->receivedDataPackets = 0;
+@@ -895,6 +908,10 @@
+         return RTPF_RET_REJECTED;
+     }
+     else {
++        // Only newly accepted packets advance this milestone. In particular,
++        // duplicates and recovered/synthetic packets do not invent arrivals.
++        queue->bufferLastRecvTimeUs = packetReceiveTimeUs;
++
+         // Update total missing packet count
+         if (queue->pendingFecBlockList.count == 1) {
+             // Initialize counts and highest seqnum on the first packet
+--- a/src/VideoDepacketizer.c
++++ b/src/VideoDepacketizer.c
+@@ -20,6 +20,9 @@
+ static uint64_t syntheticPtsBaseUs;
+ static uint16_t frameHostProcessingLatency;
+ static uint64_t firstPacketReceiveTimeUs;
++static uint64_t lastRequiredPacketReceiveTimeUs;
++static uint64_t fecReadyTimeUs;
++static bool transportPartial;
+ static uint64_t firstPacketPresentationTime;
+ static uint32_t firstPacketRtpTimestamp;
+ static bool dropStatePending;
+@@ -73,6 +76,9 @@
+     syntheticPtsBaseUs = 0;
+     frameHostProcessingLatency = 0;
+     firstPacketReceiveTimeUs = 0;
++    lastRequiredPacketReceiveTimeUs = 0;
++    fecReadyTimeUs = 0;
++    transportPartial = false;
+     firstPacketPresentationTime = 0;
+     firstPacketRtpTimestamp = 0;
+     lastPacketPayloadLength = 0;
+@@ -497,6 +503,9 @@
+             qdu->decodeUnit.presentationTimeUs = firstPacketPresentationTime;
+             qdu->decodeUnit.rtpTimestamp = firstPacketRtpTimestamp;
+             qdu->decodeUnit.enqueueTimeUs = PltGetMicroseconds();
++            qdu->decodeUnit.lastRequiredPacketReceiveTimeUs = lastRequiredPacketReceiveTimeUs;
++            qdu->decodeUnit.fecReadyTimeUs = fecReadyTimeUs;
++            qdu->decodeUnit.transportPartial = transportPartial;
+             qdu->decodeUnit.pyrowaveCriticalPackets = pyrowaveCriticalPackets;
+ 
+             // These might be wrong for a few frames during a transition between SDR and HDR,
+@@ -520,6 +529,7 @@
+             nalChainDataLength = 0;
+ 
+             if ((VideoCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0) {
++                qdu->decodeUnit.queueOfferTimeUs = PltGetMicroseconds();
+                 if (LbqOfferQueueItem(&decodeUnitQueue, qdu, &qdu->entry) == LBQ_BOUND_EXCEEDED) {
+                     Limelog("Video decode unit queue overflow\n");
+ 
+@@ -545,6 +555,7 @@
+             else {
+                 // Submit the frame to the decoder
+                 validateDecodeUnitForPlayback(&qdu->decodeUnit);
++                qdu->decodeUnit.queueOfferTimeUs = PltGetMicroseconds();
+                 LiCompleteVideoFrame(qdu, VideoCallbacks.submitDecodeUnit(&qdu->decodeUnit));
+             }
+ 
+@@ -757,7 +768,8 @@
+ // A lost payload is a zero-filled stand-in from the RtpVideoQueue (PyroWave only)
+ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
+                        uint64_t receiveTimeUs, uint64_t presentationTimeUs, uint32_t rtpTimestamp,
+-                       bool lost, PLENTRY_INTERNAL* existingEntry) {
++                       uint64_t lastRequiredReceiveTimeUs, uint64_t frameFecReadyTimeUs,
++                       bool partial, bool lost, PLENTRY_INTERNAL* existingEntry) {
+     BUFFER_DESC currentPos;
+     uint32_t frameIndex;
+     uint8_t flags;
+@@ -842,6 +854,9 @@
+         decodingFrame = true;
+         frameType = FRAME_TYPE_PFRAME;
+         firstPacketReceiveTimeUs = receiveTimeUs;
++        lastRequiredPacketReceiveTimeUs = lastRequiredReceiveTimeUs;
++        fecReadyTimeUs = frameFecReadyTimeUs;
++        transportPartial = partial;
+ 
+         // Some versions of Sunshine don't send a valid PTS, so we will
+         // synthesize one using the receive time as the time base.
+@@ -1217,6 +1232,9 @@
+                       queueEntry.receiveTimeUs,
+                       queueEntry.presentationTimeUs,
+                       queueEntry.rtpTimestamp,
++                      queueEntry.lastRequiredPacketReceiveTimeUs,
++                      queueEntry.fecReadyTimeUs,
++                      queueEntry.transportPartial,
+                       queueEntry.isLost,
+                       &existingEntry);
+ 

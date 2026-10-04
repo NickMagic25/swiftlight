@@ -15,6 +15,10 @@ CONNECTION_LISTENER_CALLBACKS ListenerCallbacks = {.logMessage = discard_log};
 static bool enable_speculation;
 static unsigned speculative_notifications, confirmed_notifications, submitted_packets;
 static unsigned submitted_lost_packets;
+static uint32_t submitted_frame;
+static uint64_t submitted_last_required_us, submitted_fec_ready_us;
+static bool submitted_partial;
+static unsigned submitted_partial_frames;
 static uint64_t tick = 1000000;
 uint64_t PltGetMicroseconds(void) { return ++tick; }
 bool isReferenceFrameInvalidationEnabled(void) { return enable_speculation; }
@@ -26,6 +30,22 @@ void notifyFrameLost(unsigned frame, bool speculative) {
 }
 void queueRtpPacket(PRTPV_QUEUE_ENTRY entry) {
     ++submitted_packets;
+    const PNV_VIDEO_PACKET nv = (PNV_VIDEO_PACKET)((char *)entry->packet + MAX_RTP_HEADER_SIZE);
+    CHECK(entry->fecReadyTimeUs > entry->receiveTimeUs);
+    if (entry->transportPartial) CHECK(entry->lastRequiredPacketReceiveTimeUs == 0);
+    else CHECK(entry->lastRequiredPacketReceiveTimeUs >= entry->receiveTimeUs &&
+               entry->lastRequiredPacketReceiveTimeUs < entry->fecReadyTimeUs);
+    if (submitted_packets == 1 || submitted_frame != nv->frameIndex) {
+        submitted_frame = nv->frameIndex;
+        submitted_last_required_us = entry->lastRequiredPacketReceiveTimeUs;
+        submitted_fec_ready_us = entry->fecReadyTimeUs;
+        submitted_partial = entry->transportPartial;
+        submitted_partial_frames += entry->transportPartial;
+    }
+    else {
+        CHECK(submitted_last_required_us == entry->lastRequiredPacketReceiveTimeUs);
+        CHECK(submitted_fec_ready_us == entry->fecReadyTimeUs && submitted_partial == entry->transportPartial);
+    }
     if (entry->isLost) {
         ++submitted_lost_packets;
         const uint8_t *payload = (const uint8_t *)entry->packet + MAX_RTP_HEADER_SIZE + sizeof(NV_VIDEO_PACKET);
@@ -64,6 +84,8 @@ static void reset(PRTP_VIDEO_QUEUE queue) {
     RtpvCleanupQueue(queue); RtpvInitializeQueue(queue);
     enable_speculation = false; speculative_notifications = confirmed_notifications = submitted_packets = 0;
     submitted_lost_packets = 0;
+    submitted_partial_frames = 0;
+    submitted_frame = 0; submitted_last_required_us = submitted_fec_ready_us = 0; submitted_partial = false;
     outcome(queue, 0, 0);
 }
 typedef struct { PRTP_VIDEO_QUEUE queue; _Atomic bool done; } SnapshotRace;
@@ -96,7 +118,20 @@ int main(void) {
     send_packet(&q, 5, 9, 0, 1, 0, 0); outcome(&q, 1, 4);
     reset(&q); enable_speculation = true;
     send_packet(&q, 1, 1, 1, 2, 0, 0); outcome(&q, 0, 0); CHECK(speculative_notifications == 1);
+    const uint64_t reordered_decisive_time = tick + 1;
     send_packet(&q, 1, 1, 0, 2, 0, 0); outcome(&q, 1, 0); CHECK(submitted_packets == 2); // OOS recovery
+    CHECK(submitted_last_required_us == reordered_decisive_time);
+    reset(&q);
+    // Finished early blocks wait for the final block, with every packet carrying
+    // the final frame's decisive receipt and post-FEC readiness timestamps.
+    send_packet(&q, 1, 1, 0, 1, 0, 1); CHECK(submitted_packets == 0);
+    tick += 7000;
+    send_packet(&q, 1, 2, 0, 2, 1, 1);
+    const uint64_t before_duplicate = q.bufferLastRecvTimeUs;
+    send_packet(&q, 1, 2, 0, 2, 1, 1); CHECK(q.bufferLastRecvTimeUs == before_duplicate);
+    const uint64_t multiblock_decisive_time = tick + 1;
+    send_packet(&q, 1, 2, 1, 2, 1, 1); outcome(&q, 1, 0); CHECK(submitted_packets == 3);
+    CHECK(submitted_last_required_us == multiblock_decisive_time && !submitted_partial);
     reset(&q); enable_speculation = true;
     send_packet(&q, 1, 1, 1, 2, 0, 0);
     send_packet(&q, 2, 3, 0, 1, 0, 0); outcome(&q, 1, 1);
@@ -110,8 +145,11 @@ int main(void) {
     PNV_VIDEO_PACKET parity_nv = (PNV_VIDEO_PACKET)(shards[2] + MAX_RTP_HEADER_SIZE);
     parity_nv->frameIndex = 1; parity_nv->multiFecFlags = 0x10; parity_nv->multiFecBlocks = 0;
     parity_nv->fecInfo = (2 << 22) | (2 << 12) | (50 << 4);
-    free(shards[1]); ingest(&q, shards[0]); ingest(&q, shards[2]);
+    free(shards[1]); ingest(&q, shards[0]);
+    const uint64_t parity_decisive_time = tick + 1;
+    ingest(&q, shards[2]);
     outcome(&q, 1, 0); CHECK(submitted_packets == 2); // actual Reed-Solomon packet recovery
+    CHECK(submitted_last_required_us == parity_decisive_time && !submitted_partial);
     reset(&q);
     // The queue's normal uint32 frame-number progression wraps without inventing loss.
     q.currentFrameNumber = UINT32_MAX;
@@ -125,6 +163,7 @@ int main(void) {
     send_packet(&q, 1, 1, 0, 3, 0, 0); send_packet(&q, 1, 1, 2, 3, 0, 0);
     send_packet(&q, 2, 4, 0, 1, 0, 0);
     outcome(&q, 1, 1); CHECK(submitted_packets == 4 && submitted_lost_packets == 1);
+    CHECK(submitted_partial_frames == 1 && !submitted_partial); // next frame cannot inherit partial state
     CHECK(speculative_notifications == 0 && confirmed_notifications == 0);
     reset(&q);
     // A missing first packet cannot be synthesized: it carries the sequence/frame header.
@@ -135,10 +174,11 @@ int main(void) {
     send_packet(&q, 1, 1, 0, 3, 0, 1); send_packet(&q, 1, 1, 2, 3, 0, 1);
     send_packet(&q, 1, 4, 0, 1, 1, 1);
     outcome(&q, 0, 1); CHECK(submitted_packets == 4 && submitted_lost_packets == 1);
+    CHECK(submitted_partial_frames == 1 && submitted_partial && submitted_last_required_us == 0);
     reset(&q);
     // A whole missing block has no announced packet count and still drops the frame.
     send_packet(&q, 1, 1, 0, 1, 0, 2); send_packet(&q, 1, 3, 0, 1, 2, 2);
     outcome(&q, 0, 1); CHECK(submitted_packets == 0 && submitted_lost_packets == 0);
     reset(&q); RtpvCleanupQueue(&q);
-    puts("{\"status\":\"PASS\",\"rtp_loss_scenarios\":8,\"pyrowave_partial_frame_scenarios\":4,\"concurrent_frame_outcomes\":100000,\"real_reed_solomon_recovery\":true,\"host_used\":false}");
+    puts("{\"status\":\"PASS\",\"rtp_loss_scenarios\":9,\"pyrowave_partial_frame_scenarios\":4,\"transport_timing_reorder_parity_multiblock_partial\":true,\"concurrent_frame_outcomes\":100000,\"real_reed_solomon_recovery\":true,\"host_used\":false}");
 }

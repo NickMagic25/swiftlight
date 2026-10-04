@@ -82,6 +82,9 @@ public struct CompressedVideoFrame: Sendable {
     public let rtpTimestamp: UInt32
     /// Exact CLOCK_UPTIME_RAW domain used by mav_monotonic_time_ns, rounded down by <1us.
     public let receiveUptimeNanoseconds, enqueueUptimeNanoseconds: UInt64
+    public let lastRequiredPacketUptimeNanoseconds, fecReadyUptimeNanoseconds: UInt64
+    public let queueOfferUptimeNanoseconds, handoffUptimeNanoseconds, payloadBytes: UInt64
+    public let transportPartial: Bool
     /// Host capture/processing duration reported in 0.1 ms ticks. Repeated frames or
     /// hosts without this extension return nil, rather than a fabricated zero.
     public let hostProcessingLatencyMilliseconds: Double?
@@ -96,11 +99,19 @@ public struct CompressedVideoFrame: Sendable {
                 receiveUptimeNanoseconds: UInt64, enqueueUptimeNanoseconds: UInt64,
                 hostProcessingLatencyMilliseconds: Double?, isIDR: Bool,
                 pyrowaveFragments: [PyrowaveFragment] = [], pyrowaveCriticalPackets: UInt16 = 0,
-                hdrActive: Bool = false, hdrMetadata: TransportHDRMetadata? = nil) {
+                hdrActive: Bool = false, hdrMetadata: TransportHDRMetadata? = nil,
+                lastRequiredPacketUptimeNanoseconds: UInt64 = 0, fecReadyUptimeNanoseconds: UInt64 = 0,
+                queueOfferUptimeNanoseconds: UInt64 = 0, handoffUptimeNanoseconds: UInt64 = 0,
+                payloadBytes: UInt64 = 0, transportPartial: Bool = false) {
         self.data = data; self.frameID = frameID; self.receiveTimeUs = receiveTimeUs
         self.enqueueTimeUs = enqueueTimeUs; self.presentationTimeUs = presentationTimeUs
         self.rtpTimestamp = rtpTimestamp; self.receiveUptimeNanoseconds = receiveUptimeNanoseconds
         self.enqueueUptimeNanoseconds = enqueueUptimeNanoseconds
+        self.lastRequiredPacketUptimeNanoseconds = lastRequiredPacketUptimeNanoseconds
+        self.fecReadyUptimeNanoseconds = fecReadyUptimeNanoseconds
+        self.queueOfferUptimeNanoseconds = queueOfferUptimeNanoseconds
+        self.handoffUptimeNanoseconds = handoffUptimeNanoseconds
+        self.payloadBytes = payloadBytes; self.transportPartial = transportPartial
         self.hostProcessingLatencyMilliseconds = hostProcessingLatencyMilliseconds; self.isIDR = isIDR
         self.pyrowaveFragments = pyrowaveFragments; self.pyrowaveCriticalPackets = pyrowaveCriticalPackets
         self.hdrActive = hdrActive; self.hdrMetadata = hdrMetadata
@@ -212,7 +223,11 @@ public final class StreamTransport: @unchecked Sendable {
                 enqueueUptimeNanoseconds: f.enqueue_uptime_ns,
                 hostProcessingLatencyMilliseconds: f.host_processing_latency_tenths_ms == 0 ? nil : Double(f.host_processing_latency_tenths_ms) / 10,
                 isIDR: f.is_idr, pyrowaveFragments: fragments, pyrowaveCriticalPackets: f.pyrowave_critical_packets,
-                hdrActive: f.hdr_active, hdrMetadata: f.hdr_metadata_valid ? TransportHDRMetadata(f.hdr_metadata) : nil)
+                hdrActive: f.hdr_active, hdrMetadata: f.hdr_metadata_valid ? TransportHDRMetadata(f.hdr_metadata) : nil,
+                lastRequiredPacketUptimeNanoseconds: f.last_required_packet_uptime_ns,
+                fecReadyUptimeNanoseconds: f.fec_ready_uptime_ns,
+                queueOfferUptimeNanoseconds: f.queue_offer_uptime_ns, handoffUptimeNanoseconds: f.transport_handoff_uptime_ns,
+                payloadBytes: f.payload_bytes, transportPartial: f.transport_partial)
             return callbacks.video(frame) ? 0 : -1
         }
         cCallbacks.event = { context, kind, a, b, c, message in

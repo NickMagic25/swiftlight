@@ -75,6 +75,13 @@ timing records are joined by submission identity without retaining media resourc
 `pendingPresentation` counts submitted drawables awaiting a presentation callback;
 `completedAwaitingPresentation` is the subset whose command-completion callback arrived.
 `unconfirmedPresentation` counts callbacks without a usable positive timestamp.
+Optional `renderSubmissionID` identifies the same renderer submission in both
+populations. `drawableID` is the public Metal drawable identifier, scoped to its
+CAMetalLayer; zero is valid. Offscreen submissions omit it. Neither scalar is a
+media pointer or a verified match to an Instruments surface/frame identifier.
+An overlapping trace must establish that mapping before comparing endpoints.
+Older reports omit both fields.
+
 The join is bounded to 1,024 submissions; `presentationTimingJoinEvictions` reports
 discarded diagnostic entries, not dropped video frames. Independent completion
 records remain available when presentation is unconfirmed or the join is evicted.
@@ -83,6 +90,37 @@ Use `completedFrameTimings` to inspect work through GPU completion when display
 timestamps are unavailable. GPU completion cannot substitute for presentation.
 Likewise, subtracting independent timing-window averages does not establish a
 same-frame stage duration. Use the joined `presentationTimings` fields for that.
+
+Both populations also carry optional `transportStages` from that exact admitted
+access unit. Its `payloadBytes` counts depacketized compressed bytes, excluding
+RTP, FEC parity and tunnel overhead. `partialFrame` identifies units containing
+synthesized loss placeholders; their byte count is not received wire bytes and
+their last-required-packet timestamp remains unavailable. The optional raw
+timestamps use the decoder's `CLOCK_UPTIME_RAW` domain:
+
+- `firstPacketNanoseconds` → `lastRequiredPacketNanoseconds`: first accepted
+  packet to the decisive accepted data/parity packet at userspace RTP entry.
+  This includes delivery, receiver scheduling and earlier-block FEC work, and
+  must not be called pure network transit or kernel-arrival time.
+- `lastRequiredPacketNanoseconds` → `fecReadyNanoseconds`: final-block recovery
+  and ordering until the complete frame is ready for depacketization.
+- `fecReadyNanoseconds` → `enqueueNanoseconds`: whole-frame depacketization
+  through the existing access-unit creation timestamp.
+- `enqueueNanoseconds` → `queueOfferNanoseconds`: assembly finalization through
+  the sample immediately before decode-queue offer.
+- `queueOfferNanoseconds` → `handoffNanoseconds`: queue residence, pull-worker
+  scheduling, validation and flattening until the Swift callback handoff.
+- `handoffNanoseconds` → `admissionNanoseconds`: Swift byte/sideband acquisition
+  and decoder-worker dispatch until native admission.
+
+The corresponding `firstPacketToLastRequiredPacketMilliseconds`,
+`lastRequiredPacketToFECReadyMilliseconds`, `fecReadyToEnqueueMilliseconds`,
+`enqueueToQueueOfferMilliseconds`, `queueOfferToHandoffMilliseconds` and
+`handoffToAdmissionMilliseconds` add to `firstPacketToAdmissionMilliseconds`
+only on complete, valid records. Missing/zero, out-of-span or reversed stages
+remain unavailable. Earlier schema-5 reports omit this object; their coarse
+packet-to-availability measurement is unchanged. These bounded scalar additions
+contain no media, addresses, packet contents or remote identities.
 
 Both populations can include an optional `decodeStages` object from that decoded
 frame's completion. This is an additive schema-5 field; older reports and native

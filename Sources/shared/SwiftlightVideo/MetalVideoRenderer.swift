@@ -117,7 +117,14 @@ public struct FramePresentationTiming: Codable, Sendable {
     public let frameID: UInt64
     public let generation: UInt64
     public let callbackNanoseconds: UInt64
+    /// Renderer-local submission counter, shared with GPUFrameTiming. Redraws
+    /// have distinct values; this is not a system trace or command-buffer ID.
+    public let renderSubmissionID: UInt64?
+    /// MTLDrawable.drawableID, incremented by its CAMetalLayer starting at zero.
+    /// Layer-local only; correspondence to a trace's surface/frame IDs is unverified.
+    public let drawableID: UInt64?
     public let decodeStages: DecodeStageTiming?
+    public let transportStages: TransportStageTiming?
     public let decodeGPUEndToRenderStartMilliseconds: Double?
     public let decodeGPUToRenderCalibrationUncertaintyNanoseconds: UInt64?
     public let actualPresentationNanoseconds: UInt64
@@ -174,7 +181,13 @@ public struct GPUFrameTiming: Codable, Sendable {
     public let frameID: UInt64
     public let generation: UInt64
     public let callbackNanoseconds: UInt64
+    /// Renderer-local submission counter, including offscreen renders and redraws.
+    /// A matching presentation record carries the same value, not a trace ID.
+    public let renderSubmissionID: UInt64?
+    /// Layer-local MTLDrawable.drawableID; zero is valid, nil means no drawable.
+    public let drawableID: UInt64?
     public let decodeStages: DecodeStageTiming?
+    public let transportStages: TransportStageTiming?
     public let decodeGPUEndToRenderStartMilliseconds: Double?
     public let decodeGPUToRenderCalibrationUncertaintyNanoseconds: UInt64?
     public let succeeded: Bool
@@ -214,7 +227,8 @@ public struct GPUFrameTiming: Codable, Sendable {
             return (end - start) * 1000
         }
         frameID = frame.frameID; generation = frame.generation; callbackNanoseconds = frame.callbackNanoseconds
-        decodeStages = frame.decodeStages
+        renderSubmissionID = submission.renderSubmissionID; drawableID = submission.drawableID
+        decodeStages = frame.decodeStages; transportStages = frame.transportStages
         self.succeeded = succeeded
         selectedAtSeconds = valid(submission.surface?.selectedAtSeconds)
         let renderStart = valid(submission.renderStartSeconds)
@@ -284,23 +298,24 @@ struct FramePresentationMetadata: Sendable {
     let admissionNanoseconds: UInt64
     let vtSubmitNanoseconds: UInt64
     let decodeStages: DecodeStageTiming?
+    let transportStages: TransportStageTiming?
     let hostProcessingMilliseconds: Double?
     init(_ frame: DecodedFrame) {
         frameID = frame.id; generation = frame.generation; callbackNanoseconds = frame.callbackNanoseconds
         firstPacketNanoseconds = frame.firstPacketNanoseconds; hostProcessingMilliseconds = frame.hostProcessingMilliseconds
         scheduledArrivalNanoseconds = frame.scheduledArrivalNanoseconds
         admissionNanoseconds = frame.admissionNanoseconds; vtSubmitNanoseconds = frame.vtSubmitNanoseconds
-        decodeStages = frame.decodeStages
+        decodeStages = frame.decodeStages; transportStages = frame.transportStages
     }
     init(frameID: UInt64, generation: UInt64 = 0, callbackNanoseconds: UInt64,
          firstPacketNanoseconds: UInt64, hostProcessingMilliseconds: Double? = nil,
          scheduledArrivalNanoseconds: UInt64 = 0, admissionNanoseconds: UInt64 = 0, vtSubmitNanoseconds: UInt64 = 0,
-         decodeStages: DecodeStageTiming? = nil) {
+         decodeStages: DecodeStageTiming? = nil, transportStages: TransportStageTiming? = nil) {
         self.frameID = frameID; self.generation = generation; self.callbackNanoseconds = callbackNanoseconds
         self.firstPacketNanoseconds = firstPacketNanoseconds; self.hostProcessingMilliseconds = hostProcessingMilliseconds
         self.scheduledArrivalNanoseconds = scheduledArrivalNanoseconds
         self.admissionNanoseconds = admissionNanoseconds; self.vtSubmitNanoseconds = vtSubmitNanoseconds
-        self.decodeStages = decodeStages
+        self.decodeStages = decodeStages; self.transportStages = transportStages
     }
 }
 
@@ -308,6 +323,8 @@ struct FrameRenderSubmissionMetadata: Sendable {
     let surface: PresentationSubmissionTiming?
     let renderStartSeconds: Double
     var commitSeconds: Double?
+    var renderSubmissionID: UInt64? = nil
+    var drawableID: UInt64? = nil
     var scheduledCallbackSeconds: Double? = nil
     var kernelStartSeconds: Double? = nil
     var kernelEndSeconds: Double? = nil
@@ -353,8 +370,16 @@ struct PresentationTimingJoiner {
         entries.values.filter { $0.presentation == nil && $0.submission.completedCallbackSeconds != nil }.count
     }
 
-    mutating func begin(_ frame: FramePresentationMetadata, submission: FrameRenderSubmissionMetadata) -> UInt64 {
+    /// Offscreen/simulator submissions reserve identities without creating joins.
+    mutating func reserveSubmissionID() -> UInt64 {
         let id = nextID; nextID &+= 1
+        return id
+    }
+
+    mutating func begin(_ frame: FramePresentationMetadata, submission: FrameRenderSubmissionMetadata) -> UInt64 {
+        let id = reserveSubmissionID()
+        var submission = submission
+        submission.renderSubmissionID = id
         let index = Int(id % 1024)
         if let old = slots[index], let removed = entries.removeValue(forKey: old) {
             evictions += 1
@@ -447,7 +472,9 @@ struct PresentationTimingWindow {
             calibration.map { native + $0.uncertaintyNanoseconds }
         }
         let sample = FramePresentationTiming(frameID: frame.frameID, generation: frame.generation,
-            callbackNanoseconds: frame.callbackNanoseconds, decodeStages: frame.decodeStages,
+            callbackNanoseconds: frame.callbackNanoseconds,
+            renderSubmissionID: submission?.renderSubmissionID, drawableID: submission?.drawableID,
+            decodeStages: frame.decodeStages, transportStages: frame.transportStages,
             decodeGPUEndToRenderStartMilliseconds: decodeGPUToRender,
             decodeGPUToRenderCalibrationUncertaintyNanoseconds: decodeGPUUncertainty,
             actualPresentationNanoseconds: actual,
@@ -692,6 +719,14 @@ public final class MetalVideoRenderer: @unchecked Sendable {
                 submissionTiming: PresentationSubmissionTiming? = nil,
                 renderStartSeconds: Double? = nil) throws -> Bool {
         let renderStart = renderStartSeconds ?? CACurrentMediaTime()
+        // API getters may synchronize with Core Animation. Read before either
+        // renderer lock, and retain only the scalar (zero is a valid drawable ID).
+        #if targetEnvironment(simulator)
+        // Simulator Metal omits the drawable identity/presentation APIs.
+        let drawableID: UInt64? = nil
+        #else
+        let drawableID = drawable.map { UInt64($0.drawableID) }
+        #endif
         encodingLock.lock()
         var encodingLocked = true
         defer { if encodingLocked { encodingLock.unlock() } }
@@ -841,7 +876,7 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         encoder.endEncoding()
         let frameTiming = FramePresentationMetadata(frame)
         let gpuStamp = GPUFrameSubmissionStamp(FrameRenderSubmissionMetadata(surface: submissionTiming,
-            renderStartSeconds: renderStart, commitSeconds: nil))
+            renderStartSeconds: renderStart, commitSeconds: nil, drawableID: drawableID))
         lock.lock()
         counters.submitted += 1; counters.inFlight += 1; counters.inFlightHighWater = max(counters.inFlightHighWater, counters.inFlight)
         if frameOverlay != nil { counters.overlayDraws += 1 }
@@ -853,6 +888,7 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         #else
         let presentationID = drawable == nil ? nil : presentationJoiner.begin(frameTiming, submission: gpuStamp.timing)
         #endif
+        gpuStamp.timing.renderSubmissionID = presentationID ?? presentationJoiner.reserveSubmissionID()
         lock.unlock()
         idle.enter()
         // Preserve command ordering for concurrent callers before releasing encoding

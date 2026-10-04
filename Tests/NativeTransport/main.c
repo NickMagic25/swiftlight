@@ -61,6 +61,8 @@ static void depacketize_pyrowave_packet(unsigned frame, unsigned index, uint8_t 
     }
     PRTPV_QUEUE_ENTRY entry = (PRTPV_QUEUE_ENTRY)(storage + storage_length);
     *entry = (RTPV_QUEUE_ENTRY) { .packet = rtp, .receiveTimeUs = 1000 + index,
+        .lastRequiredPacketReceiveTimeUs = frame == 1 ? 0 : 1500 + frame,
+        .fecReadyTimeUs = 2000 + frame, .transportPartial = frame == 1,
         .presentationTimeUs = frame * 8333, .rtpTimestamp = rtp->timestamp,
         .length = MAX_RTP_HEADER_SIZE + sizeof(NV_VIDEO_PACKET) + payload_length, .isLost = lost };
     queueRtpPacket(entry);
@@ -82,6 +84,8 @@ static void validate_pyrowave_depacketizer(void) {
     VIDEO_FRAME_HANDLE handle; PDECODE_UNIT du;
     CHECK(LiPollNextVideoFrame(&handle, &du));
     CHECK(du->fullLength == 95 && du->pyrowaveCriticalPackets == 1 && du->frameType == FRAME_TYPE_IDR);
+    CHECK(du->lastRequiredPacketReceiveTimeUs == 0 && du->fecReadyTimeUs == 2001 && du->transportPartial);
+    CHECK(du->queueOfferTimeUs >= du->enqueueTimeUs && du->queueOfferTimeUs != 0);
     CHECK(du->hdrActive && du->hdrMetadataValid && !memcmp(&du->hdrMetadata, &metadata, sizeof(metadata)));
     PLENTRY entry = du->bufferList;
     CHECK(entry && entry->length == 40 && entry->bufferType == BUFFER_TYPE_RECORD_START);
@@ -95,6 +99,8 @@ static void validate_pyrowave_depacketizer(void) {
     depacketize_pyrowave_packet(3, 4, FLAG_SOF | FLAG_EOF | FLAG_CONTAINS_PIC_DATA, 16, false, true);
     CHECK(LiPollNextVideoFrame(&handle, &du)); CHECK(du->fullLength == 8 && du->frameNumber == 3);
     CHECK(!du->hdrActive && !du->hdrMetadataValid);
+    CHECK(du->lastRequiredPacketReceiveTimeUs == 1503 && du->fecReadyTimeUs == 2003 && !du->transportPartial);
+    CHECK(du->queueOfferTimeUs >= du->enqueueTimeUs && du->queueOfferTimeUs != 0);
     LiCompleteVideoFrame(handle, DR_OK);
     stopVideoDepacketizer(); destroyVideoDepacketizer();
 }

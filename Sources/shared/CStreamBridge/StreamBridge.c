@@ -175,6 +175,11 @@ static int consume_frame(SFStream *s, VIDEO_FRAME_HANDLE handle, PDECODE_UNIT du
                 .rtp_timestamp = du->rtpTimestamp,
                 .receive_uptime_ns = du->receiveTimeUs ? sf_common_clock_epoch_ns() + du->receiveTimeUs * 1000 : 0,
                 .enqueue_uptime_ns = du->enqueueTimeUs ? sf_common_clock_epoch_ns() + du->enqueueTimeUs * 1000 : 0,
+                .last_required_packet_uptime_ns = du->lastRequiredPacketReceiveTimeUs ?
+                    sf_common_clock_epoch_ns() + du->lastRequiredPacketReceiveTimeUs * 1000 : 0,
+                .fec_ready_uptime_ns = du->fecReadyTimeUs ? sf_common_clock_epoch_ns() + du->fecReadyTimeUs * 1000 : 0,
+                .queue_offer_uptime_ns = du->queueOfferTimeUs ? sf_common_clock_epoch_ns() + du->queueOfferTimeUs * 1000 : 0,
+                .payload_bytes = copied, .transport_partial = du->transportPartial,
                 .host_processing_latency_tenths_ms = du->frameHostProcessingLatency,
                 .is_idr = du->frameType == FRAME_TYPE_IDR,
                 .pyrowave_fragments = pyrowave ? s->frame_fragments : NULL,
@@ -182,6 +187,7 @@ static int consume_frame(SFStream *s, VIDEO_FRAME_HANDLE handle, PDECODE_UNIT du
                 .pyrowave_critical_packets = pyrowave ? du->pyrowaveCriticalPackets : 0,
                 .hdr_active = du->hdrActive, .hdr_metadata_valid = du->hdrMetadataValid,
                 .hdr_metadata = hdr_metadata_value(&du->hdrMetadata) };
+            frame.transport_handoff_uptime_ns = sf_common_clock_epoch_ns() + PltGetMicroseconds() * 1000;
             result = s->callbacks.video(s->context, &frame) == DR_OK ? DR_OK : DR_NEED_IDR;
         }
     }
@@ -562,6 +568,14 @@ static int test_submit_queued_frame(void *context, const SFVideoFrame *frame) {
         memcmp(frame->bytes, queue->payloads[index], frame->length) ||
         frame->receive_time_us != queue->units[index].receiveTimeUs ||
         frame->enqueue_time_us != queue->units[index].enqueueTimeUs ||
+        frame->last_required_packet_uptime_ns != (queue->units[index].lastRequiredPacketReceiveTimeUs ?
+            sf_common_clock_epoch_ns() + queue->units[index].lastRequiredPacketReceiveTimeUs * 1000 : 0) ||
+        frame->fec_ready_uptime_ns != (queue->units[index].fecReadyTimeUs ?
+            sf_common_clock_epoch_ns() + queue->units[index].fecReadyTimeUs * 1000 : 0) ||
+        frame->queue_offer_uptime_ns != (queue->units[index].queueOfferTimeUs ?
+            sf_common_clock_epoch_ns() + queue->units[index].queueOfferTimeUs * 1000 : 0) ||
+        frame->transport_handoff_uptime_ns < sf_common_clock_epoch_ns() ||
+        frame->payload_bytes != frame->length || frame->transport_partial != queue->units[index].transportPartial ||
         frame->rtp_timestamp != queue->units[index].rtpTimestamp ||
         frame->pyrowave_fragment_count != (queue->expect_pyrowave ? 1u : 0u) ||
         (frame->pyrowave_fragments != NULL) != queue->expect_pyrowave) return DR_NEED_IDR;
@@ -595,6 +609,14 @@ bool sf_stream_validate_pyrowave_queue_ownership(void) {
             queue.units[i] = (DECODE_UNIT){.bufferList = &queue.entries[i], .fullLength = 8,
                 .frameNumber = i + 1, .frameType = FRAME_TYPE_IDR, .receiveTimeUs = 1000000 + i * 6000,
                 .enqueueTimeUs = 1000500 + i * 6000, .rtpTimestamp = 540 * (i + 1)};
+            // Mix unavailable, complete and partial transport samples. Queue
+            // replacement must keep this metadata attached to the selected AU.
+            if (i % 3) {
+                queue.units[i].transportPartial = i % 3 == 2;
+                queue.units[i].lastRequiredPacketReceiveTimeUs = i % 3 == 1 ? 1000300 + i * 6000 : 0;
+                queue.units[i].fecReadyTimeUs = 1000400 + i * 6000;
+                queue.units[i].queueOfferTimeUs = 1000600 + i * 6000;
+            }
             handles[i] = (TestQueuedFrame){.queue = &queue, .index = i};
         }
         if (scenario == 5) atomic_store(&s.video_stopping, true);

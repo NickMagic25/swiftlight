@@ -39,6 +39,26 @@
             "target": "swiftlight-replay",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release swiftlight-replay"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swiftlight}",
+            "name": "Debug swiftlight-desktop",
+            "target": "swiftlight-desktop",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug swiftlight-desktop"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swiftlight}",
+            "name": "Release swiftlight-desktop",
+            "target": "swiftlight-desktop",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release swiftlight-desktop"
         }
     ]
 }

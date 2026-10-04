@@ -37,17 +37,19 @@ public struct CompressedFrame: Sendable {
     /// These timestamps MUST already be in mav_monotonic_time_ns's clock domain.
     public var arrivalNanoseconds: UInt64
     public var firstPacketNanoseconds: UInt64
+    public var transportTiming: TransportFrameTiming?
     /// Optional host-reported duration, not a timestamp in the host's clock domain.
     public var hostProcessingMilliseconds: Double?
     public var pyrowaveFragments: [PyrowavePacketFragment]
     public var pyrowaveCriticalPackets: UInt32
     public var color: VideoColor?
     public init(bytes: Data, id: UInt64, presentationTimeNanoseconds: Int64 = 0, randomAccess: Bool = false,
-                arrivalNanoseconds: UInt64 = 0, firstPacketNanoseconds: UInt64 = 0,
+                arrivalNanoseconds: UInt64 = 0, firstPacketNanoseconds: UInt64 = 0, transportTiming: TransportFrameTiming? = nil,
                 hostProcessingMilliseconds: Double? = nil,
                 pyrowaveFragments: [PyrowavePacketFragment] = [], pyrowaveCriticalPackets: UInt32 = 0, color: VideoColor? = nil) {
         self.bytes = bytes; self.id = id; self.presentationTimeNanoseconds = presentationTimeNanoseconds
         self.randomAccess = randomAccess; self.arrivalNanoseconds = arrivalNanoseconds; self.firstPacketNanoseconds = firstPacketNanoseconds
+        self.transportTiming = transportTiming
         self.hostProcessingMilliseconds = hostProcessingMilliseconds
         self.pyrowaveFragments = pyrowaveFragments; self.pyrowaveCriticalPackets = pyrowaveCriticalPackets
         self.color = color
@@ -254,6 +256,7 @@ public final class DecodedFrame: @unchecked Sendable {
     /// Single-sample decode only; zero for aggregate or show-existing completions.
     public let vtSubmitNanoseconds: UInt64
     public let decodeStages: DecodeStageTiming?
+    public let transportStages: TransportStageTiming?
     public let hostProcessingMilliseconds: Double?
     public let hardwareAccelerated: Bool
     /// Visible source pixels, with top-left origin to match input coordinates and Metal.
@@ -273,23 +276,23 @@ public final class DecodedFrame: @unchecked Sendable {
                 firstPacketNanoseconds: UInt64 = 0, admissionNanoseconds: UInt64 = 0,
                 hostProcessingMilliseconds: Double? = nil,
                 scheduledArrivalNanoseconds: UInt64 = 0, vtSubmitNanoseconds: UInt64 = 0,
-                decodeStages: DecodeStageTiming? = nil) {
+                decodeStages: DecodeStageTiming? = nil, transportStages: TransportStageTiming? = nil) {
         self.init(pixelBuffer: pixelBuffer, gpuFrame: nil, id: id, generation: generation, width: width, height: height,
             bitDepth: bitDepth, color: color, callbackNanoseconds: callbackNanoseconds, hardwareAccelerated: hardwareAccelerated,
             firstPacketNanoseconds: firstPacketNanoseconds, admissionNanoseconds: admissionNanoseconds,
             hostProcessingMilliseconds: hostProcessingMilliseconds, scheduledArrivalNanoseconds: scheduledArrivalNanoseconds,
-            vtSubmitNanoseconds: vtSubmitNanoseconds, decodeStages: decodeStages)
+            vtSubmitNanoseconds: vtSubmitNanoseconds, decodeStages: decodeStages, transportStages: transportStages)
     }
     init(pixelBuffer: CVPixelBuffer?, gpuFrame: PyrowaveGPUFrame?, id: UInt64, generation: UInt64, width: Int, height: Int,
          bitDepth: Int, color: VideoColor, callbackNanoseconds: UInt64, hardwareAccelerated: Bool,
          firstPacketNanoseconds: UInt64, admissionNanoseconds: UInt64, hostProcessingMilliseconds: Double?,
-         scheduledArrivalNanoseconds: UInt64, vtSubmitNanoseconds: UInt64, decodeStages: DecodeStageTiming? = nil) {
+         scheduledArrivalNanoseconds: UInt64, vtSubmitNanoseconds: UInt64, decodeStages: DecodeStageTiming? = nil, transportStages: TransportStageTiming? = nil) {
         self.pixelBuffer = pixelBuffer; self.gpuFrame = gpuFrame
         self.id = id; self.generation = generation; self.width = width; self.height = height
         self.bitDepth = bitDepth; self.color = color; self.callbackNanoseconds = callbackNanoseconds; self.hardwareAccelerated = hardwareAccelerated
         self.firstPacketNanoseconds = firstPacketNanoseconds; self.admissionNanoseconds = admissionNanoseconds
         self.scheduledArrivalNanoseconds = scheduledArrivalNanoseconds; self.vtSubmitNanoseconds = vtSubmitNanoseconds
-        self.decodeStages = decodeStages
+        self.decodeStages = decodeStages; self.transportStages = transportStages
         self.hostProcessingMilliseconds = hostProcessingMilliseconds
         Self.ownership.acquire()
     }
@@ -380,10 +383,12 @@ private final class SubmissionMetadata: Sendable {
     let color: VideoColor?
     let arrivalNanoseconds: UInt64
     let firstPacketNanoseconds: UInt64
+    let transportTiming: TransportFrameTiming?
     init(_ frame: CompressedFrame, fallbackColor: VideoColor? = nil) {
         hostProcessingMilliseconds = frame.hostProcessingMilliseconds.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         color = frame.color ?? fallbackColor
         arrivalNanoseconds = frame.arrivalNanoseconds; firstPacketNanoseconds = frame.firstPacketNanoseconds
+        transportTiming = frame.transportTiming
     }
 }
 
@@ -413,7 +418,11 @@ private final class CompletionMailbox: @unchecked Sendable {
             scheduledArrivalNanoseconds: value.trace.valid & UInt32(MAV_TRACE_ARRIVAL) != 0 ? value.trace.scheduled_arrival_ns : 0,
             vtSubmitNanoseconds: value.trace.valid & UInt32(MAV_TRACE_VT_SUBMIT) != 0 && value.internal_samples == 1 && value.show_existing_frame == 0 ? value.trace.vt_submit_ns : 0,
             decodeStages: DecodeStageTiming(trace: value.trace, backend: backendTrace ?? (hasBackend ? backend : nil),
-                internalSamples: value.internal_samples, showExisting: value.show_existing_frame != 0)) : nil
+                internalSamples: value.internal_samples, showExisting: value.show_existing_frame != 0),
+            transportStages: metadata.flatMap { metadata in
+                metadata.transportTiming.map { TransportStageTiming($0, firstPacket: metadata.firstPacketNanoseconds,
+                    enqueue: metadata.arrivalNanoseconds, admission: value.trace.admission_ns) }
+            }) : nil
         var available: (@Sendable () -> Void)?
         lock.lock()
         statistics.completed += 1

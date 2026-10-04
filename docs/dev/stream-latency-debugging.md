@@ -276,6 +276,66 @@ decoder admission, VT submission, and mailbox selection. `sumMinusTotalMilliseco
 should be near zero for complete paths. Missing stage data is not replaced with
 zero, and independent decoder/GPU windows remain separate.
 
+### Separate packet receipt from receiver work
+
+Exports with `transportStages` carry the same access unit's payload size and
+transport clocks through decoder admission to the paired presentation and GPU
+records. The **matched transport path** splits first packet → decoder admission
+into these nonoverlapping intervals:
+
+| Interval | What it can establish |
+|---|---|
+| First packet → decisive packet receive | The userspace receive span of packets needed to complete the frame. Sender pacing, packet delivery and receiver scheduling can all affect it. |
+| Decisive packet receive → final FEC-ready | Remaining receiver processing and final reconstruction/release work after the decisive packet was received. This is not the sum of all FEC work performed while packets arrived. |
+| Final FEC-ready → access-unit availability | Whole-frame release/depacketization work before the existing enqueue timestamp. |
+| Access-unit availability → transport queue offer | Work between constructing the decode unit and offering it to the transport queue. |
+| Queue offer → frame handoff | Waiting and scheduling until the acquired frame crosses the native bridge. |
+| Frame handoff → decoder admission | Client scheduling, preparation and any admission wait after that handoff. |
+
+The **matched transportAvailability path** reconciles the first three intervals
+with the older `firstPacketToArrivalMilliseconds` measurement. Its historical
+"arrival" or "enqueue" label identifies access-unit availability before the
+actual queue offer. The **matched transportAndNativeGPU path** adds native decode
+and rendering to reconcile first packet → API-confirmed presentation. Separate
+completed-GPU paths terminate at GPU completion; they cannot establish display
+latency.
+
+Receive clocks describe userspace receipt and do not measure NIC arrival, kernel
+socket residence or host send time. Partial-frame release has no established
+decisive packet, so its decisive-packet intervals remain unavailable. Do not
+replace them with the latest observed packet, zero or another frame's timestamp.
+Keep the path counts and residuals visible when comparing runs.
+
+The analyzer's `transportPayload` reports access-unit bytes and same-frame
+correlations with receive span, availability, admission and presentation latency.
+It excludes partial or unknown frame status from these paired populations. The
+bytes exclude network headers and FEC parity. The reported payload bits divided
+by receive span is a descriptive ratio, not link throughput or a serialization
+lower bound: the first packet has already arrived, and receive scheduling and
+sender pacing can stretch the interval. A configured bitrate or a whole-session
+`acquiredBytes / acquiredFrames` average cannot substitute for missing per-frame
+sizes. Constant payload or latency values have no defined Pearson correlation;
+the analyzer leaves it unavailable.
+
+For a HEVC/PyroWave comparison, preserve the same application build, resolution,
+actual stream cadence, scene motion, HDR/chroma configuration, display policy,
+overlay state and network route. Record each codec's actual negotiated format
+and payload size rather than assuming equal requested Mbps implies equal work.
+Run HEVC → PyroWave → PyroWave → HEVC after equal warmup periods. For PyroWave,
+repeat an otherwise matched bitrate sweep to test whether smaller access units
+reduce the receive span while image correctness and presentation cadence remain
+acceptable. A smaller payload is a quality/rate tradeoff, not evidence of a faster
+decoder. Choose an incremental-receive implementation only if the measured
+stages justify its additional framing, bounded-buffer and lifetime contracts.
+
+When recording Instruments alongside JSON, finalize the stream export immediately
+when trace recording stops, while Instruments is still saving. Waiting for the
+trace file to finish can move the export's final 1,024-frame window beyond the
+recorded interval. Check overlap and frame/drawable identity before comparing
+Metal presentation timestamps with trace swap events. Different endpoint names,
+clock domains and populations remain distinct; neither endpoint is physical
+scanout.
+
 `deadlineToCommitMilliseconds` and
 `targetPresentationToPresentationMilliseconds` are signed. Positive values mean
 commit followed the display-link deadline or presentation followed its target.

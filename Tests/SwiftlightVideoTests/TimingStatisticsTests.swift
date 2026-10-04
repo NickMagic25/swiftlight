@@ -7,17 +7,20 @@ final class TimingStatisticsTests: XCTestCase {
         let calibration = PresentationClockCalibration(sampledAtDecoderNanoseconds: 1_000_000_000,
             coreAnimationSeconds: 100, uncertaintyNanoseconds: 50)
         var submission = FrameRenderSubmissionMetadata(surface: PresentationSubmissionTiming(selectedAtSeconds: 99.997,
-            drawableAcquisitionMilliseconds: 0.25), renderStartSeconds: 99.998, commitSeconds: 100)
+            drawableAcquisitionMilliseconds: 0.25), renderStartSeconds: 99.998, commitSeconds: 100, drawableID: 0)
         submission.gpuStartSeconds = 100.001; submission.gpuEndSeconds = 100.004
         submission.completedCallbackSeconds = 100.020
         var joiner = PresentationTimingJoiner()
         let id = joiner.begin(frame, submission: submission)
+        submission.renderSubmissionID = id
         XCTAssertNil(joiner.presented(id, at: 0, callbackSeconds: 100.003, calibration: nil))
         XCTAssertEqual(joiner.unconfirmedPresentation, 1)
         XCTAssertNil(joiner.completed(id, gpuStart: 100.001, gpuEnd: 100.004, at: 100.020))
         var gpuWindow = GPUFrameTimingWindow()
         gpuWindow.record(GPUFrameTiming(frame, submission: submission, succeeded: true, calibration: calibration))
         let sample = try XCTUnwrap(gpuWindow.samples.first)
+        XCTAssertEqual(sample.renderSubmissionID, id)
+        XCTAssertEqual(sample.drawableID, 0)
         XCTAssertEqual(try XCTUnwrap(sample.firstPacketToGPUEndMilliseconds), 14, accuracy: 0.000001)
         XCTAssertEqual(try XCTUnwrap(sample.decodeCallbackToGPUEndMilliseconds), 9, accuracy: 0.000001)
         let stages = [sample.firstPacketToDecodeCallbackMilliseconds, sample.decodeCallbackToRenderStartMilliseconds,
@@ -72,7 +75,7 @@ final class TimingStatisticsTests: XCTestCase {
             var joiner = PresentationTimingJoiner()
             let frame = FramePresentationMetadata(frameID: 1, callbackNanoseconds: 995_000_000, firstPacketNanoseconds: 990_000_000)
             let id = joiner.begin(frame, submission: FrameRenderSubmissionMetadata(surface: nil,
-                renderStartSeconds: 99.998, commitSeconds: nil))
+                renderStartSeconds: 99.998, commitSeconds: nil, drawableID: 73))
             XCTAssertEqual(joiner.pendingPresentation, 1)
             XCTAssertEqual(joiner.pendingPresentationHighWater, 1)
             XCTAssertEqual(joiner.completedAwaitingPresentation, 0)
@@ -100,6 +103,11 @@ final class TimingStatisticsTests: XCTestCase {
             var window = PresentationTimingWindow()
             window.record(joined.frame, presented: joined.presented, calibration: joined.calibration, submission: joined.submission)
             let sample = try XCTUnwrap(window.samples.first)
+            let gpu = GPUFrameTiming(joined.frame, submission: joined.submission, succeeded: true, calibration: nil)
+            XCTAssertEqual(sample.renderSubmissionID, id)
+            XCTAssertEqual(sample.renderSubmissionID, gpu.renderSubmissionID)
+            XCTAssertEqual(sample.drawableID, 73)
+            XCTAssertEqual(sample.drawableID, gpu.drawableID)
             XCTAssertEqual(try XCTUnwrap(sample.commitToGPUStartMilliseconds), 2, accuracy: 0.000001)
             XCTAssertEqual(try XCTUnwrap(sample.gpuExecutionMilliseconds), 1, accuracy: 0.000001)
             XCTAssertEqual(try XCTUnwrap(sample.gpuEndToPresentationMilliseconds), 5, accuracy: 0.000001)
@@ -182,8 +190,11 @@ final class TimingStatisticsTests: XCTestCase {
         let frame = FramePresentationMetadata(frameID: 1, callbackNanoseconds: 1, firstPacketNanoseconds: 1)
         var joiner = PresentationTimingJoiner()
         var window = PresentationTimingWindow()
-        let early = joiner.begin(frame, submission: FrameRenderSubmissionMetadata(surface: nil, renderStartSeconds: 100, commitSeconds: 100))
-        let late = joiner.begin(frame, submission: FrameRenderSubmissionMetadata(surface: nil, renderStartSeconds: 100.006, commitSeconds: 100.007))
+        let early = joiner.begin(frame, submission: FrameRenderSubmissionMetadata(surface: nil,
+            renderStartSeconds: 100, commitSeconds: 100, drawableID: 8))
+        let late = joiner.begin(frame, submission: FrameRenderSubmissionMetadata(surface: nil,
+            renderStartSeconds: 100.006, commitSeconds: 100.007, drawableID: 9))
+        XCTAssertNotEqual(early, late)
         XCTAssertNil(joiner.completed(late, gpuStart: 100.008, gpuEnd: 100.009, at: 100.010))
         let lateResult = try XCTUnwrap(joiner.presented(late, at: 100.015, callbackSeconds: 100.016, calibration: nil))
         window.record(lateResult.frame, presented: lateResult.presented, calibration: nil, submission: lateResult.submission)
@@ -194,12 +205,53 @@ final class TimingStatisticsTests: XCTestCase {
         window.record(earlyResult.frame, presented: earlyResult.presented, calibration: nil, submission: earlyResult.submission)
         XCTAssertEqual(window.samples.count, 1)
         let sample = try XCTUnwrap(window.samples.first)
+        XCTAssertEqual(sample.renderSubmissionID, early)
+        XCTAssertEqual(sample.drawableID, 8)
+        XCTAssertEqual(lateResult.submission.renderSubmissionID, late)
+        XCTAssertEqual(lateResult.submission.drawableID, 9)
         XCTAssertEqual(sample.commitSeconds, 100)
         XCTAssertEqual(sample.gpuStartSeconds, 100.001)
         XCTAssertEqual(sample.gpuEndSeconds, 100.002)
         XCTAssertEqual(try XCTUnwrap(sample.gpuEndToPresentationMilliseconds), 2, accuracy: 0.000001)
         XCTAssertEqual(joiner.presented, 2)
         XCTAssertEqual(joiner.count, 0)
+    }
+
+    func testOffscreenSubmissionIdentityDoesNotCreatePresentationJoin() throws {
+        var joiner = PresentationTimingJoiner()
+        let frame = FramePresentationMetadata(frameID: 1, callbackNanoseconds: 1, firstPacketNanoseconds: 1)
+        var submission = FrameRenderSubmissionMetadata(surface: nil, renderStartSeconds: 100, commitSeconds: 100)
+        submission.renderSubmissionID = joiner.reserveSubmissionID()
+        XCTAssertEqual(joiner.count, 0)
+        XCTAssertEqual(joiner.pendingPresentation, 0)
+        let gpu = GPUFrameTiming(frame, submission: submission, succeeded: true, calibration: nil)
+        XCTAssertEqual(gpu.renderSubmissionID, 0)
+        XCTAssertNil(gpu.drawableID)
+        let next = joiner.begin(frame, submission: submission)
+        XCTAssertNotEqual(next, gpu.renderSubmissionID)
+        XCTAssertEqual(joiner.pendingPresentation, 1)
+    }
+
+    func testTimingIdentityFieldsRoundTripAndOlderRecordsRemainReadable() throws {
+        let frame = FramePresentationMetadata(frameID: 1, callbackNanoseconds: 1, firstPacketNanoseconds: 1)
+        let submission = FrameRenderSubmissionMetadata(surface: nil, renderStartSeconds: 100,
+            commitSeconds: 100, renderSubmissionID: 0, drawableID: 0)
+        let gpu = GPUFrameTiming(frame, submission: submission, succeeded: true, calibration: nil)
+        var window = PresentationTimingWindow()
+        window.record(frame, presented: 100.005, calibration: nil, submission: submission)
+        let presentation = try XCTUnwrap(window.samples.first)
+        let encoder = JSONEncoder(), decoder = JSONDecoder()
+        XCTAssertEqual(try decoder.decode(GPUFrameTiming.self, from: encoder.encode(gpu)).drawableID, 0)
+        XCTAssertEqual(try decoder.decode(FramePresentationTiming.self, from: encoder.encode(presentation)).renderSubmissionID, 0)
+        func legacyData<T: Encodable>(_ value: T) throws -> Data {
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(value)) as? [String: Any])
+            object.removeValue(forKey: "renderSubmissionID"); object.removeValue(forKey: "drawableID")
+            return try JSONSerialization.data(withJSONObject: object)
+        }
+        let legacyGPU = try decoder.decode(GPUFrameTiming.self, from: legacyData(gpu))
+        let legacyPresentation = try decoder.decode(FramePresentationTiming.self, from: legacyData(presentation))
+        XCTAssertNil(legacyGPU.renderSubmissionID); XCTAssertNil(legacyGPU.drawableID)
+        XCTAssertNil(legacyPresentation.renderSubmissionID); XCTAssertNil(legacyPresentation.drawableID)
     }
 
     func testPerFrameStagesAccountForEntireFirstPacketToPresentationInterval() throws {
