@@ -53,6 +53,57 @@ class ReleaseVersionTests(unittest.TestCase):
             info["CFBundleVersion"] = "103"
             self.assertEqual(plistlib.loads(plist.read_bytes()), info)
 
+    def test_tagged_and_branch_builds_store_full_commit_sha(self):
+        for tag in ("v1.2.3", None):
+            for commit_sha in ("A1" * 20, "B2" * 32):
+                with self.subTest(tag=tag, commit_sha=commit_sha), tempfile.TemporaryDirectory() as temporary:
+                    plist = Path(temporary) / "Info.plist"
+                    info = {"CFBundleShortVersionString": "0.4.2", "CFBundleVersion": "1",
+                            "CFBundleIdentifier": "net.edrisil.swiftlight"}
+                    plist.write_bytes(plistlib.dumps(info))
+                    command = [sys.executable, str(SCRIPT)]
+                    if tag is not None:
+                        command.append(tag)
+                    command.extend(["--build-number", "103", "--commit-sha", commit_sha, "--plist", str(plist)])
+                    subprocess.run(command, check=True, capture_output=True)
+                    info.update(CFBundleShortVersionString="1.2.3" if tag else "0.4.2",
+                                CFBundleVersion="103", GitCommitSHA=commit_sha.lower())
+                    self.assertEqual(plistlib.loads(plist.read_bytes()), info)
+
+    def test_omitted_commit_sha_removes_stale_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            plist = Path(temporary) / "Info.plist"
+            info = {"CFBundleShortVersionString": "0.4.2", "CFBundleVersion": "1",
+                    "GitCommitSHA": "a1" * 20}
+            plist.write_bytes(plistlib.dumps(info))
+            subprocess.run([sys.executable, str(SCRIPT), "--build-number", "103", "--plist", str(plist)],
+                           check=True, capture_output=True)
+            self.assertEqual(plistlib.loads(plist.read_bytes()),
+                             {"CFBundleShortVersionString": "0.4.2", "CFBundleVersion": "103"})
+
+    def test_commit_sha_requires_a_destination_plist(self):
+        result = subprocess.run([sys.executable, str(SCRIPT), "v1.2.3", "--commit-sha", "a1" * 20],
+                                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("A plist is required", result.stderr)
+
+    def test_invalid_commit_sha_does_not_mutate_plist(self):
+        for tag in ("v1.2.3", None):
+            for commit_sha in ("", "a1b2c3d", "a" * 39, "a" * 41, "a" * 63, "a" * 65,
+                               "g" * 40, "a" * 40 + "\n", " " + "a" * 40):
+                with self.subTest(tag=tag, commit_sha=commit_sha), tempfile.TemporaryDirectory() as temporary:
+                    plist = Path(temporary) / "Info.plist"
+                    original = plistlib.dumps({"CFBundleShortVersionString": "0.4.2", "CFBundleVersion": "1",
+                                               "GitCommitSHA": "b2" * 20})
+                    plist.write_bytes(original)
+                    command = [sys.executable, str(SCRIPT)]
+                    if tag is not None:
+                        command.append(tag)
+                    command.extend(["--build-number", "103", "--commit-sha", commit_sha, "--plist", str(plist)])
+                    result = subprocess.run(command, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(plist.read_bytes(), original)
+
     def test_invalid_marketing_version_does_not_mutate_plist(self):
         with tempfile.TemporaryDirectory() as temporary:
             plist = Path(temporary) / "Info.plist"

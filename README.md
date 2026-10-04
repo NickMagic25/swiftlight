@@ -64,6 +64,8 @@ In **Settings → Stream Statistics**, choose **Simple** or **Detailed** and a p
 
 In **Settings → Audio**, choose the host channel layout and local output mode, then save it for the current computer or as a global default. Reconnect after changing audio settings. For AirPods spatialization, request 5.1 or 7.1 from the host, select **System Spatial Audio**, and use the macOS AirPods menu for Off, Fixed, or Head Tracked when available. See the [audio guide](docs/audio.md).
 
+**Settings → About** shows the app version and build number on Mac, iPhone and iPad. Cloud and packaged builds also show a short commit hash when available, such as `0.2.0 (42, a1b2c3d)`, to identify the source revision.
+
 ## Troubleshooting
 
 - If a host is not discovered, use **Add Computer** with its address and confirm that Sunshine/Apollo is reachable and pairing is enabled.
