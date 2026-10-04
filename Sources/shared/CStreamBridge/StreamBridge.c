@@ -20,6 +20,9 @@ extern bool sf_common_video_local_address(struct sockaddr_storage*, socklen_t*);
 extern void sf_common_video_frame_counts(uint64_t*, uint64_t*);
 
 #define MAX_COMPRESSED_FRAME (32u * 1024u * 1024u)
+#define MAX_FRAME_FRAGMENTS 65536u
+#define MAX_PYROWAVE_QUEUE_DRAIN 15u
+#define ALLOWED_VIDEO_FORMATS (VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10 | VIDEO_FORMAT_MASK_PYROWAVE)
 #define TIMING_WINDOW 1024u
 typedef struct { uint64_t samples[TIMING_WINDOW], total_us; unsigned count, next; } TimingWindow;
 enum { CREATED, STARTING, STREAMING, STOPPING, STOPPED };
@@ -35,6 +38,10 @@ struct SFStream {
     TimingWindow host_timings, reassembly_timings;
     uint64_t previous_receive_us;
     uint32_t previous_rtp_timestamp;
+    // Assigned after successful setup and immutable for this single-use stream.
+    // Offered formats do not identify the selected codec; publication is atomic
+    // for the video worker and explicit keyframe-request API.
+    _Atomic uint32_t negotiated_video_format;
     // State is read under two independent gates, so publication is atomic.
     // api_mutex gates media/input lifetime; active_mutex gates callback identity.
     // Never acquire either gate while holding the other.
@@ -44,6 +51,7 @@ struct SFStream {
     pthread_t video_thread;
     bool video_thread_created;
     uint8_t *frame_buffer;
+    SFVideoFragment *frame_fragments;
     SFAudioOutput *audio;
     int (*send_key)(struct SFStream *, uint16_t, char, char, char);
     uint16_t held_keys[256];
@@ -71,9 +79,13 @@ static void hdr(bool enabled) { emit(SF_HDR, enabled, 0, 0, NULL); }
 static void rumble(unsigned short index, unsigned short low, unsigned short high) { emit(SF_RUMBLE, index, low, high, NULL); }
 static void log_message(const char *format, ...) { (void)format; /* Do not leak address/key-bearing RTSP logs. */ }
 
-// This owner is deliberately shared by the real worker and deterministic harness.
-// Every successful Wait/Poll acquisition enters here once; all paths converge on complete.
+// Selection and consumption are shared by the real worker and deterministic harness.
+// Every successful Wait/Poll acquisition reaches exactly one completion.
 typedef void (*CompleteFrame)(void *handle, int status);
+typedef bool (*PollFrame)(void *context, VIDEO_FRAME_HANDLE *handle, PDECODE_UNIT *unit);
+static bool uses_pyrowave(const SFStream *s) {
+    return (atomic_load_explicit(&s->negotiated_video_format, memory_order_acquire) & VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+}
 static void record_timing(TimingWindow *window, uint64_t us) {
     if (window->count == TIMING_WINDOW) window->total_us -= window->samples[window->next];
     else ++window->count;
@@ -123,6 +135,15 @@ static SFVideoTransportStatistics video_telemetry_snapshot(SFStream *s) {
     pthread_mutex_unlock(&s->telemetry_mutex);
     return value;
 }
+static SFHDRMetadata hdr_metadata_value(const SS_HDR_METADATA *metadata) {
+    return (SFHDRMetadata) { .red_x = metadata->displayPrimaries[0].x, .red_y = metadata->displayPrimaries[0].y,
+        .green_x = metadata->displayPrimaries[1].x, .green_y = metadata->displayPrimaries[1].y,
+        .blue_x = metadata->displayPrimaries[2].x, .blue_y = metadata->displayPrimaries[2].y,
+        .white_x = metadata->whitePoint.x, .white_y = metadata->whitePoint.y,
+        .max_display_luminance = metadata->maxDisplayLuminance, .min_display_luminance = metadata->minDisplayLuminance,
+        .max_content_light_level = metadata->maxContentLightLevel, .max_frame_average_light_level = metadata->maxFrameAverageLightLevel,
+        .max_full_frame_luminance = metadata->maxFullFrameLuminance };
+}
 static int consume_frame(SFStream *s, VIDEO_FRAME_HANDLE handle, PDECODE_UNIT du, CompleteFrame complete) {
     int result = DR_NEED_IDR;
     record_video_telemetry(s, du);
@@ -131,10 +152,20 @@ static int consume_frame(SFStream *s, VIDEO_FRAME_HANDLE handle, PDECODE_UNIT du
         size_t copied = 0;
         PLENTRY entry = du->bufferList;
         unsigned entries = 0;
-        while (entry && ++entries <= 65536) {
+        bool pyrowave = uses_pyrowave(s);
+        while (entry && entries < MAX_FRAME_FRAGMENTS) {
             if (!entry->data || entry->length <= 0 || (size_t)entry->length > (size_t)du->fullLength - copied) break;
-            memcpy(s->frame_buffer + copied, entry->data, (size_t)entry->length);
+            if (pyrowave) {
+                if (!s->frame_fragments || (entry->bufferType != BUFFER_TYPE_PICDATA &&
+                    entry->bufferType != BUFFER_TYPE_LOST && entry->bufferType != BUFFER_TYPE_RECORD_START)) break;
+                s->frame_fragments[entries] = (SFVideoFragment) { .offset = (uint32_t)copied, .length = (uint32_t)entry->length,
+                    .kind = entry->bufferType == BUFFER_TYPE_LOST ? SF_VIDEO_FRAGMENT_LOST :
+                        entry->bufferType == BUFFER_TYPE_RECORD_START ? SF_VIDEO_FRAGMENT_RECORD_START : SF_VIDEO_FRAGMENT_DATA };
+            }
+            if (entry->bufferType == BUFFER_TYPE_LOST) memset(s->frame_buffer + copied, 0, (size_t)entry->length);
+            else memcpy(s->frame_buffer + copied, entry->data, (size_t)entry->length);
             copied += (size_t)entry->length;
+            ++entries;
             entry = entry->next;
         }
         if (!entry && copied == (size_t)du->fullLength && s->callbacks.video) {
@@ -144,13 +175,51 @@ static int consume_frame(SFStream *s, VIDEO_FRAME_HANDLE handle, PDECODE_UNIT du
                 .rtp_timestamp = du->rtpTimestamp,
                 .receive_uptime_ns = du->receiveTimeUs ? sf_common_clock_epoch_ns() + du->receiveTimeUs * 1000 : 0,
                 .enqueue_uptime_ns = du->enqueueTimeUs ? sf_common_clock_epoch_ns() + du->enqueueTimeUs * 1000 : 0,
+                .last_required_packet_uptime_ns = du->lastRequiredPacketReceiveTimeUs ?
+                    sf_common_clock_epoch_ns() + du->lastRequiredPacketReceiveTimeUs * 1000 : 0,
+                .fec_ready_uptime_ns = du->fecReadyTimeUs ? sf_common_clock_epoch_ns() + du->fecReadyTimeUs * 1000 : 0,
+                .queue_offer_uptime_ns = du->queueOfferTimeUs ? sf_common_clock_epoch_ns() + du->queueOfferTimeUs * 1000 : 0,
+                .payload_bytes = copied, .transport_partial = du->transportPartial,
                 .host_processing_latency_tenths_ms = du->frameHostProcessingLatency,
-                .is_idr = du->frameType == FRAME_TYPE_IDR };
+                .is_idr = du->frameType == FRAME_TYPE_IDR,
+                .pyrowave_fragments = pyrowave ? s->frame_fragments : NULL,
+                .pyrowave_fragment_count = pyrowave ? entries : 0,
+                .pyrowave_critical_packets = pyrowave ? du->pyrowaveCriticalPackets : 0,
+                .hdr_active = du->hdrActive, .hdr_metadata_valid = du->hdrMetadataValid,
+                .hdr_metadata = hdr_metadata_value(&du->hdrMetadata) };
+            frame.transport_handoff_uptime_ns = sf_common_clock_epoch_ns() + PltGetMicroseconds() * 1000;
             result = s->callbacks.video(s->context, &frame) == DR_OK ? DR_OK : DR_NEED_IDR;
         }
     }
     complete(handle, result);
     return result;
+}
+static bool poll_video_frame(void *context, VIDEO_FRAME_HANDLE *handle, PDECODE_UNIT *unit) {
+    (void)context;
+    return LiPollNextVideoFrame(handle, unit);
+}
+static void select_newest_pyrowave_frame(SFStream *s, VIDEO_FRAME_HANDLE *handle, PDECODE_UNIT *unit,
+                                         PollFrame poll, void *context, CompleteFrame complete) {
+    if (!uses_pyrowave(s)) return;
+    // Every PyroWave AU includes its own sequence header. The decoder validates
+    // that header and clears codec state before each frame, including the first.
+    // Only frames still owned by common-c may be replaced; admitted work keeps
+    // its terminal completion. HEVC/AV1 reference AUs must stay in FIFO order.
+    // Bound the drain even if reception keeps replenishing the 15-frame queue.
+    for (unsigned i = 0; i < MAX_PYROWAVE_QUEUE_DRAIN &&
+            !atomic_load_explicit(&s->video_stopping, memory_order_acquire); ++i) {
+        VIDEO_FRAME_HANDLE newer_handle;
+        PDECODE_UNIT newer_unit;
+        if (!poll(context, &newer_handle, &newer_unit)) break;
+        record_video_telemetry(s, *unit);
+        pthread_mutex_lock(&s->telemetry_mutex);
+        ++s->telemetry.compressed_stale_skips;
+        pthread_mutex_unlock(&s->telemetry_mutex);
+        // Local replacement is not network loss and needs no decoder refresh.
+        complete(*handle, DR_OK);
+        *handle = newer_handle;
+        *unit = newer_unit;
+    }
 }
 static void *video_worker(void *context) {
     SFStream *s = context;
@@ -158,6 +227,7 @@ static void *video_worker(void *context) {
     while (!atomic_load_explicit(&s->video_stopping, memory_order_acquire)) {
         VIDEO_FRAME_HANDLE handle; PDECODE_UNIT du;
         if (!LiWaitForNextVideoFrame(&handle, &du)) break;
+        select_newest_pyrowave_frame(s, &handle, &du, poll_video_frame, NULL, LiCompleteVideoFrame);
         consume_frame(s, handle, du, LiCompleteVideoFrame);
     }
     return NULL;
@@ -165,10 +235,12 @@ static void *video_worker(void *context) {
 static int video_setup(int format, int width, int height, int fps, void *context, int flags) {
     (void)flags;
     SFStream *s = context;
-    const unsigned allowed = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10;
+    const unsigned allowed = ALLOWED_VIDEO_FORMATS;
     if (!(format & allowed) || (format & ~allowed) || !s->callbacks.setup) return -1;
     SFVideoDescription description = { .format = (uint32_t)format, .width = width, .height = height, .fps = fps };
-    return s->callbacks.setup(s->context, &description);
+    int result = s->callbacks.setup(s->context, &description);
+    if (!result) atomic_store_explicit(&s->negotiated_video_format, (uint32_t)format, memory_order_release);
+    return result;
 }
 static void video_start(void) {
     SFStream *s = active_stream; // lifecycle owns this pointer until common-c joins callbacks
@@ -217,10 +289,11 @@ uint32_t sf_stream_surround_audio_info(int channels) {
     return configuration ? (uint32_t)SURROUNDAUDIOINFO_FROM_AUDIO_CONFIGURATION(configuration) : 0;
 }
 SFStream *sf_stream_create(const SFStreamConfiguration *c, SFStreamCallbacks callbacks, void *context) {
-    const unsigned allowed = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10;
+    const unsigned allowed = ALLOWED_VIDEO_FORMATS;
+    int maximum_bitrate = c && (c->video_formats & VIDEO_FORMAT_MASK_PYROWAVE) ? 10000000 : 500000;
     if (!c || !c->address || !c->app_version || !c->video_formats || (c->video_formats & ~allowed) ||
         c->width < 16 || c->width > 16384 || c->height < 16 || c->height > 16384 ||
-        c->fps < 1 || c->fps > 1000 || c->bitrate_kbps < 500 || c->bitrate_kbps > 500000 ||
+        c->fps < 1 || c->fps > 1000 || c->bitrate_kbps < 500 || c->bitrate_kbps > maximum_bitrate ||
         !sf_stream_audio_configuration(c->audio_channels) || (c->spatial_audio && c->audio_channels == 2)) return NULL;
     SFStream *s = calloc(1, sizeof(*s));
     if (!s) return NULL;
@@ -231,7 +304,9 @@ SFStream *sf_stream_create(const SFStreamConfiguration *c, SFStreamCallbacks cal
     s->configuration.gfe_version = copy_string(c->gfe_version); s->configuration.rtsp_url = copy_string(c->rtsp_url);
     s->callbacks = callbacks; s->context = context; s->send_key = send_key_common;
     s->frame_buffer = malloc(MAX_COMPRESSED_FRAME);
-    if (!s->configuration.address || !s->configuration.app_version || !s->frame_buffer) { sf_stream_destroy(s); return NULL; }
+    if (c->video_formats & VIDEO_FORMAT_MASK_PYROWAVE) s->frame_fragments = malloc(MAX_FRAME_FRAGMENTS * sizeof(*s->frame_fragments));
+    if (!s->configuration.address || !s->configuration.app_version || !s->frame_buffer ||
+        ((c->video_formats & VIDEO_FORMAT_MASK_PYROWAVE) && !s->frame_fragments)) { sf_stream_destroy(s); return NULL; }
     return s;
 }
 int sf_stream_start(SFStream *s) {
@@ -250,7 +325,9 @@ int sf_stream_start(SFStream *s) {
     config.streamingRemotely = STREAM_CFG_AUTO;
     config.audioConfiguration = sf_stream_audio_configuration(s->configuration.audio_channels);
     config.supportedVideoFormats = (int)s->configuration.video_formats; config.clientRefreshRateX100 = s->configuration.display_refresh_rate_x100;
-    config.colorSpace = s->configuration.hdr ? COLORSPACE_REC_2020 : COLORSPACE_REC_709;
+    // Vibepollo selects BT.2020 PQ when its display is actually HDR. Its SDR
+    // fallback follows encoderCscMode, so request Rec.709 for PyroWave's SDR case.
+    config.colorSpace = s->configuration.hdr && !(s->configuration.video_formats & VIDEO_FORMAT_MASK_PYROWAVE) ? COLORSPACE_REC_2020 : COLORSPACE_REC_709;
     config.colorRange = COLOR_RANGE_LIMITED; config.encryptionFlags = ENCFLG_ALL;
     memcpy(config.remoteInputAesKey, s->configuration.input_key, 16);
     uint32_t key_id = htonl(s->configuration.input_key_id); memcpy(config.remoteInputAesIv, &key_id, sizeof(key_id));
@@ -312,10 +389,12 @@ void sf_stream_destroy(SFStream *s) {
     sf_stream_stop(s);
     free((void *)s->configuration.address); free((void *)s->configuration.app_version);
     free((void *)s->configuration.gfe_version); free((void *)s->configuration.rtsp_url);
-    free(s->frame_buffer); pthread_mutex_destroy(&s->api_mutex); pthread_mutex_destroy(&s->telemetry_mutex); free(s);
+    free(s->frame_buffer); free(s->frame_fragments); pthread_mutex_destroy(&s->api_mutex); pthread_mutex_destroy(&s->telemetry_mutex); free(s);
 }
 void sf_stream_request_idr(SFStream *s) {
-    pthread_mutex_lock(&s->api_mutex); if (atomic_load_explicit(&s->state, memory_order_acquire) == STREAMING) LiRequestIdrFrame(); pthread_mutex_unlock(&s->api_mutex);
+    pthread_mutex_lock(&s->api_mutex);
+    if (atomic_load_explicit(&s->state, memory_order_acquire) == STREAMING && !uses_pyrowave(s)) LiRequestIdrFrame();
+    pthread_mutex_unlock(&s->api_mutex);
 }
 #define PERMISSION(bit) (!s->configuration.has_permissions || (s->configuration.permissions & (bit)) != 0)
 #define INPUT_BEGIN pthread_mutex_lock(&s->api_mutex); int r = -1; if (atomic_load_explicit(&s->state, memory_order_acquire) == STREAMING) {
@@ -406,6 +485,162 @@ int sf_stream_validate_frame_ownership(unsigned scenario, unsigned *completions,
     *completions = c.completions; *submissions = c.submissions;
     pthread_mutex_destroy(&s.telemetry_mutex);
     return result;
+}
+
+static int test_pyrowave_submit(void *context, const SFVideoFrame *frame) {
+    TestFrameContext *c = context; ++c->submissions;
+    const uint8_t expected[] = {'a', 'b', 0, 0, 'e', 'f'};
+    if (frame->length != sizeof(expected) || memcmp(frame->bytes, expected, sizeof(expected)) ||
+        frame->pyrowave_fragment_count != 3 || frame->pyrowave_critical_packets != 1 || !frame->is_idr ||
+        !frame->hdr_active || !frame->hdr_metadata_valid || frame->hdr_metadata.red_x != 32000 ||
+        frame->hdr_metadata.white_y != 16450 || frame->hdr_metadata.max_display_luminance != 1000 ||
+        frame->hdr_metadata.min_display_luminance != 1 || frame->hdr_metadata.max_content_light_level != 1200 ||
+        frame->hdr_metadata.max_frame_average_light_level != 400 || frame->hdr_metadata.max_full_frame_luminance != 500) return DR_NEED_IDR;
+    const uint32_t kinds[] = { SF_VIDEO_FRAGMENT_RECORD_START, SF_VIDEO_FRAGMENT_LOST, SF_VIDEO_FRAGMENT_DATA };
+    for (unsigned i = 0; i < 3; ++i) {
+        const SFVideoFragment *fragment = &frame->pyrowave_fragments[i];
+        if (fragment->offset != i * 2 || fragment->length != 2 || fragment->kind != kinds[i]) return DR_NEED_IDR;
+    }
+    return DR_OK;
+}
+bool sf_stream_validate_pyrowave_sideband(void) {
+    TestFrameContext c = {0};
+    SFStream s = { .configuration.video_formats = VIDEO_FORMAT_PYROWAVE, .negotiated_video_format = VIDEO_FORMAT_PYROWAVE,
+        .context = &c, .callbacks.video = test_pyrowave_submit };
+    pthread_mutex_init(&s.telemetry_mutex, NULL);
+    uint8_t bytes[6]; SFVideoFragment fragments[3]; s.frame_buffer = bytes; s.frame_fragments = fragments;
+    LENTRY third = { .data = "ef", .length = 2, .bufferType = BUFFER_TYPE_PICDATA };
+    LENTRY second = { .data = "xx", .length = 2, .bufferType = BUFFER_TYPE_LOST, .next = &third };
+    LENTRY first = { .data = "ab", .length = 2, .bufferType = BUFFER_TYPE_RECORD_START, .next = &second };
+    DECODE_UNIT du = { .fullLength = 6, .bufferList = &first, .frameType = FRAME_TYPE_IDR, .pyrowaveCriticalPackets = 1,
+        .hdrActive = true, .hdrMetadataValid = true, .hdrMetadata = { .displayPrimaries = {{32000, 16500}, {15000, 30000}, {7500, 3000}},
+            .whitePoint = {15635, 16450}, .maxDisplayLuminance = 1000, .minDisplayLuminance = 1,
+            .maxContentLightLevel = 1200, .maxFrameAverageLightLevel = 400, .maxFullFrameLuminance = 500 } };
+    int result = consume_frame(&s, &c, &du, test_complete);
+    bool valid = result == DR_OK && c.completions == 1 && c.submissions == 1;
+    // A non-PyroWave buffer type must not become record metadata or escape validation.
+    first.bufferType = BUFFER_TYPE_SPS;
+    result = consume_frame(&s, &c, &du, test_complete);
+    valid &= result == DR_NEED_IDR && c.completions == 2 && c.submissions == 1;
+    pthread_mutex_destroy(&s.telemetry_mutex);
+    return valid;
+}
+
+typedef struct {
+    DECODE_UNIT units[32];
+    LENTRY entries[32];
+    uint8_t payloads[32][8];
+    unsigned completed[32], submitted[32], next, count, polls;
+    int statuses[32];
+    SFStream *stream;
+    bool cancel_on_poll, reject, expect_pyrowave;
+    uint32_t setup_format;
+} TestFrameQueue;
+typedef struct { TestFrameQueue *queue; unsigned index; } TestQueuedFrame;
+static bool test_poll_queued_frame(void *context, VIDEO_FRAME_HANDLE *handle, PDECODE_UNIT *unit) {
+    TestQueuedFrame *handles = context;
+    TestFrameQueue *queue = handles[0].queue;
+    ++queue->polls;
+    if (queue->next >= queue->count) return false;
+    unsigned index = queue->next++;
+    *handle = &handles[index]; *unit = &queue->units[index];
+    if (queue->cancel_on_poll) atomic_store_explicit(&queue->stream->video_stopping, true, memory_order_release);
+    return true;
+}
+static void test_complete_queued_frame(void *context, int status) {
+    TestQueuedFrame *handle = context;
+    ++handle->queue->completed[handle->index];
+    handle->queue->statuses[handle->index] = status;
+}
+static int test_setup_queued_frame(void *context, const SFVideoDescription *description) {
+    TestFrameQueue *queue = context;
+    queue->setup_format = description->format;
+    return 0;
+}
+static int test_submit_queued_frame(void *context, const SFVideoFrame *frame) {
+    TestFrameQueue *queue = context;
+    if (!frame->frame_id || frame->frame_id > queue->count) return DR_NEED_IDR;
+    unsigned index = (unsigned)frame->frame_id - 1;
+    ++queue->submitted[index];
+    // The selected first submission retains its own sequence header and trace,
+    // so skipping older AUs never removes the decoder's only configuration.
+    if (frame->length != sizeof(queue->payloads[index]) ||
+        memcmp(frame->bytes, queue->payloads[index], frame->length) ||
+        frame->receive_time_us != queue->units[index].receiveTimeUs ||
+        frame->enqueue_time_us != queue->units[index].enqueueTimeUs ||
+        frame->last_required_packet_uptime_ns != (queue->units[index].lastRequiredPacketReceiveTimeUs ?
+            sf_common_clock_epoch_ns() + queue->units[index].lastRequiredPacketReceiveTimeUs * 1000 : 0) ||
+        frame->fec_ready_uptime_ns != (queue->units[index].fecReadyTimeUs ?
+            sf_common_clock_epoch_ns() + queue->units[index].fecReadyTimeUs * 1000 : 0) ||
+        frame->queue_offer_uptime_ns != (queue->units[index].queueOfferTimeUs ?
+            sf_common_clock_epoch_ns() + queue->units[index].queueOfferTimeUs * 1000 : 0) ||
+        frame->transport_handoff_uptime_ns < sf_common_clock_epoch_ns() ||
+        frame->payload_bytes != frame->length || frame->transport_partial != queue->units[index].transportPartial ||
+        frame->rtp_timestamp != queue->units[index].rtpTimestamp ||
+        frame->pyrowave_fragment_count != (queue->expect_pyrowave ? 1u : 0u) ||
+        (frame->pyrowave_fragments != NULL) != queue->expect_pyrowave) return DR_NEED_IDR;
+    return queue->reject ? DR_NEED_IDR : DR_OK;
+}
+bool sf_stream_validate_pyrowave_queue_ownership(void) {
+    bool valid = true;
+    // Single AU, burst, continuous refill bound, HEVC/AV1 FIFO, cancellation
+    // before/during acquisition, decoder rejection after local replacement,
+    // and mixed offers that negotiate HEVC/AV1 and retain reference AUs.
+    for (unsigned scenario = 0; scenario < 10; ++scenario) {
+        TestFrameQueue queue = {.next = 1, .count = scenario == 0 ? 1 : scenario == 2 ? 32 : 15};
+        TestQueuedFrame handles[32];
+        uint32_t selected_format = scenario == 3 || scenario == 8 ? VIDEO_FORMAT_H265 :
+            scenario == 4 || scenario == 9 ? VIDEO_FORMAT_AV1_MAIN8 : VIDEO_FORMAT_PYROWAVE;
+        SFStream s = {.configuration.video_formats = scenario >= 8 ?
+            VIDEO_FORMAT_PYROWAVE | VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8 : selected_format,
+            .context = &queue, .callbacks.video = test_submit_queued_frame, .callbacks.setup = test_setup_queued_frame};
+        queue.stream = &s; queue.cancel_on_poll = scenario == 6; queue.reject = scenario == 7;
+        queue.expect_pyrowave = scenario != 3 && scenario != 4 && scenario < 8;
+        valid &= video_setup((int)selected_format, 64, 64, 165, &s, 0) == 0 &&
+            queue.setup_format == selected_format && atomic_load(&s.negotiated_video_format) == selected_format;
+        pthread_mutex_init(&s.telemetry_mutex, NULL);
+        uint8_t bytes[8]; SFVideoFragment fragments[1]; s.frame_buffer = bytes; s.frame_fragments = fragments;
+        for (unsigned i = 0; i < queue.count; ++i) {
+            // Extended sequence header, code 0, each AU with an independent sequence.
+            uint32_t header = 0x80000000u | ((i & 7u) << 28) | 63u | (63u << 14);
+            for (unsigned j = 0; j < 4; ++j) queue.payloads[i][j] = (uint8_t)(header >> (8 * j));
+            queue.entries[i] = (LENTRY){.data = (char *)queue.payloads[i], .length = 8,
+                .bufferType = queue.expect_pyrowave ? BUFFER_TYPE_PICDATA : BUFFER_TYPE_SPS};
+            queue.units[i] = (DECODE_UNIT){.bufferList = &queue.entries[i], .fullLength = 8,
+                .frameNumber = i + 1, .frameType = FRAME_TYPE_IDR, .receiveTimeUs = 1000000 + i * 6000,
+                .enqueueTimeUs = 1000500 + i * 6000, .rtpTimestamp = 540 * (i + 1)};
+            // Mix unavailable, complete and partial transport samples. Queue
+            // replacement must keep this metadata attached to the selected AU.
+            if (i % 3) {
+                queue.units[i].transportPartial = i % 3 == 2;
+                queue.units[i].lastRequiredPacketReceiveTimeUs = i % 3 == 1 ? 1000300 + i * 6000 : 0;
+                queue.units[i].fecReadyTimeUs = 1000400 + i * 6000;
+                queue.units[i].queueOfferTimeUs = 1000600 + i * 6000;
+            }
+            handles[i] = (TestQueuedFrame){.queue = &queue, .index = i};
+        }
+        if (scenario == 5) atomic_store(&s.video_stopping, true);
+        VIDEO_FRAME_HANDLE handle = &handles[0]; PDECODE_UNIT unit = &queue.units[0];
+        select_newest_pyrowave_frame(&s, &handle, &unit, test_poll_queued_frame, handles, test_complete_queued_frame);
+        int result = consume_frame(&s, handle, unit, test_complete_queued_frame);
+        unsigned selected = scenario == 2 ? MAX_PYROWAVE_QUEUE_DRAIN :
+            scenario == 3 || scenario == 4 || scenario == 5 || scenario >= 8 ? 0 : scenario == 6 ? 1 : queue.count - 1;
+        bool cancelled = scenario == 5 || scenario == 6;
+        for (unsigned i = 0; i < queue.count; ++i) {
+            valid &= queue.completed[i] == (i <= selected ? 1u : 0u);
+            valid &= queue.submitted[i] == (i == selected && !cancelled ? 1u : 0u);
+            if (i < selected) valid &= queue.statuses[i] == DR_OK;
+        }
+        valid &= result == (cancelled || queue.reject ? DR_NEED_IDR : DR_OK);
+        SFVideoTransportStatistics stats = video_telemetry_snapshot(&s);
+        valid &= stats.acquired_frames == selected + 1 && stats.acquired_bytes == 8 * (selected + 1) &&
+            stats.compressed_stale_skips == selected && !stats.network_lost_frames &&
+            stats.last_receive_uptime_ns == sf_common_clock_epoch_ns() + queue.units[selected].receiveTimeUs * 1000;
+        if (scenario == 2) valid &= queue.polls == MAX_PYROWAVE_QUEUE_DRAIN && queue.next == MAX_PYROWAVE_QUEUE_DRAIN + 1;
+        if (scenario == 3 || scenario == 4 || scenario == 5 || scenario >= 8) valid &= !queue.polls;
+        pthread_mutex_destroy(&s.telemetry_mutex);
+    }
+    return valid;
 }
 
 bool sf_stream_validate_clock_mapping(void) {

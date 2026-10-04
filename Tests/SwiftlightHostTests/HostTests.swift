@@ -70,6 +70,23 @@ import Testing
     }
 }
 
+@Test func pyrowaveServerProfilesAndLinkHintsKeepTheirAuthenticationBoundary() throws {
+    let xml = try HostXML(data: Data("<root status_code=\"200\"><hostname>Host</hostname><uniqueid>fixture</uniqueid><appversion>7.1</appversion><PairStatus>1</PairStatus><ServerCodecModeSupport>125829120</ServerCodecModeSupport><PyroWaveHostLinkMbps>2500</PyroWaveHostLinkMbps></root>".utf8))
+    let info = try xml.serverInfo(defaultHTTPSPort: 47984, authenticated: true)
+    #expect(info.supportsPyrowave && info.supportsPyrowave444 && info.supportsPyrowaveHDR && info.supportsPyrowaveHDR444)
+    #expect(!info.supportsHEVC && !info.supportsAV1)
+    #expect(info.pyrowaveHostLinkMbps == 2500)
+    let discovery = try xml.serverInfo(defaultHTTPSPort: 47984, authenticated: false)
+    #expect(!discovery.isPaired && discovery.pyrowaveHostLinkMbps == nil)
+    for value in ["0", "-1", "unavailable", "1000001"] {
+        let fields = ["PyroWaveHostLinkMbps": value]
+        let invalid = HostInfo(id: info.id, name: info.name, appVersion: info.appVersion, gfeVersion: info.gfeVersion,
+            httpsPort: info.httpsPort, isPaired: true, currentAppID: 0, codecSupport: info.codecSupport,
+            permissions: nil, rawFields: fields)
+        #expect(invalid.pyrowaveHostLinkMbps == nil)
+    }
+}
+
 @Test func cryptoInteroperabilityAndTamperRejection() throws {
     // AES-128 ECB known-answer vector (FIPS 197 Appendix C.1).
     let key = try Data(strictHex: "000102030405060708090A0B0C0D0E0F")
@@ -207,6 +224,62 @@ import Testing
     #expect(try await vault.pin(address.description) == server.certificateDER)
 }
 
+@Test func alternateStreamRouteUsesHostIDPinWithoutPersistingAlias() async throws {
+    let vault = try TestIdentityVault(), server = try FixtureServer(reportsPaired: true,
+        httpsPorts: ["alternate.fixture.invalid": 48084])
+    let original = try HostAddress("original.fixture.invalid"), alternate = try HostAddress("alternate.fixture.invalid:48089")
+    try await vault.savePin(server.certificateDER, keys: ["fixture-host"])
+    // An unrelated address pin must never choose the alternate route's trust.
+    try await vault.savePin(Data([1, 2, 3]), keys: [alternate.description])
+    let client = HostClient(address: original, hostID: "fixture-host", identityStore: vault, transport: server)
+    #expect(try await client.serverInfo().httpsPort == 47984)
+    let route = try await client.authenticatedAlternate(address: alternate, hostID: "fixture-host")
+    #expect(route.info.isPaired)
+    #expect(await route.client.address == alternate)
+    #expect(await client.address == original)
+    #expect(route.info.httpsPort == 48084)
+    #expect(await server.operations == ["http:serverinfo", "https:serverinfo", "http:serverinfo", "https:serverinfo"])
+    #expect(await server.endpoints == ["http:original.fixture.invalid:47989", "https:original.fixture.invalid:47984",
+                                      "http:alternate.fixture.invalid:48089", "https:alternate.fixture.invalid:48084"])
+    #expect(try await vault.pin(alternate.description) == Data([1, 2, 3]))
+    #expect(try await vault.pin("fixture-host") == server.certificateDER)
+}
+
+@Test func alternateStreamRouteRequiresHostIDPinBeforeAnyRequest() async throws {
+    let vault = try TestIdentityVault(), server = try FixtureServer(reportsPaired: true)
+    let original = try HostAddress("original.fixture.invalid"), alternate = try HostAddress("alternate.fixture.invalid")
+    try await vault.savePin(server.certificateDER, keys: [alternate.description])
+    let client = HostClient(address: original, hostID: "fixture-host", identityStore: vault, transport: server)
+    await #expect(throws: HostError.notPaired) { try await client.authenticatedAlternate(address: alternate, hostID: "fixture-host") }
+    #expect(await server.operations.isEmpty)
+}
+
+@Test func alternateStreamRouteRejectsCertificateConflictAndUnpairedResponse() async throws {
+    for paired in [true, false] {
+        let vault = try TestIdentityVault(), server = try FixtureServer(reportsPaired: paired)
+        let original = try HostAddress("original.fixture.invalid"), alternate = try HostAddress("alternate.fixture.invalid")
+        try await vault.savePin(paired ? Data([1, 2, 3]) : server.certificateDER, keys: ["fixture-host"])
+        // A matching address pin cannot rescue a conflicting host identity pin.
+        try await vault.savePin(server.certificateDER, keys: [alternate.description])
+        let client = HostClient(address: original, hostID: "fixture-host", identityStore: vault, transport: server)
+        await #expect(throws: paired ? HostError.certificateChanged : HostError.notPaired) {
+            try await client.authenticatedAlternate(address: alternate, hostID: "fixture-host")
+        }
+        #expect(await server.operations == ["http:serverinfo", "https:serverinfo"])
+        #expect(try await vault.pin("fixture-host") == (paired ? Data([1, 2, 3]) : server.certificateDER))
+    }
+}
+
+@Test func alternateStreamRouteRejectsDifferentHostIdentity() async throws {
+    let vault = try TestIdentityVault(), server = try FixtureServer(reportsPaired: true)
+    try await vault.savePin(server.certificateDER, keys: ["different-host"])
+    let client = HostClient(address: try HostAddress("original.fixture.invalid"), hostID: "different-host", identityStore: vault, transport: server)
+    await #expect(throws: HostError.identityChanged) {
+        try await client.authenticatedAlternate(address: HostAddress("alternate.fixture.invalid"), hostID: "different-host")
+    }
+    #expect(await server.operations == ["http:serverinfo"])
+}
+
 @Test func savedHostsContainOnlyMetadata() async throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -239,15 +312,19 @@ private actor FixtureServer: HostHTTPTransport {
     let passphrase: String?
     let tamperSignature: Bool
     let waitForPIN: Bool
+    let httpsPorts: [String: Int]
     var operations: [String] = []
+    var endpoints: [String] = []
     var launchMode: String?, launchKeyID: String?, launchAudioInfo: String?, launchHostAudio: String?
     var key = Data(), clientCertificate = Data(), clientHash = Data()
     let secret = Data(repeating: 0x42, count: 16), challenge = Data(repeating: 0x17, count: 16)
     var paired = false, running = false
     private var pairingWaiters: [CheckedContinuation<Void, Never>] = []
-    init(passphrase: String? = nil, tamperSignature: Bool = false, waitForPIN: Bool = false, reportsPaired: Bool = false) throws {
+    init(passphrase: String? = nil, tamperSignature: Bool = false, waitForPIN: Bool = false, reportsPaired: Bool = false,
+         httpsPorts: [String: Int] = [:]) throws {
         envelope = try HostIdentityEnvelope.generate(); certificateDER = try PairingCrypto.der(envelope.certificate)
         self.passphrase = passphrase; self.tamperSignature = tamperSignature; self.waitForPIN = waitForPIN; paired = reportsPaired
+        self.httpsPorts = httpsPorts
     }
     func waitUntilPairingStarts() async {
         if operations.contains("http:getservercert") { return }
@@ -259,11 +336,12 @@ private actor FixtureServer: HostHTTPTransport {
         let path = String(parts.path.dropFirst())
         let phase = query["phrase"] ?? ["clientchallenge", "serverchallengeresp", "clientpairingsecret"].first(where: { query[$0] != nil }) ?? path
         operations.append("\(parts.scheme!):\(phase)")
+        endpoints.append("\(parts.scheme!):\(parts.host!):\(parts.port!)")
         #expect(query["uniqueid"] == identity.uniqueID)
         if parts.scheme == "https", pin != certificateDER { throw HostError.certificateChanged }
         switch phase {
         case "serverinfo":
-            return xml("<hostname>Fixture</hostname><uniqueid>fixture-host</uniqueid><appversion>7.1.0.0</appversion><HttpsPort>47984</HttpsPort><PairStatus>\(paired ? 1 : 0)</PairStatus><currentgame>\(running ? 17 : 0)</currentgame><ServerCodecModeSupport>65793</ServerCodecModeSupport>" + (passphrase == nil ? "" : "<Permission>119480064</Permission>"))
+            return xml("<hostname>Fixture</hostname><uniqueid>fixture-host</uniqueid><appversion>7.1.0.0</appversion><HttpsPort>\(httpsPorts[parts.host!] ?? 47984)</HttpsPort><PairStatus>\(paired ? 1 : 0)</PairStatus><currentgame>\(running ? 17 : 0)</currentgame><ServerCodecModeSupport>65793</ServerCodecModeSupport>" + (passphrase == nil ? "" : "<Permission>119480064</Permission>"))
         case "getservercert":
             pairingWaiters.forEach { $0.resume() }; pairingWaiters.removeAll()
             if waitForPIN { try await Task.sleep(for: .seconds(120)) }

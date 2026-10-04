@@ -49,6 +49,12 @@ struct SwiftlightApp: App {
                 Button("Run Statistics Overlay Comparison") { model.runStatisticsOverlayComparison() }
                 Button("Cancel Latency Comparison") { model.cancelLatencyExperiments() }
                 Button("Toggle Metal HUD for Next Stream") { model.renderOptions.showMetalHUD.toggle() }
+                Button("Preview Cached HDR Metadata on Next Stream") {
+                    var options = StreamRenderOptions()
+                    options.cacheEDRMetadata = true; options.configureEDRBeforeAcquire = true
+                    options.showMetalHUD = true
+                    model.renderOptions = options
+                }
                 Button("Preview Native PQ Root Layer on Next Stream") {
                     var options = StreamRenderOptions()
                     options.nativePQOutput = true; options.cacheEDRMetadata = true

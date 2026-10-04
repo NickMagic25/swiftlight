@@ -21,15 +21,43 @@ typedef struct {
     bool spatial_audio;
 } SFStreamConfiguration;
 typedef struct { uint32_t format; int width, height, fps; } SFVideoDescription;
+enum { SF_VIDEO_FRAGMENT_DATA = 0, SF_VIDEO_FRAGMENT_LOST = 1, SF_VIDEO_FRAGMENT_RECORD_START = 2 };
+typedef struct {
+    uint32_t offset, length, kind;
+} SFVideoFragment;
+typedef struct {
+    // Chromaticity coordinates use units of 1/50000, matching the host protocol.
+    uint16_t red_x, red_y, green_x, green_y, blue_x, blue_y, white_x, white_y;
+    uint16_t max_display_luminance, min_display_luminance;
+    uint16_t max_content_light_level, max_frame_average_light_level, max_full_frame_luminance;
+} SFHDRMetadata;
 typedef struct {
     const uint8_t *bytes;
     size_t length;
     uint64_t frame_id, receive_time_us, enqueue_time_us, presentation_time_us;
     uint32_t rtp_timestamp;
     uint64_t receive_uptime_ns, enqueue_uptime_ns;
+    // All milestones are in CLOCK_UPTIME_RAW, with zero meaning unavailable.
+    // Last-required is the accepted packet's userspace RTP-queue entry time,
+    // including parity when FEC recovers data; unavailable for partial frames.
+    uint64_t last_required_packet_uptime_ns, fec_ready_uptime_ns, queue_offer_uptime_ns;
+    // Pull-worker callback handoff, after validation and flattening the AU.
+    uint64_t transport_handoff_uptime_ns;
+    // Exact depacketized AU bytes, excluding RTP/FEC/header overhead. Partial
+    // frames include zero-filled loss placeholders, identified by the flag.
+    uint64_t payload_bytes;
+    bool transport_partial;
     // Tenths of a millisecond. Zero means unavailable/repeated frame, not zero latency.
     uint16_t host_processing_latency_tenths_ms;
     bool is_idr;
+    // PyroWave: every RTP payload boundary, including zero-filled lost payloads.
+    // Both arrays and bytes are borrowed only until the synchronous callback returns.
+    const SFVideoFragment *pyrowave_fragments;
+    size_t pyrowave_fragment_count;
+    uint16_t pyrowave_critical_packets;
+    bool hdr_active, hdr_metadata_valid;
+    // Immutable control snapshot captured when this decode unit was assembled.
+    SFHDRMetadata hdr_metadata;
 } SFVideoFrame;
 enum { SF_STAGE = 1, SF_STARTED, SF_TERMINATED, SF_FAILED, SF_QUALITY, SF_HDR, SF_AUDIO_ERROR, SF_RUMBLE };
 typedef struct {
@@ -64,6 +92,9 @@ typedef struct {
     uint64_t received_frames, network_lost_frames;
     // Decode units acquired by the pull worker, and their declared compressed payload bytes.
     uint64_t acquired_frames, acquired_bytes;
+    // Unadmitted independent PyroWave AUs replaced locally by newer queued AUs.
+    // These remain acquired units and never increment network_lost_frames.
+    uint64_t compressed_stale_skips;
     uint64_t first_receive_uptime_ns, last_receive_uptime_ns;
     SFTimingSummary host_processing_latency, reassembly_time;
     uint64_t frame_arrival_sample_count;
@@ -90,6 +121,8 @@ bool sf_stream_validate_video_telemetry(void);
 bool sf_stream_validate_cancel_state_race(void);
 bool sf_stream_validate_clock_mapping(void);
 bool sf_stream_validate_event_retirement(void);
+bool sf_stream_validate_pyrowave_sideband(void);
+bool sf_stream_validate_pyrowave_queue_ownership(void);
 int sf_stream_validate_frame_ownership(unsigned scenario, unsigned *completions, unsigned *submissions);
 #ifdef __cplusplus
 }

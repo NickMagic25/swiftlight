@@ -41,6 +41,41 @@ struct StreamConnectionPreparationTests {
         #expect(configuration(av1SDR).supportedVideoFormats == 0x1000)
     }
 
+    @Test func pyrowaveProfilesKeepAuthenticatedLaunchAndTransportInAgreement() throws {
+        let cases: [(StreamChromaSampling, HDRPreference, UInt32, UInt32)] = [
+            (.yuv420, .off, 0x00800000, 0x010000),
+            (.yuv444, .off, 0x01800000, 0x020000),
+            (.yuv420, .on, 0x02800000, 0x040000),
+            (.yuv444, .on, 0x04800000, 0x080000)
+        ]
+        for (chroma, hdr, serverFlags, expectedFormat) in cases {
+            var settings = StreamSettings(); settings.codec = .pyrowave
+            settings.chromaSampling = chroma; settings.hdr = hdr
+            settings.automaticBitrate = false; settings.bitrateMbps = 2500
+            let prepared = try prepare(settings, flags: serverFlags)
+            let transport = configuration(prepared)
+            #expect(prepared.selection.codec == .pyrowave && prepared.selection.chromaSampling == chroma)
+            #expect(prepared.launchRequest.hdr == (hdr == .on))
+            #expect(transport.hdr == prepared.launchRequest.hdr)
+            #expect(transport.supportedVideoFormats == expectedFormat)
+            #expect(transport.bitrateKbps == 2_500_000)
+        }
+    }
+
+    @Test func pyrowaveCannotUseClientLocalBitsAsHostCapabilitiesOrBorrowHEVCHDR() throws {
+        var settings = StreamSettings(); settings.codec = .pyrowave; settings.hdr = .off
+        expectSettingsError("PyroWave requires a compatible Vibepollo host and Metal decoder on this device.") {
+            _ = try prepare(settings, flags: 0x0F0000)
+        }
+        settings.hdr = .on
+        expectSettingsError("HDR requires host 10-bit support and an HDR-capable destination display.") {
+            _ = try prepare(settings, flags: 0x00800300)
+        }
+        expectSettingsError("HDR requires host 10-bit support and an HDR-capable destination display.") {
+            _ = try prepare(settings, flags: 0x02800000, displayHDR: false)
+        }
+    }
+
     @Test func requiredHDRFailsWithControlledErrorsWhenTheSelectedCodecOrDisplayLacksIt() throws {
         var settings = StreamSettings()
         settings.codec = .av1; settings.hdr = .on
@@ -108,7 +143,8 @@ struct StreamConnectionPreparationTests {
             httpsPort: 47984, isPaired: true, currentAppID: 0, codecSupport: flags,
             permissions: permissions, rawFields: [:])
         return try StreamConnectionPreparation(appID: 17, settings: settings, display: display, host: host,
-            device: .init(hevc: true, av1: true, hdr: displayHDR))
+            device: .init(hevc: true, av1: true, hdr: displayHDR, pyrowave: true,
+                          pyrowave444: true, pyrowaveHDR: true, pyrowaveHDR444: true))
     }
 
     private func configuration(_ prepared: StreamConnectionPreparation) -> TransportConfiguration {

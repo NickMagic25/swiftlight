@@ -10,7 +10,25 @@ With VoiceOver on iPhone or iPad, use the **Game stream** element's **Show Stati
 
 The panel may show requested and received video, codec and color, host processing, decode time, round-trip time, jitter, lost frames, and first-packet-to-display timing. Values can be **Unavailable** when the required measurement is missing; unavailable does not mean zero.
 
+**Decode time** follows the selected codec. For PyroWave, it runs from native
+decoder admission through the GPU completion callback, including CPU preparation,
+record parsing, coefficient upload, Metal encoding, GPU scheduling and decoding,
+and completion delivery. For HEVC and AV1, it runs from VideoToolbox submission
+to its decode callback. The scopes differ by codec; neither includes later
+rendering or display. Simple shows the recent average and Detailed shows
+minimum / maximum / average. Missing valid samples remain **Unavailable**.
+
 These are client-side diagnostics, not a complete input-to-photon or network-delay measurement. FPS is measured from received frames, not repeated screen redraws. Host-to-display is an estimate that uses host-reported processing, client timing, and half of the recent round-trip time; it is not synchronized one-way latency or physical scanout time.
+
+**First packet → display** ends at the operating system's confirmed drawable
+presentation timestamp. It includes frame assembly, decoder queueing and decode,
+rendering, and the wait between render GPU completion and presentation. That wait
+can remain with VSync off. CPU callback arrival is measured separately and does
+not extend the presentation timestamp. Compare this value with another client's
+statistics only after checking that both use the same start and end events; a
+render call returning or GPU work completing is an earlier endpoint. See the
+[post-render timing audit](dev/pyrowave-post-render-audit-2026-10-03.md) for the
+measured breakdown and comparison limits.
 
 Physical iPhone and iPad validation remains pending, including matched timing measurements with the panel hidden and visible. Successful compilation or simulator interaction does not establish that the panel has no effect on device streaming latency. See the [mobile guide](mobile.md) for performance settings, gestures, and current limitations.
 

@@ -5,6 +5,53 @@ import Testing
 @testable import SwiftlightVideo
 
 @Suite @MainActor struct StreamStatisticsSamplerTests {
+    @Test func pyrowaveDecodeSummaryAndRowsUseItsMeasuredPopulation() throws {
+        var sampler = StreamStatisticsSampler()
+        var decoder = DecoderStatistics()
+        decoder.pyrowaveAdmissionToCallbackMilliseconds = [3, 1, 2]
+        // This separate population must not be mixed with native PyroWave time.
+        decoder.singleSampleVTSubmitToCallbackMilliseconds = [99]
+        let negotiated = VideoStreamDescription(videoFormat: 0x10000, width: 1920, height: 1080, fps: 60)
+        let snapshot = sampler.sample(request: nil, selection: nil, negotiated: negotiated,
+            decodedFormat: nil, diagnostics: nil, decoder: decoder, renderer: nil, uptime: 10)
+        let summary = try #require(snapshot.decodeTime)
+        #expect(summary.sampleCount == 3)
+        #expect(summary.minimumMilliseconds == 1 && summary.maximumMilliseconds == 3)
+        #expect(summary.averageMilliseconds == 2)
+        for detail in [StreamStatisticsDetail.simple, .detailed] {
+            let row = try #require(sampler.rows(for: snapshot, detail: detail, uptime: 10).first { $0.id == "decode" })
+            #expect(row.label == "Decode time")
+            #expect(row.value == (detail == .simple ? "2.00 ms" : "1.00 / 3.00 / 2.00 ms"))
+        }
+    }
+
+    @Test func absentOrInvalidPyrowaveDecodeSamplesRemainUnavailable() {
+        var sampler = StreamStatisticsSampler()
+        for samples in [[Double](), [.nan, .infinity, -1]] {
+            var decoder = DecoderStatistics()
+            decoder.accepted = 10; decoder.output = 8
+            decoder.pyrowaveAdmissionToCallbackMilliseconds = samples
+            let negotiated = VideoStreamDescription(videoFormat: 0x10000, width: 1920, height: 1080, fps: 60)
+            let snapshot = sampler.sample(request: nil, selection: nil, negotiated: negotiated,
+                decodedFormat: nil, diagnostics: nil, decoder: decoder, renderer: nil, uptime: 10)
+            #expect(snapshot.decodeTime == nil)
+            for detail in [StreamStatisticsDetail.simple, .detailed] {
+                #expect(sampler.rows(for: snapshot, detail: detail, uptime: 10)
+                    .first { $0.id == "decode" }?.value == "Unavailable")
+            }
+        }
+    }
+
+    @Test func pyrowaveNegotiatedProfileIsIdentifiedWithoutInventingDecodeTiming() {
+        var sampler = StreamStatisticsSampler()
+        let selection = CodecSelection(codec: .pyrowave, hdr: true, chromaSampling: .yuv444, explanation: "Fixture")
+        let negotiated = VideoStreamDescription(videoFormat: 0x80000, width: 1920, height: 1080, fps: 120)
+        let snapshot = sampler.sample(request: nil, selection: selection, negotiated: negotiated,
+            decodedFormat: nil, diagnostics: nil, decoder: nil, renderer: nil, uptime: 10)
+        #expect(snapshot.requestedFormat.contains("4:4:4"))
+        #expect(snapshot.negotiatedVideo == "PyroWave · 10-bit · 4:4:4")
+        #expect(snapshot.decodeTime == nil && snapshot.receivedFramesPerSecond == nil)
+    }
     @Test func requestedAndSetupValuesNeverStandInForObservedVideo() {
         var sampler = StreamStatisticsSampler()
         let request = StreamRequest(size: PixelSize(3840, 2160), fps: 120, bitrateKbps: 40_000)

@@ -2,3 +2,5 @@
 0002-expose-darwin-clock-epoch.patch
 0003-expose-bound-video-socket-address.patch
 0004-count-confirmed-rtp-frame-outcomes.patch
+0005-support-pyrowave-transport.patch
+0006-trace-frame-transport-milestones.patch

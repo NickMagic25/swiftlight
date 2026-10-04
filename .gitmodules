@@ -1,3 +1,7 @@
 [submodule "Dependencies/moonlight-common-c"]
 	path = Dependencies/moonlight-common-c
 	url = https://github.com/moonlight-stream/moonlight-common-c.git
+[submodule "Dependencies/pyrowave"]
+	path = Dependencies/pyrowave
+	url = https://github.com/NickMagic25/pyrowave.git
+	branch = codex/metal-improvements

@@ -5,18 +5,41 @@ public actor HostClient {
     private let expectedHostID: String?
     private let identityStore: any HostIdentityProviding
     private let transport: any HostHTTPTransport
+    private let requiredCertificatePin: Data?
     private var cachedInfo: HostInfo?
     private var pairing = false
 
     public init(address: HostAddress, hostID: String? = nil, identityStore: HostIdentityStore = .shared) {
         self.address = address; expectedHostID = hostID; self.identityStore = identityStore; transport = URLSessionHostTransport()
+        requiredCertificatePin = nil
     }
-    init(address: HostAddress, hostID: String? = nil, identityStore: any HostIdentityProviding, transport: any HostHTTPTransport) {
+    init(address: HostAddress, hostID: String? = nil, identityStore: any HostIdentityProviding, transport: any HostHTTPTransport,
+         requiredCertificatePin: Data? = nil) {
         self.address = address; expectedHostID = hostID; self.identityStore = identityStore; self.transport = transport
+        self.requiredCertificatePin = requiredCertificatePin
     }
     private var pinKeys: [String] { [address.description] + [expectedHostID, cachedInfo?.id].compactMap { $0 } }
     private func pin() async throws -> Data? {
+        if let requiredCertificatePin { return requiredCertificatePin }
         for key in pinKeys { if let result = try await identityStore.pin(key) { return result } }; return nil
+    }
+    /// Authenticate an alternate endpoint using only the saved host identity's
+    /// certificate, retaining this client's identity store and HTTP transport.
+    /// This creates no pairing, address alias pin, or persisted host entry.
+    public func authenticatedAlternate(address: HostAddress, hostID: String) async throws -> (client: HostClient, info: HostInfo) {
+        try Task.checkCancellation()
+        if let expectedHostID, expectedHostID != hostID { throw HostError.identityChanged }
+        guard let certificate = try await identityStore.pin(hostID) else { throw HostError.notPaired }
+        try Task.checkCancellation()
+        let alternate = HostClient(address: address, hostID: hostID, identityStore: identityStore, transport: transport,
+                                   requiredCertificatePin: certificate)
+        // A fresh client discovers this endpoint's HTTPS port independently of
+        // the original route, then authenticates its response with the exact pin.
+        let info = try await alternate.serverInfo()
+        try Task.checkCancellation()
+        guard info.id == hostID else { throw HostError.identityChanged }
+        guard info.isPaired else { throw HostError.notPaired }
+        return (alternate, info)
     }
     private func request(_ path: String, items: [URLQueryItem] = [], secure: Bool, pin: Data? = nil,
                          httpsPort: Int? = nil, timeout: TimeInterval = 10) async throws -> HostXML {

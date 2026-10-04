@@ -134,6 +134,19 @@ public struct HostInfo: Hashable, Codable, Sendable, Identifiable {
     public var isApollo: Bool { permissions != nil || rawFields["VirtualDisplayCapable"] != nil }
     public var supportsHEVC: Bool { codecSupport & 0x100 != 0 }
     public var supportsAV1: Bool { codecSupport & 0x10000 != 0 }
+    // ServerCodecModeSupport profile bits are distinct from common-c's
+    // VIDEO_FORMAT_* values and must never be used interchangeably.
+    public var supportsPyrowave: Bool { codecSupport & 0x00800000 != 0 }
+    public var supportsPyrowave444: Bool { codecSupport & 0x01000000 != 0 }
+    public var supportsPyrowaveHDR: Bool { codecSupport & 0x02000000 != 0 }
+    public var supportsPyrowaveHDR444: Bool { codecSupport & 0x04000000 != 0 }
+    /// Host-local routed transmit link speed; this is not a throughput test.
+    /// Unauthenticated discovery must not supply a trusted bandwidth hint.
+    public var pyrowaveHostLinkMbps: Int? {
+        guard isPaired, let value = rawFields["PyroWaveHostLinkMbps"].flatMap(Int.init),
+              (1...1_000_000).contains(value) else { return nil }
+        return value
+    }
 }
 
 public struct RemoteApp: Hashable, Codable, Sendable, Identifiable {

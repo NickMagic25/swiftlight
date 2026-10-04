@@ -7,5 +7,11 @@
       "enet": "aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1",
       "nanors": "b1e3c22ca0cdc0bb83e3cd6ed1a2fc77869ed99a"
     }
+  },
+  "pyrowave": {
+    "path": "Dependencies/pyrowave",
+    "revision": "56b007143b471def3e41d5e74d10f73dfc8c8df1",
+    "url": "https://github.com/NickMagic25/pyrowave.git",
+    "bitstream": "186f0393"
   }
 }

@@ -177,6 +177,9 @@ private final class FramePresentationSignal: @unchecked Sendable {
     private var capsLockState = false
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
+    // Video and letterboxes cover the entire view with alpha one. The safe-area
+    // child-layer path also has an opaque black backing layer outside the video.
+    override var isOpaque: Bool { true }
     init(pipeline: StreamingPipeline, transport: StreamTransport, settings: StreamSettings) {
         self.pipeline = pipeline; self.transport = transport
         configuredPacing = settings.videoPacing
@@ -185,11 +188,12 @@ private final class FramePresentationSignal: @unchecked Sendable {
         #if DEBUG
         if pipeline.renderOptions.useRootMetalLayer && settings.resolution != .nativeSafeArea {
             // NSView layer hosting requires assigning the layer BEFORE wantsLayer.
-            // This experiment uses the full view; safe-area clipping keeps the child layer.
+            // AppKit owns the root's geometry. Safe-area clipping keeps a child layer.
             layer = metalLayer
         }
         #endif
         wantsLayer = true; layer?.backgroundColor = NSColor.black.cgColor
+        layer?.isOpaque = true
         do {
             let renderer = try MetalVideoRenderer(captureScheduledCallback: pipeline.renderOptions.captureScheduledCallback); self.renderer = renderer; pipeline.attachRenderer(renderer)
             metalLayer.device = renderer.device; metalLayer.pixelFormat = .rgba16Float

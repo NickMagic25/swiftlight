@@ -32,7 +32,9 @@ public enum VideoReadbackValidator {
         rendered.withUnsafeMutableBytes { bytes in
             target.getBytes(bytes.baseAddress!, bytesPerRow: width * 16, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
         }
-        let buffer = frame.pixelBuffer
+        guard let buffer = frame.pixelBuffer else {
+            throw RendererFailure.unavailable("CoreVideo reference comparison requires a VideoToolbox output buffer")
+        }
         guard CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else {
             throw RendererFailure.unavailable("Diagnostic pixel map failed")
         }

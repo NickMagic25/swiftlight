@@ -17,6 +17,63 @@ struct StreamRenderOptions: Codable, Equatable, Sendable {
     var useSwiftUIStatisticsOverlay = false
 }
 
+/// Fixed-size semantic color metadata, assembled only when diagnostics are captured.
+/// No decoded image, host information, or frame identity enters this snapshot.
+struct DecodedColorDiagnostics: Codable, Sendable {
+    struct Chromaticity: Codable, Sendable {
+        let x: Double
+        let y: Double
+    }
+    struct MasteringDisplay: Codable, Sendable {
+        let red: Chromaticity
+        let green: Chromaticity
+        let blue: Chromaticity
+        let white: Chromaticity
+        let minimumLuminanceNits: Double
+        let maximumLuminanceNits: Double
+    }
+    struct ContentLight: Codable, Sendable {
+        let maximumContentLightLevelNits: UInt16
+        let maximumFrameAverageLightLevelNits: UInt16
+    }
+    let primaries: UInt16
+    let transfer: UInt16
+    let matrix: UInt16
+    let fullRange: Bool
+    let hasColorDescription: Bool
+    let hasRange: Bool
+    let chromaLocation: UInt8
+    let masteringDisplay: MasteringDisplay?
+    let contentLight: ContentLight?
+
+    init(color: VideoColor) {
+        primaries = color.primaries; transfer = color.transfer; matrix = color.matrix
+        fullRange = color.fullRange; hasColorDescription = color.hasColorDescription
+        hasRange = color.hasRange; chromaLocation = color.chromaLocation
+        func u16(_ bytes: [UInt8], _ offset: Int) -> UInt16 {
+            UInt16(bytes[offset]) << 8 | UInt16(bytes[offset + 1])
+        }
+        func u32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
+            UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16 |
+                UInt32(bytes[offset + 2]) << 8 | UInt32(bytes[offset + 3])
+        }
+        if color.mastering.count == 24 {
+            func xy(_ offset: Int) -> Chromaticity {
+                Chromaticity(x: Double(u16(color.mastering, offset)) / 50_000,
+                    y: Double(u16(color.mastering, offset + 2)) / 50_000)
+            }
+            // SMPTE ST 2086 orders the primary pairs G, B, R, followed by white.
+            masteringDisplay = MasteringDisplay(red: xy(8), green: xy(0), blue: xy(4), white: xy(12),
+                minimumLuminanceNits: Double(u32(color.mastering, 20)) / 10_000,
+                maximumLuminanceNits: Double(u32(color.mastering, 16)) / 10_000)
+        } else { masteringDisplay = nil }
+        if color.contentLight.count == 4 {
+            contentLight = ContentLight(maximumContentLightLevelNits: u16(color.contentLight, 0),
+                maximumFrameAverageLightLevelNits: u16(color.contentLight, 2))
+        } else { contentLight = nil }
+    }
+}
+
 struct PresentationRuntimeDiagnostics: Codable, Sendable {
     let pacing: String
     let displaySyncEnabled: Bool?
@@ -92,10 +149,16 @@ final class StreamingPipeline: @unchecked Sendable {
         switch description.videoFormat {
         case 0x100, 0x200: codec = .hevc
         case 0x1000, 0x2000: codec = .av1
-        default: recordFailure("Host selected an unsupported video format. HEVC or AV1 4:2:0 is required."); return false
+        case 0x10000, 0x20000, 0x40000, 0x80000: codec = .pyrowave
+        default: recordFailure("Host selected an unsupported video format."); return false
         }
         do {
-            let newDecoder = try VideoDecoder(codec: codec, maxFramesInFlight: 2)
+            let color = VideoColor(primaries: description.bitDepth == 10 ? 9 : 1,
+                transfer: description.bitDepth == 10 ? 16 : 1, matrix: description.bitDepth == 10 ? 9 : 1,
+                fullRange: false, chromaLocation: 1)
+            let newDecoder = try VideoDecoder(codec: codec, maxFramesInFlight: 2,
+                width: description.width, height: description.height, bitDepth: description.bitDepth,
+                chromaFormat: description.isYUV444 ? 3 : 1, fallbackColor: codec == .pyrowave ? color : nil)
             lock.lock()
             guard accepting else { lock.unlock(); try newDecoder.close(); return false }
             let old = decoder; decoder = newDecoder; negotiatedStream = description; latestDecodedFormat = nil
@@ -116,7 +179,14 @@ final class StreamingPipeline: @unchecked Sendable {
             presentationTimeNanoseconds: Int64(input.presentationTimeUs) * 1000,
             randomAccess: input.isIDR, arrivalNanoseconds: input.enqueueUptimeNanoseconds,
             firstPacketNanoseconds: input.receiveUptimeNanoseconds,
-            hostProcessingMilliseconds: input.hostProcessingLatencyMilliseconds)
+            transportTiming: TransportFrameTiming(lastRequiredPacketNanoseconds: input.lastRequiredPacketUptimeNanoseconds,
+                fecReadyNanoseconds: input.fecReadyUptimeNanoseconds, queueOfferNanoseconds: input.queueOfferUptimeNanoseconds,
+                handoffNanoseconds: input.handoffUptimeNanoseconds, payloadBytes: input.payloadBytes,
+                partialFrame: input.transportPartial),
+            hostProcessingMilliseconds: input.hostProcessingLatencyMilliseconds,
+            pyrowaveFragments: input.pyrowaveFragments.map { .init(offset: $0.offset, size: $0.length, kind: $0.kind.rawValue) },
+            pyrowaveCriticalPackets: UInt32(input.pyrowaveCriticalPackets),
+            color: owner.codec == .pyrowave ? Self.pyrowaveColor(hdrActive: input.hdrActive, metadata: input.hdrMetadata) : nil)
         var result = owner.submit(frame)
         if result == .wouldBlock {
             do {
@@ -133,10 +203,37 @@ final class StreamingPipeline: @unchecked Sendable {
         case .accepted: return true
         case .needsRandomAccess: return false
         case .wouldBlock: recordFailure("Decoder remained backpressured after a controlled drain."); return false
-        case .rejected(let code): recordFailure("Decoder rejected the host stream (\(code)). Check the host encoder uses low-delay HEVC/AV1 without reordered HEVC B pictures."); return false
+        case .rejected(let code):
+            // Independent PyroWave frames recover on the next frame after loss or
+            // malformed input; they never require an IDR or poison the session.
+            if owner.canRecoverOnNextFrame(from: code) { return false }
+            if owner.codec == .pyrowave { recordFailure("PyroWave decoder could not accept the host stream (\(code))."); return false }
+            recordFailure("Decoder rejected the host stream (\(code)). Check the host encoder uses low-delay HEVC/AV1 without reordered HEVC B pictures."); return false
         }
     }
     func closeAdmission() { lock.lock(); accepting = false; lock.unlock() }
+    /// Vibepollo's sequence header carries no authoritative color description.
+    /// The transport captures host HDR state with this frame and requests Rec.709 SDR.
+    static func pyrowaveColor(hdrActive: Bool, metadata: TransportHDRMetadata?) -> VideoColor {
+        func u16(_ value: UInt16) -> [UInt8] { [UInt8(value >> 8), UInt8(value & 255)] }
+        func u32(_ value: UInt32) -> [UInt8] {
+            [UInt8(value >> 24), UInt8((value >> 16) & 255), UInt8((value >> 8) & 255), UInt8(value & 255)]
+        }
+        var color = VideoColor(primaries: hdrActive ? 9 : 1, transfer: hdrActive ? 16 : 1,
+            matrix: hdrActive ? 9 : 1, fullRange: false, chromaLocation: 1)
+        if hdrActive, let metadata {
+            if metadata.maxDisplayLuminance > 0 {
+                color.mastering = [metadata.greenX, metadata.greenY, metadata.blueX, metadata.blueY,
+                    metadata.redX, metadata.redY, metadata.whiteX, metadata.whiteY].flatMap(u16)
+                color.mastering += u32(UInt32(metadata.maxDisplayLuminance) * 10_000)
+                color.mastering += u32(UInt32(metadata.minDisplayLuminance))
+            }
+            if metadata.maxContentLightLevel > 0 {
+                color.contentLight = u16(metadata.maxContentLightLevel) + u16(metadata.maxFrameAverageLightLevel)
+            }
+        }
+        return color
+    }
     func close() {
         lock.lock(); accepting = false; let owner = decoder; decoder = nil; lock.unlock()
         try? owner?.close()
@@ -173,6 +270,9 @@ final class StreamingPipeline: @unchecked Sendable {
         latestViewport = viewport
     }
     var decodedFormat: DecodedVideoFormat? { lock.lock(); defer { lock.unlock() }; return latestDecodedFormat }
+    var decodedColorDiagnostics: DecodedColorDiagnostics? {
+        decodedFormat.map { DecodedColorDiagnostics(color: $0.color) }
+    }
     var streamDescription: VideoStreamDescription? { lock.lock(); defer { lock.unlock() }; return negotiatedStream }
     var decodedDetail: String {
         lock.lock(); let format = latestDecodedFormat, viewport = latestViewport; lock.unlock()

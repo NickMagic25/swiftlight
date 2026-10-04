@@ -7,6 +7,7 @@ These pages describe Swiftlight from a player's perspective: connecting to a com
 - [Appearance and application library](appearance.md)
 - [Audio and Spatial Audio](audio.md)
 - [Stream presentation](stream-presentation.md)
+- [PyroWave streaming](pyrowave.md)
 - [Stream statistics](stream-statistics.md)
 - [Diagnostic exports](diagnostic-exports.md)
 - [Compatibility](compatibility-matrix.md)

@@ -1,12 +1,31 @@
 # Benchmarking
 
-The implementation does not yet have a live host/display/network baseline. No end-to-end, Game Mode, 4K60, wireless or 30-minute performance claim is made.
+Keep current measurements separate from dated reports, including the [September PyroWave investigation](pyrowave-decoder-latency-2026-09-30.md). Those reports describe the source revision, route and workload they recorded. No offscreen decode result establishes end-to-end latency, Game Mode, wireless behavior or a 30-minute stream.
 
 ## Offline gates
 
 Run `scripts/validate-offline.sh` for deterministic correctness. Run `.build/debug/swiftlight-replay --fixture fixtures/hevc-sdr8/manifest.json --mode paced --output artifacts/hevc-paced.json` for a synthetic arrival-paced offscreen workload. Replace fixture for HEVC10/AV1 variants. The short 128×72 fixtures prove integration/color/accounting; they are not a 4K60 workload or sufficient performance sample.
 
 Replay JSON separates accepted/completed/output/no-display/skipped, outstanding/mailbox/GPU high-water marks, and timing samples/distributions. Offscreen completion is not displayed. A screenshot is not HDR validation. Timing collected with GPU API validation, sanitizers, or debugging overhead must remain labeled.
+
+## Direct PyroWave decoder comparison
+
+Build the shared modules and generate one larger test-only input outside the measurement loop:
+
+```sh
+swift build --build-system native --product swiftlight-replay
+python3 scripts/prepare-pyrowave-fixtures.py --benchmark
+python3 scripts/benchmark-pyrowave.py \
+  --fixture .build/pyrowave-fixtures/pyrowave-3440x1440-420.bin \
+  --fps 240 --frames 480 --warmup 120 --depth 10 \
+  --output artifacts/pyrowave-direct-240.json
+```
+
+The probe compiles against the existing production `SwiftlightVideo` module and current native link objects. Admission runs independently at fixed cadence with capacity two; it retries the same unconsumed input after bounded backpressure and requires exact output/terminal counts. It records same-frame admission-to-callback and available preparation/backend/GPU intervals, queue bounds and admission lateness. Empty stage summaries mean unavailable, never zero. The final production-renderer RGB checksum is taken after timing. No network, renderer latency, window presentation, physical display or input-to-photon latency is measured.
+
+For a wrapper/direct comparison, retain the wrapper's matching Swift module, native archive, headers and executable before changing dependencies. Run the same immutable compressed bytes, dimensions, depth, chroma, precision, worker QoS, two-frame capacity, warmup and cadence in A–B–B–A order while other builds, streams and GPU jobs are stopped. Repeat at 120 and 240 FPS; retain per-frame samples, missing counts, p95/tails, thermal/power state, source identities and exact output hashes. A changed fork revision is an additional variable: such a comparison measures the combined source/dependency route change and cannot attribute every gain to removing a wrapper. Sequential completion waits and unpaced bursts answer different questions and must remain separate from this cadence experiment.
+
+Use `--compile-only` with `benchmark-pyrowave.py` to prepare each executable before the quiet measurement window. Then run `compare-pyrowave.py --wrapper <preserved-executable> --direct <direct-executable> --fixture <fixed-input> --fps 240 --output-dir artifacts/pyrowave-abba-240`. It launches only the two existing probes, retains all four reports and rejects a comparison with mismatched fixture/output hashes, profile, cadence or sample count. Compilation and fixture encoding never run between variants.
 
 ## Live baseline procedure
 

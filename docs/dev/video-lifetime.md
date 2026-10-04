@@ -1,10 +1,10 @@
 # Video boundaries and ownership
 
-`SwiftlightVideo` depends on the pinned `MoonlightAppleVideo` C Clang module. It has no Swift C++ interop, alternate video decoder, decoder plugin selector, or software fallback. Canonical NV12 and P010 are the baseline. Experimental `&8v0`/`&xv0` formats and process environment controls are not enabled.
+`SwiftlightVideo` uses the pinned `MoonlightAppleVideo` C module for HEVC/AV1 and the pinned `Dependencies/pyrowave` Metal library through `CPyrowaveBridge` for PyroWave. The codec selects its native backend internally; there is no decoder plugin selector or software fallback. Swift has no C++ interop. Canonical NV12 and P010 remain the HEVC/AV1 baseline. Experimental `&8v0`/`&xv0` formats and process environment controls are not enabled.
 
 `VideoDecoder` owns the decoder handle and one private serial worker. Submit, capacity waits, drain, reset, and destruction enter that worker synchronously. The transport's one pull worker submits a complete copied access unit and releases the common-c frame according to submission success. Rejected/would-block inputs produce no terminal completion. Production capacity waits must be bounded, with transport shutdown able to stop new submissions before joining workers. A configuration-change would-block may require draining accepted old work before retrying the same unconsumed AU.
 
-The C context is an unretained pointer to `CompletionMailbox`, whose strong owner outlives synchronous decoder destruction. The C callback only copies metadata, strongly retains its borrowed CVPixelBuffer into an immutable `DecodedFrame`, and updates a short locked mailbox. No decoder call, GPU call, CPU mapping, external closure, or control wait occurs inside the callback. Inline completions may precede submit return: no mailbox lock is held across the C call, and accepted accounting is updated after return. The callback never guesses which submission is next; it preserves the decoder's frame and generation identities, no-display terminals, internal samples, and show-existing events.
+The C context is an unretained pointer to `CompletionMailbox`, whose strong owner outlives synchronous decoder destruction. The C callback only copies metadata, strongly retains its borrowed CVPixelBuffer or PyroWave GPU lease into an immutable `DecodedFrame`, and updates a short locked mailbox. No decoder call, GPU call, CPU mapping, external closure, or control wait occurs inside the callback. Inline completions may precede submit return: no mailbox lock is held across the C call, and accepted accounting is updated after return. The callback never guesses which submission is next; it preserves the decoder's frame and generation identities, no-display terminals, internal samples, and show-existing events.
 
 The mailbox holds exactly one latest frame. Replacing it releases the old owner and increments a presentation-skip counter. Reset suppresses output, clears that mailbox, invokes reset, and reopens presentation only after the C contract guarantees old callbacks have ended. Accepted work always retains terminal accounting. Drain preserves reference state. Close is idempotent and synchronous; already retained frames remain valid after close.
 
@@ -28,3 +28,42 @@ The Metal renderer creates plane views from retained buffers. A `TextureLease` o
 Clock values named `arrivalNanoseconds` and `firstPacketNanoseconds` must already be in `mav_monotonic_time_ns`'s domain. PTS is media time and never used as an arrival timestamp. Replay's synthetic pacing uses this clock directly. Core Animation's actual presentation times remain separate until a measured clock calibration is applied; they are not subtracted from transport or RTP clocks.
 
 `contentRect` converts CoreVideo's lower-left clean-aperture coordinates to top-left source pixels and clips them to valid output. The renderer honors clean aperture, plane extents, aspect-fit letterboxes and aspect-fill cropping. Input should use the identical visible rect and scale policy. No claim is made that square-pixel synthetic fixtures validate anamorphic/sample-aspect-ratio content.
+
+## Direct PyroWave ownership
+
+`CPyrowaveBridge` adapts Vibepollo record or legacy length framing directly in
+the contiguous `Data` already copied by transport. Its checks cover the outer
+input size, fragment ranges, record lengths/alignment and lost-fragment
+boundaries needed to pass bounded intact ranges to the pinned native decoder.
+It does not independently scan coefficient payloads or implement PyroWave's
+sequence, block or readiness rules. The fork owns codec parsing, acceptance and
+decode readiness through its native API. The bridge sends intact ranges without
+copying the entire access unit or constructing a normalized record buffer.
+Coefficient concatenation inside PyroWave and upload to its bounded Metal
+buffers remain CPU copies; this is not a zero-copy compressed path. The encoder
+and benchmark shaders are excluded from app builds.
+
+Admission is capped at two accepted command buffers on one ordered Metal queue.
+The fork has four upload slots and can wait when reusing an occupied slot; the
+bridge's smaller admission bound ensures a slot's previous consumer has finished
+before reuse. Capacity waits happen only on the private video worker. Native
+corrupt-bitstream rejection or an incomplete frame returns a recoverable
+submission rejection without consuming the caller's context or creating a
+terminal completion. The next independent frame starts with cleared native
+state. These native checks are the pinned fork's implementation; the bridge adds
+no separate codec-validation pass. Authenticated transport color/HDR metadata
+remains authoritative.
+
+The private R8/R16 Y, Cb and Cr outputs are decoded and sampled directly on their
+own Metal device. A reference-counted pool lease survives reset and destruction.
+The pool has at most admission capacity plus four output slots; renderer-held
+leases apply backpressure instead of growing texture storage. The renderer retains
+the lease through command completion. There are no decoded CPU planes, readback
+or synchronous GPU waits in normal presentation. Reset advances generation,
+resolves accepted old work and then reopens admission.
+
+`CNativeVideoABI` only copies HEVC/AV1 completion metadata. The published MAV
+ABI-1 package has no optional backend trace tail, so those stages remain
+unavailable. It can also safely read the local ABI-2 development package for
+comparison without routing PyroWave through its decoder. Native fork symbols are
+prefixed to prevent collision with that development package's PyroWave symbols.

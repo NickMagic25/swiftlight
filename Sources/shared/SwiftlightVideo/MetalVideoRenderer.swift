@@ -117,6 +117,16 @@ public struct FramePresentationTiming: Codable, Sendable {
     public let frameID: UInt64
     public let generation: UInt64
     public let callbackNanoseconds: UInt64
+    /// Renderer-local submission counter, shared with GPUFrameTiming. Redraws
+    /// have distinct values; this is not a system trace or command-buffer ID.
+    public let renderSubmissionID: UInt64?
+    /// MTLDrawable.drawableID, incremented by its CAMetalLayer starting at zero.
+    /// Layer-local only; correspondence to a trace's surface/frame IDs is unverified.
+    public let drawableID: UInt64?
+    public let decodeStages: DecodeStageTiming?
+    public let transportStages: TransportStageTiming?
+    public let decodeGPUEndToRenderStartMilliseconds: Double?
+    public let decodeGPUToRenderCalibrationUncertaintyNanoseconds: UInt64?
     public let actualPresentationNanoseconds: UInt64
     public let firstPacketToPresentationMilliseconds: Double?
     public let hostProcessingMilliseconds: Double?
@@ -171,8 +181,19 @@ public struct GPUFrameTiming: Codable, Sendable {
     public let frameID: UInt64
     public let generation: UInt64
     public let callbackNanoseconds: UInt64
+    /// Renderer-local submission counter, including offscreen renders and redraws.
+    /// A matching presentation record carries the same value, not a trace ID.
+    public let renderSubmissionID: UInt64?
+    /// Layer-local MTLDrawable.drawableID; zero is valid, nil means no drawable.
+    public let drawableID: UInt64?
+    public let decodeStages: DecodeStageTiming?
+    public let transportStages: TransportStageTiming?
+    public let decodeGPUEndToRenderStartMilliseconds: Double?
+    public let decodeGPUToRenderCalibrationUncertaintyNanoseconds: UInt64?
     public let succeeded: Bool
     public let calibrationUncertaintyNanoseconds: UInt64?
+    public let firstPacketToArrivalMilliseconds: Double?
+    public let arrivalToAdmissionMilliseconds: Double?
     public let firstPacketToDecodeCallbackMilliseconds: Double?
     public let firstPacketToGPUEndMilliseconds: Double?
     public let decodeCallbackToGPUEndMilliseconds: Double?
@@ -206,14 +227,23 @@ public struct GPUFrameTiming: Codable, Sendable {
             return (end - start) * 1000
         }
         frameID = frame.frameID; generation = frame.generation; callbackNanoseconds = frame.callbackNanoseconds
+        renderSubmissionID = submission.renderSubmissionID; drawableID = submission.drawableID
+        decodeStages = frame.decodeStages; transportStages = frame.transportStages
         self.succeeded = succeeded
         selectedAtSeconds = valid(submission.surface?.selectedAtSeconds)
-        renderStartSeconds = valid(submission.renderStartSeconds); commitSeconds = valid(submission.commitSeconds)
+        let renderStart = valid(submission.renderStartSeconds)
+        renderStartSeconds = renderStart; commitSeconds = valid(submission.commitSeconds)
         scheduledCallbackSeconds = valid(submission.scheduledCallbackSeconds)
         kernelStartSeconds = valid(submission.kernelStartSeconds); kernelEndSeconds = valid(submission.kernelEndSeconds)
         gpuStartSeconds = valid(submission.gpuStartSeconds); gpuEndSeconds = valid(submission.gpuEndSeconds)
         completedCallbackSeconds = valid(submission.completedCallbackSeconds)
         let validReceive = frame.firstPacketNanoseconds != 0 && frame.callbackNanoseconds >= frame.firstPacketNanoseconds
+        func decoderInterval(_ start: UInt64, _ end: UInt64) -> Double? {
+            guard start != 0, end >= start else { return nil }
+            return Double(end - start) / 1_000_000
+        }
+        firstPacketToArrivalMilliseconds = decoderInterval(frame.firstPacketNanoseconds, frame.scheduledArrivalNanoseconds)
+        arrivalToAdmissionMilliseconds = decoderInterval(frame.scheduledArrivalNanoseconds, frame.admissionNanoseconds)
         firstPacketToDecodeCallbackMilliseconds = validReceive ? Double(frame.callbackNanoseconds - frame.firstPacketNanoseconds) / 1_000_000 : nil
         firstPacketToGPUEndMilliseconds = validReceive ? gpuEndSeconds.flatMap {
             calibration?.milliseconds(from: frame.firstPacketNanoseconds, toPresentedSeconds: $0)
@@ -227,6 +257,13 @@ public struct GPUFrameTiming: Codable, Sendable {
         decodeCallbackToRenderStartMilliseconds = renderStartSeconds.flatMap {
             calibration?.milliseconds(from: frame.callbackNanoseconds, toPresentedSeconds: $0)
         }
+        decodeGPUEndToRenderStartMilliseconds = frame.decodeStages?.gpuEndNanoseconds.flatMap { end in
+            renderStart.flatMap { calibration?.milliseconds(from: end, toPresentedSeconds: $0) }
+        }
+        decodeGPUToRenderCalibrationUncertaintyNanoseconds = decodeGPUEndToRenderStartMilliseconds == nil ? nil :
+            frame.decodeStages?.gpuClockUncertaintyNanoseconds.flatMap { native in
+                calibration.map { native + $0.uncertaintyNanoseconds }
+            }
         calibrationUncertaintyNanoseconds = decodeCallbackToGPUEndMilliseconds == nil ? nil : calibration?.uncertaintyNanoseconds
         selectionToRenderStartMilliseconds = interval(selectedAtSeconds, renderStartSeconds)
         drawableAcquisitionMilliseconds = submission.surface?.drawableAcquisitionMilliseconds.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
@@ -260,20 +297,25 @@ struct FramePresentationMetadata: Sendable {
     let scheduledArrivalNanoseconds: UInt64
     let admissionNanoseconds: UInt64
     let vtSubmitNanoseconds: UInt64
+    let decodeStages: DecodeStageTiming?
+    let transportStages: TransportStageTiming?
     let hostProcessingMilliseconds: Double?
     init(_ frame: DecodedFrame) {
         frameID = frame.id; generation = frame.generation; callbackNanoseconds = frame.callbackNanoseconds
         firstPacketNanoseconds = frame.firstPacketNanoseconds; hostProcessingMilliseconds = frame.hostProcessingMilliseconds
         scheduledArrivalNanoseconds = frame.scheduledArrivalNanoseconds
         admissionNanoseconds = frame.admissionNanoseconds; vtSubmitNanoseconds = frame.vtSubmitNanoseconds
+        decodeStages = frame.decodeStages; transportStages = frame.transportStages
     }
     init(frameID: UInt64, generation: UInt64 = 0, callbackNanoseconds: UInt64,
          firstPacketNanoseconds: UInt64, hostProcessingMilliseconds: Double? = nil,
-         scheduledArrivalNanoseconds: UInt64 = 0, admissionNanoseconds: UInt64 = 0, vtSubmitNanoseconds: UInt64 = 0) {
+         scheduledArrivalNanoseconds: UInt64 = 0, admissionNanoseconds: UInt64 = 0, vtSubmitNanoseconds: UInt64 = 0,
+         decodeStages: DecodeStageTiming? = nil, transportStages: TransportStageTiming? = nil) {
         self.frameID = frameID; self.generation = generation; self.callbackNanoseconds = callbackNanoseconds
         self.firstPacketNanoseconds = firstPacketNanoseconds; self.hostProcessingMilliseconds = hostProcessingMilliseconds
         self.scheduledArrivalNanoseconds = scheduledArrivalNanoseconds
         self.admissionNanoseconds = admissionNanoseconds; self.vtSubmitNanoseconds = vtSubmitNanoseconds
+        self.decodeStages = decodeStages; self.transportStages = transportStages
     }
 }
 
@@ -281,6 +323,8 @@ struct FrameRenderSubmissionMetadata: Sendable {
     let surface: PresentationSubmissionTiming?
     let renderStartSeconds: Double
     var commitSeconds: Double?
+    var renderSubmissionID: UInt64? = nil
+    var drawableID: UInt64? = nil
     var scheduledCallbackSeconds: Double? = nil
     var kernelStartSeconds: Double? = nil
     var kernelEndSeconds: Double? = nil
@@ -326,8 +370,16 @@ struct PresentationTimingJoiner {
         entries.values.filter { $0.presentation == nil && $0.submission.completedCallbackSeconds != nil }.count
     }
 
-    mutating func begin(_ frame: FramePresentationMetadata, submission: FrameRenderSubmissionMetadata) -> UInt64 {
+    /// Offscreen/simulator submissions reserve identities without creating joins.
+    mutating func reserveSubmissionID() -> UInt64 {
         let id = nextID; nextID &+= 1
+        return id
+    }
+
+    mutating func begin(_ frame: FramePresentationMetadata, submission: FrameRenderSubmissionMetadata) -> UInt64 {
+        let id = reserveSubmissionID()
+        var submission = submission
+        submission.renderSubmissionID = id
         let index = Int(id % 1024)
         if let old = slots[index], let removed = entries.removeValue(forKey: old) {
             evictions += 1
@@ -413,8 +465,19 @@ struct PresentationTimingWindow {
         let displayCallback = validTimestamp(surface?.displayCallbackSeconds)
         let deadline = validTimestamp(surface?.targetDeadlineSeconds)
         let target = validTimestamp(surface?.targetPresentationSeconds)
+        let decodeGPUToRender = frame.decodeStages?.gpuEndNanoseconds.flatMap { end in
+            renderStart.flatMap { calibration?.milliseconds(from: end, toPresentedSeconds: $0) }
+        }
+        let decodeGPUUncertainty = decodeGPUToRender == nil ? nil : frame.decodeStages?.gpuClockUncertaintyNanoseconds.flatMap { native in
+            calibration.map { native + $0.uncertaintyNanoseconds }
+        }
         let sample = FramePresentationTiming(frameID: frame.frameID, generation: frame.generation,
-            callbackNanoseconds: frame.callbackNanoseconds, actualPresentationNanoseconds: actual,
+            callbackNanoseconds: frame.callbackNanoseconds,
+            renderSubmissionID: submission?.renderSubmissionID, drawableID: submission?.drawableID,
+            decodeStages: frame.decodeStages, transportStages: frame.transportStages,
+            decodeGPUEndToRenderStartMilliseconds: decodeGPUToRender,
+            decodeGPUToRenderCalibrationUncertaintyNanoseconds: decodeGPUUncertainty,
+            actualPresentationNanoseconds: actual,
             firstPacketToPresentationMilliseconds: latency, hostProcessingMilliseconds: host,
             calibrationUncertaintyNanoseconds: latency == nil ? nil : calibration?.uncertaintyNanoseconds,
             firstPacketToArrivalMilliseconds: decoderInterval(frame.firstPacketNanoseconds, frame.scheduledArrivalNanoseconds),
@@ -496,12 +559,11 @@ public enum RendererFailure: Error, CustomStringConvertible {
 /// no other thread accesses fields after commit. MTLTexture alone is insufficient.
 private final class TextureLease: @unchecked Sendable {
     private var frame: DecodedFrame?
-    private var y: CVMetalTexture?
-    private var uv: CVMetalTexture?
+    private var wrappers: [CVMetalTexture]
     private var overlay: MTLTexture?
-    init(frame: DecodedFrame, y: CVMetalTexture, uv: CVMetalTexture) { self.frame = frame; self.y = y; self.uv = uv }
+    init(frame: DecodedFrame, wrappers: [CVMetalTexture]) { self.frame = frame; self.wrappers = wrappers }
     func retainOverlay(_ texture: MTLTexture) { overlay = texture }
-    func releaseAfterGPUCompletion() { overlay = nil; uv = nil; y = nil; frame = nil }
+    func releaseAfterGPUCompletion() { overlay = nil; wrappers.removeAll(); frame = nil }
 }
 
 private struct OverlayTexture {
@@ -657,6 +719,14 @@ public final class MetalVideoRenderer: @unchecked Sendable {
                 submissionTiming: PresentationSubmissionTiming? = nil,
                 renderStartSeconds: Double? = nil) throws -> Bool {
         let renderStart = renderStartSeconds ?? CACurrentMediaTime()
+        // API getters may synchronize with Core Animation. Read before either
+        // renderer lock, and retain only the scalar (zero is a valid drawable ID).
+        #if targetEnvironment(simulator)
+        // Simulator Metal omits the drawable identity/presentation APIs.
+        let drawableID: UInt64? = nil
+        #else
+        let drawableID = drawable.map { UInt64($0.drawableID) }
+        #endif
         encodingLock.lock()
         var encodingLocked = true
         defer { if encodingLocked { encodingLock.unlock() } }
@@ -678,31 +748,45 @@ public final class MetalVideoRenderer: @unchecked Sendable {
                 throw RendererFailure.unavailable("Native PQ output requires BGR10A2Unorm or a floating-point readback target")
             }
         }
-        let format = CVPixelBufferGetPixelFormatType(frame.pixelBuffer)
-        let tenBit: Bool
-        switch format {
-        case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange: tenBit = false
-        case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr10BiPlanarFullRange: tenBit = true
-        default: throw RendererFailure.unsupportedFormat(format)
-        }
-        guard CVPixelBufferGetPlaneCount(frame.pixelBuffer) == 2 else { throw RendererFailure.unsupportedFormat(format) }
+        let tenBit = frame.bitDepth == 10
+        let planar = frame.gpuFrame != nil
+        let chromaDivisor = frame.gpuFrame?.chromaFormat == 3 ? 1 : 2
         guard [UInt16(1), 5, 6, 9].contains(frame.color.matrix), [UInt16(1), 6, 13, 16].contains(frame.color.transfer),
               [UInt16(1), 9].contains(frame.color.primaries) else {
             throw RendererFailure.unsupportedColor("matrix \(frame.color.matrix), transfer \(frame.color.transfer), primaries \(frame.color.primaries)")
         }
         var wrappers: [CVMetalTexture] = []
         var textures: [MTLTexture] = []
-        for plane in 0..<2 {
+        if let gpu = frame.gpuFrame {
+            let format: MTLPixelFormat = tenBit ? .r16Unorm : .r8Unorm
+            guard frame.bitDepth == 8 || tenBit, gpu.planes.count == 3,
+                  gpu.chromaFormat == 1 || gpu.chromaFormat == 3,
+                  gpu.planes.allSatisfy({ $0.device.registryID == device.registryID && $0.pixelFormat == format }),
+                  gpu.planes[0].width >= frame.width, gpu.planes[0].height >= frame.height,
+                  gpu.planes[1].width * chromaDivisor >= frame.width, gpu.planes[1].height * chromaDivisor >= frame.height,
+                  gpu.planes[2].width == gpu.planes[1].width, gpu.planes[2].height == gpu.planes[1].height else {
+                throw RendererFailure.unavailable("Invalid PyroWave output planes or Metal device")
+            }
+            textures = gpu.planes
+        } else if let pixelBuffer = frame.pixelBuffer {
+            let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
+            let expected = tenBit ? [kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr10BiPlanarFullRange] :
+                [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange]
+            guard expected.contains(format), CVPixelBufferGetPlaneCount(pixelBuffer) == 2 else {
+                throw RendererFailure.unsupportedFormat(format)
+            }
+            for plane in 0..<2 {
             var wrapper: CVMetalTexture?
             let pixelFormat: MTLPixelFormat = plane == 0 ? (tenBit ? .r16Unorm : .r8Unorm) : (tenBit ? .rg16Unorm : .rg8Unorm)
-            let status = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, frame.pixelBuffer, nil, pixelFormat,
-                CVPixelBufferGetWidthOfPlane(frame.pixelBuffer, plane), CVPixelBufferGetHeightOfPlane(frame.pixelBuffer, plane), plane, &wrapper)
+            let status = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pixelBuffer, nil, pixelFormat,
+                CVPixelBufferGetWidthOfPlane(pixelBuffer, plane), CVPixelBufferGetHeightOfPlane(pixelBuffer, plane), plane, &wrapper)
             guard status == kCVReturnSuccess, let wrapper, let texture = CVMetalTextureGetTexture(wrapper) else {
                 throw RendererFailure.unavailable("CoreVideo Metal plane \(plane) import failed: \(status)")
             }
             wrappers.append(wrapper); textures.append(texture)
-        }
-        let lease = TextureLease(frame: frame, y: wrappers[0], uv: wrappers[1])
+            }
+        } else { throw RendererFailure.unavailable("Decoded frame has no output storage") }
+        let lease = TextureLease(frame: frame, wrappers: wrappers)
         let frameOverlay = overlay
         let pipeline: MTLRenderPipelineState
         if let cached = pipelines[target.pixelFormat.rawValue] { pipeline = cached }
@@ -718,7 +802,8 @@ public final class MetalVideoRenderer: @unchecked Sendable {
             _ = try overlayPipeline(for: target.pixelFormat)
         }
         let frameOverlayPipeline = try frameOverlay.map { _ in try overlayPipeline(for: target.pixelFormat) }
-        let denominator: Float = tenBit ? 65535.0 / 64.0 : 255
+        // PyroWave's R16 planes contain code/1023. P010 carries code*64/65535.
+        let denominator: Float = tenBit ? (planar ? 1023 : 65535.0 / 64.0) : 255
         let codeMax: Float = tenBit ? 1023 : 255
         let low: Float = frame.color.fullRange ? 0 : (tenBit ? 64 : 16)
         let span: Float = frame.color.fullRange ? codeMax : (tenBit ? 876 : 219)
@@ -727,8 +812,8 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         let kr: Float = frame.color.matrix == 9 ? 0.2627 : ([5, 6].contains(frame.color.matrix) ? 0.299 : 0.2126)
         let kb: Float = frame.color.matrix == 9 ? 0.0593 : ([5, 6].contains(frame.color.matrix) ? 0.114 : 0.0722)
         let location = frame.color.chromaLocation
-        let shiftX: Float = [UInt8(0), 2, 4].contains(location) ? 0.5 : 0
-        let shiftY: Float = [UInt8(2), 3].contains(location) ? 0.5 : ([UInt8(4), 5].contains(location) ? -0.5 : 0)
+        let shiftX: Float = chromaDivisor == 2 && [UInt8(0), 2, 4].contains(location) ? 0.5 : 0
+        let shiftY: Float = chromaDivisor == 2 ? ([UInt8(2), 3].contains(location) ? 0.5 : ([UInt8(4), 5].contains(location) ? -0.5 : 0)) : 0
         var source = frame.contentRect
         if scaleMode == .fill {
             let ratio = CGFloat(target.width) / CGFloat(target.height)
@@ -742,12 +827,12 @@ public final class MetalVideoRenderer: @unchecked Sendable {
             yScaleOffset: SIMD4(denominator / span, -low / span, 0, 0),
             chromaScaleOffset: SIMD4(denominator / chromaSpan, -chromaCenter / chromaSpan, 0, 0),
             sampleScale: SIMD4(Float(source.width) / Float(textures[0].width), Float(source.height) / Float(textures[0].height),
-                Float(source.width) / Float(textures[1].width * 2), Float(source.height) / Float(textures[1].height * 2)),
-            chromaPosition: SIMD4(shiftX / Float(textures[1].width * 2), shiftY / Float(textures[1].height * 2), 0, 0),
+                Float(source.width) / Float(textures[1].width * chromaDivisor), Float(source.height) / Float(textures[1].height * chromaDivisor)),
+            chromaPosition: SIMD4(shiftX / Float(textures[1].width * chromaDivisor), shiftY / Float(textures[1].height * chromaDivisor), 0, 0),
             sourceOrigin: SIMD4(Float(source.minX) / Float(textures[0].width), Float(source.minY) / Float(textures[0].height),
-                Float(source.minX) / Float(textures[1].width * 2), Float(source.minY) / Float(textures[1].height * 2)),
+                Float(source.minX) / Float(textures[1].width * chromaDivisor), Float(source.minY) / Float(textures[1].height * chromaDivisor)),
             coefficients: SIMD4(kr, kb, 0, 0), mode: SIMD4(UInt32(frame.color.transfer), UInt32(frame.color.primaries),
-                outputColorSpace == .rec2020PQ ? 1 : 0, 0))
+                outputColorSpace == .rec2020PQ ? 1 : 0, planar ? 1 : 0))
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target
         pass.colorAttachments[0].loadAction = .clear; pass.colorAttachments[0].storeAction = .store
@@ -762,6 +847,7 @@ public final class MetalVideoRenderer: @unchecked Sendable {
             width: width, height: height, znear: 0, zfar: 1))
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentTexture(textures[0], index: 0); encoder.setFragmentTexture(textures[1], index: 1)
+        encoder.setFragmentTexture(planar ? textures[2] : textures[1], index: 2)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<ShaderUniforms>.stride, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         if let frameOverlay, let frameOverlayPipeline {
@@ -790,7 +876,7 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         encoder.endEncoding()
         let frameTiming = FramePresentationMetadata(frame)
         let gpuStamp = GPUFrameSubmissionStamp(FrameRenderSubmissionMetadata(surface: submissionTiming,
-            renderStartSeconds: renderStart, commitSeconds: nil))
+            renderStartSeconds: renderStart, commitSeconds: nil, drawableID: drawableID))
         lock.lock()
         counters.submitted += 1; counters.inFlight += 1; counters.inFlightHighWater = max(counters.inFlightHighWater, counters.inFlight)
         if frameOverlay != nil { counters.overlayDraws += 1 }
@@ -802,6 +888,7 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         #else
         let presentationID = drawable == nil ? nil : presentationJoiner.begin(frameTiming, submission: gpuStamp.timing)
         #endif
+        gpuStamp.timing.renderSubmissionID = presentationID ?? presentationJoiner.reserveSubmissionID()
         lock.unlock()
         idle.enter()
         // Preserve command ordering for concurrent callers before releasing encoding
@@ -924,10 +1011,12 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         return select(v/4.5,pow((v+0.099)/1.099,1.0/0.45),v>=0.081);
     }
     fragment float4 videoFragment(Vertex input [[stage_in]], texture2d<float> yTex [[texture(0)]],
-        texture2d<float> uvTex [[texture(1)]], constant Uniforms& u [[buffer(0)]]) {
+        texture2d<float> uvTex [[texture(1)]], texture2d<float> crTex [[texture(2)]], constant Uniforms& u [[buffer(0)]]) {
         constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::linear);
         float y = yTex.sample(s,input.uv*u.scale.xy+u.origin.xy).r*u.y.x+u.y.y;
-        float2 c = uvTex.sample(s,input.uv*u.scale.zw+u.origin.zw+u.chroma.xy).rg*u.c.x+u.c.y;
+        float2 chromaUV = input.uv*u.scale.zw+u.origin.zw+u.chroma.xy;
+        float2 rawChroma = u.mode.w == 1 ? float2(uvTex.sample(s,chromaUV).r, crTex.sample(s,chromaUV).r) : uvTex.sample(s,chromaUV).rg;
+        float2 c = rawChroma*u.c.x+u.c.y;
         float kr=u.coefficients.x, kb=u.coefficients.y, kg=1-kr-kb;
         float3 rgb=float3(y+2*(1-kr)*c.y, y-2*kb*(1-kb)/kg*c.x-2*kr*(1-kr)/kg*c.y, y+2*(1-kb)*c.x);
         // Native PQ drawables carry nonlinear BT.2020 components. Core Animation

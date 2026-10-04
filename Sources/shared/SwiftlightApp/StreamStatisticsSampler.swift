@@ -23,11 +23,14 @@ struct StreamStatisticsSampler {
         }
         if let selection {
             snapshot.requestedFormat = "\(selection.codec.rawValue.uppercased()) · \(selection.hdr ? "HDR10 · 10-bit · Rec.2020" : "SDR · 8-bit · Rec.709") · Limited"
+            if selection.codec == .pyrowave { snapshot.requestedFormat += " · \(selection.chromaSampling.label)" }
         }
         if let negotiated {
             // Setup echoes requested dimensions/FPS; only its codec is negotiated.
             // Received geometry and frame rate must come from actual output.
-            snapshot.negotiatedVideo = "\(negotiated.isAV1 ? "AV1" : "HEVC") · \(negotiated.bitDepth)-bit"
+            let codec = negotiated.isPyrowave ? "PyroWave" : (negotiated.isAV1 ? "AV1" : "HEVC")
+            let chroma = negotiated.isPyrowave ? (negotiated.isYUV444 ? " · 4:4:4" : " · 4:2:0") : ""
+            snapshot.negotiatedVideo = "\(codec) · \(negotiated.bitDepth)-bit\(chroma)"
         }
         if let format = decodedFormat {
             snapshot.receivedSize = PixelSize(format.width, format.height)

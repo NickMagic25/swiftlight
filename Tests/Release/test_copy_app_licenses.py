@@ -13,6 +13,7 @@ LICENSE_INPUTS = {
     "OpenSSL.txt": ".build/dependencies/licenses/OpenSSL.txt",
     "Opus.txt": ".build/dependencies/licenses/Opus.txt",
     "MoonlightAppleVideo.txt": ".build/checkouts/moonlight-apple-decoder/LICENSE",
+    "PyroWave.txt": "Dependencies/pyrowave/LICENSE",
     "moonlight-common-c.txt": "Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt",
     "enet.txt": "Sources/shared/CStreamBridge/vendor/common-c/enet/LICENSE",
     "nanors.txt": "Sources/shared/CStreamBridge/vendor/common-c/nanors/LICENSE",
@@ -20,6 +21,44 @@ LICENSE_INPUTS = {
 
 
 class CopyAppLicensesTests(unittest.TestCase):
+    def test_decoder_override_and_xcode_checkout_use_submodule_notice(self):
+        for route in ("override", "xcode"):
+            with self.subTest(route=route), tempfile.TemporaryDirectory(prefix="swiftlight licenses ") as temporary:
+                root = Path(temporary)
+                script = root / "scripts/copy-app-licenses.sh"
+                script.parent.mkdir()
+                shutil.copy2(ROOT / "scripts/copy-app-licenses.sh", script)
+                for name, relative in LICENSE_INPUTS.items():
+                    if name == "MoonlightAppleVideo.txt":
+                        continue
+                    source = root / relative
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    source.write_text(f"Original {name}\n")
+                environment = {key: value for key, value in os.environ.items()
+                               if key not in ("SWIFTLIGHT_DECODER_PATH", "BUILD_DIR")}
+                if route == "override":
+                    decoder = root / "local decoder"
+                    environment["SWIFTLIGHT_DECODER_PATH"] = str(decoder)
+                else:
+                    build_directory = root / "Derived Data/Build/Products"
+                    build_directory.mkdir(parents=True)
+                    decoder = root / "Derived Data/SourcePackages/checkouts/moonlight-apple-decoder"
+                    environment["BUILD_DIR"] = str(build_directory)
+                decoder.mkdir(parents=True)
+                (decoder / "LICENSE").write_text("Decoder notice\n")
+                notice = root / "Dependencies/pyrowave/LICENSE"
+                notice.write_text("Submodule notice\n")
+                output = root / "App Licenses"
+                result = subprocess.run([str(script), str(output)], env=environment,
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((output / "PyroWave.txt").read_bytes(), notice.read_bytes())
+                self.assertEqual((output / "MoonlightAppleVideo.txt").read_text(), "Decoder notice\n")
+                notice.unlink()
+                result = subprocess.run([str(script), str(output)], env=environment,
+                                        text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
+
     def test_repeated_copy_replaces_readonly_outputs_without_changing_sources(self):
         with tempfile.TemporaryDirectory(prefix="swiftlight licenses ") as temporary:
             root = Path(temporary)

@@ -1,7 +1,11 @@
 import Foundation
 
-public enum CodecPreference: String, Codable, CaseIterable, Sendable { case auto, hevc, av1 }
+public enum CodecPreference: String, Codable, CaseIterable, Sendable { case auto, hevc, av1, pyrowave }
 public enum HDRPreference: String, Codable, CaseIterable, Sendable { case auto, on, off }
+public enum StreamChromaSampling: String, Codable, CaseIterable, Sendable {
+    case yuv420, yuv444
+    public var label: String { self == .yuv420 ? "4:2:0" : "4:4:4" }
+}
 public enum ResolutionMode: String, Codable, CaseIterable, Sendable {
     case hd720, hd1080, qhd1440, uhd4K, custom, native, nativeSafeArea, window
     public var label: String {
@@ -57,6 +61,8 @@ public struct StreamSettings: Codable, Equatable, Sendable {
     public var automaticBitrate = true
     public var codec: CodecPreference = .auto
     public var hdr: HDRPreference = .auto
+    /// PyroWave profile selection. Existing HEVC/AV1 paths remain 4:2:0.
+    public var chromaSampling: StreamChromaSampling = .yuv420
     public var scaling: VideoScaling = .fit
     public var pointerMode: PointerMode = .relative
     /// macOS launch preference; other Apple platforms always present full screen.
@@ -73,7 +79,7 @@ public struct StreamSettings: Codable, Equatable, Sendable {
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case resolution, customSize, framesPerSecond, bitrateMbps, automaticBitrate
-        case codec, hdr, scaling, pointerMode, launchInFullScreen
+        case codec, hdr, chromaSampling, scaling, pointerMode, launchInFullScreen
         case videoPacing, displaySyncEnabled, maximumDrawableCount
         case audioChannels, audioOutput, playAudioOnHost
     }
@@ -87,6 +93,7 @@ public struct StreamSettings: Codable, Equatable, Sendable {
         automaticBitrate = try values.decodeIfPresent(Bool.self, forKey: .automaticBitrate) ?? automaticBitrate
         codec = try values.decodeIfPresent(CodecPreference.self, forKey: .codec) ?? codec
         hdr = try values.decodeIfPresent(HDRPreference.self, forKey: .hdr) ?? hdr
+        chromaSampling = try values.decodeIfPresent(StreamChromaSampling.self, forKey: .chromaSampling) ?? chromaSampling
         scaling = try values.decodeIfPresent(VideoScaling.self, forKey: .scaling) ?? scaling
         pointerMode = try values.decodeIfPresent(PointerMode.self, forKey: .pointerMode) ?? pointerMode
         // Existing global/per-host JSON predates this key. Preserve its settings
@@ -121,16 +128,28 @@ public struct StreamSettings: Codable, Equatable, Sendable {
         guard framesPerSecond == 0 || (1...240).contains(framesPerSecond) else {
             throw SettingsError.invalid("Frame rate must be automatic or between 1 and 240 FPS.")
         }
-        guard bitrateMbps.isFinite, (1...500).contains(bitrateMbps) else {
-            throw SettingsError.invalid("Bitrate must be between 1 and 500 Mbps.")
+        let maximumBitrate: Double = codec == .pyrowave ? 10_000 : 500
+        guard bitrateMbps.isFinite, (1...maximumBitrate).contains(bitrateMbps) else {
+            throw SettingsError.invalid("Bitrate must be between 1 and \(Int(maximumBitrate)) Mbps.")
         }
         return self
     }
-    public func request(display: DisplayGeometry) throws -> StreamRequest {
+    public func request(display: DisplayGeometry, selection: CodecSelection? = nil) throws -> StreamRequest {
         let valid = try validated()
         let size = valid.resolvedSize(display: display)
         let fps = framesPerSecond == 0 ? max(1, min(240, Int(display.refreshHz.rounded()))) : framesPerSecond
-        let automatic = min(150, max(5, Double(size.width) * Double(size.height) / (1920 * 1080) * Double(fps) / 60 * 20))
+        let automatic: Double
+        if codec == .pyrowave {
+            // Upstream's visually clean SDR 4:2:0 reference is 1.6 bits/pixel.
+            // The 900 Mbps automatic ceiling leaves headroom on a gigabit LAN;
+            // faster links can opt into a larger manual budget.
+            let chroma = selection?.chromaSampling ?? chromaSampling
+            let isHDR = selection?.hdr ?? (hdr == .on)
+            let bitsPerPixel = 1.6 * (chroma == .yuv444 ? 1.6 : 1) * (isHDR ? 1.15 : 1)
+            automatic = min(900, max(20, Double(size.width) * Double(size.height) * Double(fps) * bitsPerPixel / 1_000_000))
+        } else {
+            automatic = min(150, max(5, Double(size.width) * Double(size.height) / (1920 * 1080) * Double(fps) / 60 * 20))
+        }
         return StreamRequest(size: size, fps: fps, bitrateKbps: Int(((automaticBitrate ? automatic : bitrateMbps) * 1000).rounded()))
     }
 }
@@ -149,17 +168,49 @@ public struct CodecCapabilities: Sendable {
     public var hdr: Bool
     public var hevcHDR: Bool
     public var av1HDR: Bool
-    public init(hevc: Bool, av1: Bool, hdr: Bool, hevcHDR: Bool? = nil, av1HDR: Bool? = nil) {
+    public var pyrowave: Bool
+    public var pyrowave444: Bool
+    public var pyrowaveHDR: Bool
+    public var pyrowaveHDR444: Bool
+    public init(hevc: Bool, av1: Bool, hdr: Bool, hevcHDR: Bool? = nil, av1HDR: Bool? = nil,
+                pyrowave: Bool = false, pyrowave444: Bool = false,
+                pyrowaveHDR: Bool = false, pyrowaveHDR444: Bool = false) {
         self.hevc = hevc; self.av1 = av1; self.hdr = hdr
         self.hevcHDR = hevcHDR ?? hdr; self.av1HDR = av1HDR ?? hdr
+        self.pyrowave = pyrowave; self.pyrowave444 = pyrowave444
+        self.pyrowaveHDR = pyrowaveHDR; self.pyrowaveHDR444 = pyrowaveHDR444
     }
 }
 public struct CodecSelection: Equatable, Sendable {
     public let codec: CodecPreference
     public let hdr: Bool
+    public let chromaSampling: StreamChromaSampling
     public let explanation: String
+    public init(codec: CodecPreference, hdr: Bool, chromaSampling: StreamChromaSampling = .yuv420,
+                explanation: String) {
+        self.codec = codec; self.hdr = hdr; self.chromaSampling = chromaSampling; self.explanation = explanation
+    }
     public static func negotiate(preference: CodecPreference, hdr: HDRPreference,
+                                 chromaSampling: StreamChromaSampling = .yuv420,
                                  host: CodecCapabilities, device: CodecCapabilities) throws -> CodecSelection {
+        if preference == .pyrowave {
+            guard host.pyrowave && device.pyrowave else {
+                throw SettingsError.invalid("PyroWave requires a compatible Vibepollo host and Metal decoder on this device.")
+            }
+            let canSDR = chromaSampling == .yuv420 || (host.pyrowave444 && device.pyrowave444)
+            let canHDRProfile = chromaSampling == .yuv444
+                ? host.pyrowaveHDR444 && device.pyrowaveHDR444 : host.pyrowaveHDR && device.pyrowaveHDR
+            let canHDR = host.hdr && device.hdr && canHDRProfile
+            guard hdr != .on || canHDR else {
+                throw SettingsError.invalid("HDR requires host 10-bit support and an HDR-capable destination display.")
+            }
+            let enabled = hdr != .off && canHDR
+            guard enabled || canSDR else {
+                throw SettingsError.invalid("PyroWave \(chromaSampling.label) SDR is unavailable for this host/device. Choose 4:2:0 or a supported HDR profile.")
+            }
+            return CodecSelection(codec: .pyrowave, hdr: enabled, chromaSampling: chromaSampling,
+                explanation: "PyroWave \(enabled ? "HDR10" : "SDR") \(chromaSampling.label) requested; requires a fast wired LAN.")
+        }
         let hevc = host.hevc && device.hevc, av1 = host.av1 && device.av1
         let hevcHDR = hevc && host.hdr && device.hdr && host.hevcHDR && device.hevcHDR
         let av1HDR = av1 && host.hdr && device.hdr && host.av1HDR && device.av1HDR
@@ -175,6 +226,9 @@ public struct CodecSelection: Equatable, Sendable {
             guard hevc else { throw SettingsError.invalid("HEVC hardware decoding is unavailable for this host/device.") }; selected = .hevc
         case .av1:
             guard av1 else { throw SettingsError.invalid("AV1 hardware decoding is unavailable. Choose HEVC or Auto.") }; selected = .av1
+        case .pyrowave:
+            // Handled above; PyroWave never enters automatic codec selection.
+            throw SettingsError.invalid("PyroWave negotiation could not be completed.")
         }
         let canHDR = selected == .av1 ? av1HDR : hevcHDR
         guard hdr != .on || canHDR else { throw SettingsError.invalid("HDR requires host 10-bit support and an HDR-capable destination display.") }

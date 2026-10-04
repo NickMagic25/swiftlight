@@ -5,7 +5,9 @@ mkdir -p artifacts .build/ModuleCache
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
 export SWIFTLIGHT_RUN_HARDWARE_TESTS=1
 scripts/bootstrap-dependencies.sh
-swift test --disable-sandbox --manifest-cache none
+python3 scripts/prepare-pyrowave-fixtures.py
+export SWIFTLIGHT_PYROWAVE_FIXTURE_PATH="$PWD/.build/pyrowave-fixtures"
+swift test --build-system native --disable-sandbox --manifest-cache none
 python3 docs/dev/host-otp-vectors.py
 python3 -m unittest discover -s Tests/DependencyPreparation -v
 scripts/validate-transport-native.sh

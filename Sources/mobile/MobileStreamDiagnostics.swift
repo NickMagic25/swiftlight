@@ -199,14 +199,16 @@ import os
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development",
             appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
-            settings: settings, timeline: capturedTimeline, decoder: decoder, renderer: renderer,
+            settings: settings, timeline: capturedTimeline, decoder: decoder,
+            decodedColor: pipeline?.decodedColorDiagnostics, renderer: renderer,
             presentationRuntime: pipeline?.presentationDiagnostics, statisticsOverlayVisible: statisticsOverlayVisible,
             inputCaptured: inputEnabled, renderOptions: pipeline?.renderOptions, stream: stream,
             rttMilliseconds: network?.rttMilliseconds, rttVarianceMilliseconds: network?.rttVarianceMilliseconds,
             pendingVideoFrames: network?.pendingVideoFrames, pendingAudioMilliseconds: network?.pendingAudioMilliseconds,
             audioQueuedFrames: network?.audioQueuedFrames, audioUnderrunFrames: network?.audioUnderrunFrames,
             audioOverrunFrames: network?.audioOverrunFrames, receivedFrames: network?.video.receivedFrames,
-            acquiredFrames: network?.video.acquiredFrames, acquiredBytes: network?.video.acquiredBytes, capture: capture)
+            acquiredFrames: network?.video.acquiredFrames, acquiredBytes: network?.video.acquiredBytes,
+            compressedStaleSkips: network?.video.compressedStaleSkips, capture: capture)
         sampleCount += 1
         let previous = pendingWrite
         pendingWrite = Task.detached(priority: .utility) {
@@ -277,6 +279,7 @@ private struct MobileLatencySnapshot: Encodable, Sendable {
     let settings: StreamSettings
     let timeline: StreamDiagnosticTimeline
     let decoder: DecoderStatistics?
+    let decodedColor: DecodedColorDiagnostics?
     let renderer: RenderStatistics?
     let presentationRuntime: PresentationRuntimeDiagnostics?
     let statisticsOverlayVisible: Bool
@@ -293,6 +296,7 @@ private struct MobileLatencySnapshot: Encodable, Sendable {
     let receivedFrames: UInt64?
     let acquiredFrames: UInt64?
     let acquiredBytes: UInt64?
+    let compressedStaleSkips: UInt64?
     let capture: MobileLatencyCaptureMetadata
     let timingCaveat = "At most 1024 recent records per renderer population, filtered after a 10-second presentation warmup and any observed overlay/control/input-state change; checkpoints can overlap. Same-frame confirmed drawable presentation is not physical scanout. Missing timing fields remain unavailable. Completion samples and decoder windows are independent populations. Captured before teardown; pending callbacks can remain. Timeline contains capture checkpoints only. Game Mode support in the plist does not establish actual activation; verify externally."
 }

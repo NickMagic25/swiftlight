@@ -36,7 +36,7 @@ or accessibility controls. See the [current validation record](dev/shared-client
 
 Disconnecting returns to the library and leaves the application running on your computer. Moving the app into the background ends the local stream. After a network or audio interruption, reconnect when the computer and device are ready.
 
-HEVC and AV1 availability depends on the computer and the device's hardware. A simulator cannot establish hardware decoding support or physical device streaming performance.
+HEVC and AV1 availability depends on the computer and the device's hardware. **PyroWave (wired LAN)** is an explicit codec choice for compatible Vibepollo hosts and Metal-capable devices; it also exposes **4:2:0** and **4:4:4** chroma sampling. Automatic codec selection continues to use HEVC or AV1. PyroWave requires much more bandwidth; see [PyroWave streaming](pyrowave.md) for bitrate settings and profile requirements. A simulator cannot establish hardware decoding support or physical device streaming performance.
 
 ## HDR and audio
 
