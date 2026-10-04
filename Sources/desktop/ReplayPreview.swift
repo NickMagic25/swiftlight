@@ -269,7 +269,7 @@ private final class ReplayPreviewEngine: @unchecked Sendable {
             let fixture = try JSONDecoder().decode(PreviewFixture.self, from: manifestData)
             let framesPerSecond = Double(fixture.frame_rate.num) / Double(fixture.frame_rate.den)
             guard fixture.schema_version == 1, fixture.width > 0, fixture.height > 0, fixture.width <= 8192, fixture.height <= 8192,
-                  [8, 10].contains(fixture.bit_depth), fixture.chroma == "420", fixture.timebase.num > 0, fixture.timebase.den > 0,
+                  [8, 10].contains(fixture.bit_depth), ["420", "444"].contains(fixture.chroma), fixture.timebase.num > 0, fixture.timebase.den > 0,
                   fixture.frame_rate.num > 0, fixture.frame_rate.den > 0, framesPerSecond.isFinite, (1...1000).contains(framesPerSecond),
                   (1...10000).contains(fixture.access_units.count),
                   fixture.access_units[0].random_access,
@@ -299,11 +299,16 @@ private final class ReplayPreviewEngine: @unchecked Sendable {
             }
             guard end == payload.count else { throw PreviewError.invalid("Trailing fixture bytes are unaccounted") }
             guard fixture.codec.hardwareCandidate else { throw PreviewError.invalid("Hardware \(fixture.codec.rawValue) decoding is unavailable on this device") }
-            let created = try VideoDecoder(codec: fixture.codec, maxFramesInFlight: 2)
+            let is444 = fixture.chroma == "444"
+            if is444 && !fixture.codec.hardwareProfileCandidate(bitDepth: fixture.bit_depth, chromaFormat: 3) {
+                throw PreviewError.invalid("Hardware \(fixture.codec.rawValue) \(fixture.bit_depth)-bit 4:4:4 is unavailable on this device")
+            }
+            let created = try VideoDecoder(codec: fixture.codec, maxFramesInFlight: 2,
+                                           bitDepth: is444 ? fixture.bit_depth : 0, chromaFormat: is444 ? 3 : 1)
             decoder = created
             condition.lock(); owner = created
             state.fixtureSHA256 = digest(manifestData); state.codec = fixture.codec.rawValue
-            state.profileDescription = "\(fixture.bit_depth)-bit 4:2:0"; state.frameRate = framesPerSecond
+            state.profileDescription = "\(fixture.bit_depth)-bit \(is444 ? "4:4:4" : "4:2:0")"; state.frameRate = framesPerSecond
             if !stopped { state.phase = "Running" }; condition.unlock()
             let framePeriod = UInt64(max(1, Double(fixture.frame_rate.den) / Double(fixture.frame_rate.num) * 1_000_000_000))
             let cycleDuration = (offsets.last ?? 0) + framePeriod

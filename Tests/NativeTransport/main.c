@@ -171,6 +171,17 @@ int main(void) {
     SFStreamConfiguration config = { .address = "localhost", .app_version = "7.1.431.0",
         .video_formats = 0x100, .width = 1920, .height = 1080, .fps = 60, .bitrate_kbps = 20000,
         .has_permissions = true, .permissions = 0, .audio_channels = 2 };
+    const uint32_t compressed_profiles[] = {0x100, 0x200, 0x400, 0x800, 0x1000, 0x2000, 0x4000, 0x8000};
+    for (unsigned i = 0; i < sizeof(compressed_profiles) / sizeof(compressed_profiles[0]); ++i) {
+        config.video_formats = compressed_profiles[i];
+        SFStream *profile = sf_stream_create(&config, (SFStreamCallbacks){0}, NULL); CHECK(profile);
+        sf_stream_destroy(profile);
+    }
+    config.video_formats = 0x1; // Unsupported H.264 remains rejected.
+    CHECK(!sf_stream_create(&config, (SFStreamCallbacks){0}, NULL));
+    config.video_formats = 0x100000; // Unknown formats remain rejected.
+    CHECK(!sf_stream_create(&config, (SFStreamCallbacks){0}, NULL));
+    config.video_formats = 0x100;
     SFStream *denied = sf_stream_create(&config, (SFStreamCallbacks){0}, NULL); CHECK(denied);
     CHECK(sf_stream_key(denied, 0x8041, true, 0) == -2);
     CHECK(sf_stream_mouse_move(denied, 1, 1) == -2);

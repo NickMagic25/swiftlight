@@ -21,6 +21,9 @@ void callback(void* p,const mav_completion* c) {
         CHECK(mav_decoder_drain(sink.decoder)==MAV_REENTRANT_CALL);
         CHECK(mav_decoder_destroy(sink.decoder)==MAV_REENTRANT_CALL);
         CHECK(mav_decoder_wait_for_capacity(sink.decoder,0)==MAV_REENTRANT_CALL);
+        mav_capability cap{};cap.struct_size=sizeof(cap);cap.version=MAV_ABI_VERSION;cap.hardware_decode_candidate=1;
+        CHECK(mav_query_profile_capability(MAV_CODEC_HEVC,8,3,&cap)==MAV_REENTRANT_CALL);
+        CHECK(!cap.hardware_decode_candidate);
         mav_access_unit u;mav_access_unit_default(&u,MAV_CODEC_AV1);
         CHECK(mav_decoder_submit_copy(sink.decoder,&u)==MAV_REENTRANT_CALL);
         mav_metrics m{};m.struct_size=sizeof(m);m.version=MAV_ABI_VERSION;
@@ -40,6 +43,19 @@ mav_metrics metrics(Sink& sink){mav_metrics m{};m.struct_size=sizeof(m);m.versio
 void destroy(Sink& s){CHECK(mav_decoder_destroy(s.decoder)==MAV_OK);s.decoder=nullptr;CHECK(mav_test::retained()==0);}
 int main(){
     const auto key=mav_test::av1_key_unit();const auto inter=mav_test::av1_frame(false,true);
+    // Explicit chroma constraints must reject before admission and must not
+    // replace the transactional parser state. Inferred chroma accepts High.
+    for(unsigned chroma:{0u,1u,3u}) {
+        Sink s;mav_config c;mav_config_default(&c,MAV_CODEC_AV1);c.chroma_format=chroma;c.completion=callback;c.context=&s;
+        CHECK(mav_decoder_create(&c,&s.decoder)==MAV_OK);mav_test::mode(Mode::Inline);
+        CHECK(submit(s,mav_test::av1_key_unit(8,64,64,3))==(chroma==1?MAV_UNSUPPORTED:MAV_OK));
+        if(chroma==1){CHECK(s.completions.empty()&&metrics(s).accepted==0);CHECK(submit(s,key)==MAV_OK);}
+        if(chroma==3){CHECK(submit(s,key)==MAV_UNSUPPORTED);CHECK(metrics(s).accepted==1);}
+        destroy(s);
+    }
+    {mav_capability cap{};cap.struct_size=sizeof(cap);cap.version=MAV_ABI_VERSION;
+        CHECK(mav_query_profile_capability(MAV_CODEC_HEVC,8,3,&cap)==MAV_UNSUPPORTED);
+        CHECK(cap.api_available&&!cap.hardware_decode_candidate);}
     {Sink s;create(s);s.check_reentrancy=true;mav_test::mode(Mode::Inline);
         CHECK(submit(s,key)==MAV_OK);CHECK(s.completions.size()==1);auto c=s.completions[0];
         CHECK(c.status==MAV_COMPLETION_OUTPUT);CHECK(c.trace.valid&MAV_TRACE_VT_SUBMIT);CHECK(c.trace.valid&MAV_TRACE_CALLBACK);

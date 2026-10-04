@@ -46,9 +46,11 @@ additional copies instead of claiming compressed zero-copy.
 A completion's CVPixelBuffer is borrowed. Retain it to keep it beyond callback;
 release it when the consumer finishes. Retained output survives reset/destruction.
 The core requests IOSurface and Metal-compatible YUV output, preserving 8/10-bit,
-4:2:0 and full/video range. Unsupported consumer formats are rejected explicitly.
-For AV1/HEVC, 4:4:4, extra AV1 layers/profiles and reordered HEVC are outside the baseline and
-return explicit unsupported results. Valid PTS/DTS with different ordering are
+4:2:0 or 4:4:4 and full/video range. HEVC Range Extensions and AV1 High support
+canonical bi-planar 4:4:4 when the actual hardware decoder accepts the profile;
+full-resolution chroma and exact output format are required. Unsupported consumer
+formats, extra AV1 layers/profiles and reordered HEVC return explicit unsupported
+results. Valid PTS/DTS with different ordering are
 also rejected by this low-delay API path.
 PyroWave supports both 4:2:0 and 4:4:4 through a borrowed `mav_gpu_frame` containing
 three immutable single-channel Metal textures. Retain/release that frame through
@@ -104,9 +106,14 @@ and ends at callback entry. It includes driver queueing and callback scheduling.
 An inline callback cannot know the later submission return time, so that field's
 validity is clear. Multiple child sample intervals and existing-frame events
 must remain distinguishable in reports. Rendering/presentation are unavailable
-in headless replay; zero is never substituted. Capability queries are only
-codec-level candidates; `hardware_validated` requires an actual hardware output
-for the configured stream.
+in headless replay; zero is never substituted. `mav_query_capability` reports a
+cheap codec-level candidate. `mav_query_profile_capability` decodes one attributed
+representative access unit with hardware required and checks depth, canonical
+format and chroma-plane geometry. It runs on a worker, outside callbacks, and
+does not cache failures or promise a wall-clock timeout for VideoToolbox drain.
+Neither query establishes the requested resolution, color, cadence or live host
+compatibility; `hardware_validated` still requires actual hardware output for the
+configured stream.
 
 An additive, size-tagged `mav_decode_trace` tail provides codec-neutral backend
 start, native decode-call submit/return, and (for PyroWave) Metal commit/start/end.
@@ -130,7 +137,12 @@ queueing/execution, and CPU completion notification for the same access unit.
 New parser and lifecycle code were independently implemented from public AV1 and
 HEVC syntax and Apple SDK declarations. Current FFmpeg VT source was inspected
 for av1C/CoreMedia construction, with no FFmpeg runtime dependency in the core.
-Initial local 720p probes used existing Moonlight Qt test access units (GPL-3.0
-project); those payloads are not bundled here. Generated moving-pattern fixtures
-have their own manifests, encoder revisions/settings and hashes. Tested synthetic
-inputs establish codec/API behavior, not compatibility with every streaming host.
+The small profile-probe access units are adapted from Moonlight Qt's GPL-3.0
+codec samples and bundled in `src/profile_samples.hpp`, with upstream revision,
+source and original/adapted hashes. `scripts/import-profile-samples.py` reproduces
+the adaptation from committed upstream source: HEVC RExt single-IDR SPS reorder
+declarations become zero while coded pictures stay intact, and AV1 trailing
+FFmpeg padding is removed at sized-OBU boundaries. Generated moving-pattern
+fixtures retain their own manifests, encoder revisions/settings and hashes.
+Test inputs establish codec/API behavior, not compatibility with every streaming
+host or independent compressed-decoder pixel equivalence.

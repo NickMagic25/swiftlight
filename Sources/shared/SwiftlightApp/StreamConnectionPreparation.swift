@@ -3,6 +3,7 @@ import Security
 import SwiftlightCore
 import SwiftlightHost
 import SwiftlightTransport
+import SwiftlightVideo
 
 /// One synchronous snapshot feeds both authenticated launch and native transport.
 /// The caller owns host verification, platform capabilities, all await points,
@@ -21,11 +22,15 @@ struct StreamConnectionPreparation: Sendable, CustomStringConvertible, CustomDeb
         // distinct from common-c's negotiated VIDEO_FORMAT_* bits below.
         let hevcHDR = host.codecSupport & 0x200 != 0
         let av1HDR = host.codecSupport & 0x20000 != 0
-        let hostHDR = hevcHDR || av1HDR || host.supportsPyrowaveHDR || host.supportsPyrowaveHDR444
+        let hostHDR = hevcHDR || av1HDR || host.supportsHEVCHDR444 || host.supportsAV1HDR444 ||
+            host.supportsPyrowaveHDR || host.supportsPyrowaveHDR444
         selection = try CodecSelection.negotiate(preference: settings.codec, hdr: settings.hdr,
             chromaSampling: settings.chromaSampling,
             host: .init(hevc: host.supportsHEVC, av1: host.supportsAV1, hdr: hostHDR,
-                        hevcHDR: hevcHDR, av1HDR: av1HDR, pyrowave: host.supportsPyrowave,
+                        hevcHDR: hevcHDR, av1HDR: av1HDR,
+                        hevc444: host.supportsHEVC444, hevcHDR444: host.supportsHEVCHDR444,
+                        av1444: host.supportsAV1444, av1HDR444: host.supportsAV1HDR444,
+                        pyrowave: host.supportsPyrowave,
                         pyrowave444: host.supportsPyrowave444, pyrowaveHDR: host.supportsPyrowaveHDR,
                         pyrowaveHDR444: host.supportsPyrowaveHDR444), device: device)
         request = try settings.request(display: display, selection: selection)
@@ -53,8 +58,12 @@ struct StreamConnectionPreparation: Sendable, CustomStringConvertible, CustomDeb
     func transportConfiguration(address: String, sessionURL: String, displayRefreshHz: Double) -> TransportConfiguration {
         let formats: UInt32
         switch selection.codec {
-        case .av1: formats = selection.hdr ? 0x2000 : 0x1000
-        case .hevc: formats = selection.hdr ? 0x200 : 0x100
+        case .av1:
+            formats = selection.chromaSampling == .yuv444
+                ? (selection.hdr ? 0x8000 : 0x4000) : (selection.hdr ? 0x2000 : 0x1000)
+        case .hevc:
+            formats = selection.chromaSampling == .yuv444
+                ? (selection.hdr ? 0x800 : 0x400) : (selection.hdr ? 0x200 : 0x100)
         case .pyrowave:
             formats = selection.chromaSampling == .yuv444
                 ? (selection.hdr ? 0x080000 : 0x020000) : (selection.hdr ? 0x040000 : 0x010000)
@@ -73,4 +82,51 @@ struct StreamConnectionPreparation: Sendable, CustomStringConvertible, CustomDeb
         "StreamConnectionPreparation(codec: \(selection.codec.rawValue), hdr: \(selection.hdr), secrets: redacted)"
     }
     var debugDescription: String { description }
+}
+
+/// Exact compressed-profile probes perform bounded hardware decoding. Keep
+/// that work off the UI actor and propagate cancellation between probes.
+enum StreamDeviceCapabilities {
+    static func resolve(settings: StreamSettings, hdrDisplay: Bool,
+                        profileProbe: @escaping @Sendable (VideoCodec, Int, Int) -> Bool = {
+                            $0.hardwareProfileCandidate(bitDepth: $1, chromaFormat: $2)
+                        }) async throws -> CodecCapabilities {
+        try Task.checkCancellation()
+        _ = try settings.validated()
+        let pyrowave = VideoCodec.pyrowave.hardwareCandidate
+        var capabilities = CodecCapabilities(hevc: VideoCodec.hevc.hardwareCandidate,
+            av1: VideoCodec.av1.hardwareCandidate, hdr: hdrDisplay,
+            pyrowave: pyrowave, pyrowave444: pyrowave,
+            pyrowaveHDR: pyrowave, pyrowaveHDR444: pyrowave)
+        guard settings.chromaSampling == .yuv444, settings.codec != .pyrowave else { return capabilities }
+        let initial = capabilities
+        let probeTask = Task.detached(priority: .userInitiated) {
+            var result = initial
+            if settings.codec == .auto || settings.codec == .hevc {
+                try Task.checkCancellation()
+                result.hevc444 = profileProbe(.hevc, 8, 3)
+                if hdrDisplay, settings.hdr != .off {
+                    try Task.checkCancellation()
+                    result.hevcHDR444 = profileProbe(.hevc, 10, 3)
+                }
+            }
+            if settings.codec == .auto || settings.codec == .av1 {
+                try Task.checkCancellation()
+                result.av1444 = profileProbe(.av1, 8, 3)
+                if hdrDisplay, settings.hdr != .off {
+                    try Task.checkCancellation()
+                    result.av1HDR444 = profileProbe(.av1, 10, 3)
+                }
+            }
+            try Task.checkCancellation()
+            return result
+        }
+        capabilities = try await withTaskCancellationHandler {
+            try await probeTask.value
+        } onCancel: {
+            probeTask.cancel()
+        }
+        try Task.checkCancellation()
+        return capabilities
+    }
 }

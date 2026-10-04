@@ -52,5 +52,14 @@ int main(void) {
     if(mav_completion_get_decode_trace(&copy,&stage)!=MAV_API_UNAVAILABLE||memcmp(&stage,&unchanged_stage,sizeof(stage)))return 16;
     legacy.struct_size=sizeof(legacy);copy.version=0;unchanged_copy=copy;
     if(mav_completion_copy((const mav_completion*)&legacy,&copy)!=MAV_INVALID_ARGUMENT||memcmp(&copy,&unchanged_copy,sizeof(copy)))return 17;
+    mav_capability cap={0};cap.struct_size=sizeof(cap);cap.version=MAV_ABI_VERSION;
+    if(mav_query_profile_capability(MAV_CODEC_HEVC,8,3,0)!=MAV_INVALID_ARGUMENT)return 18;
+    if(mav_query_profile_capability(MAV_CODEC_PYROWAVE,8,3,&cap)!=MAV_INVALID_ARGUMENT||cap.hardware_decode_candidate)return 19;
+    cap.hardware_decode_candidate=1;
+    if(mav_query_profile_capability(MAV_CODEC_HEVC,12,3,&cap)!=MAV_INVALID_ARGUMENT||cap.hardware_decode_candidate)return 20;
+    cap.hardware_decode_candidate=1;
+    if(mav_query_profile_capability(MAV_CODEC_AV1,8,0,&cap)!=MAV_INVALID_ARGUMENT||cap.hardware_decode_candidate)return 21;
+    cap.version=0;
+    if(mav_query_profile_capability(MAV_CODEC_HEVC,8,3,&cap)!=MAV_INVALID_ARGUMENT)return 22;
     return 0;
 }

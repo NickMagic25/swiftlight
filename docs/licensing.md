@@ -6,6 +6,7 @@ Swiftlight's existing repository LICENSE is GPL-3.0. This is a GPL source distri
 |---|---|---|
 | Swiftlight | this source tree | repository LICENSE, GPL-3.0 |
 | MoonlightAppleVideo | first-party `Packages/moonlight-apple-decoder/` source in this repository | [decoder LICENSE](../Packages/moonlight-apple-decoder/LICENSE), GPL v3; local SwiftPM/CMake package |
+| Codec profile probe samples | Small encoded access units derived from Moonlight Qt's codec test samples; provenance retained with the decoder source | GPL v3, Moonlight Qt contributors; codec sample data only |
 | PyroWave (Swiftlight direct backend) | `56b007143b471def3e41d5e74d10f73dfc8c8df1` | [NickMagic25/pyrowave](https://github.com/NickMagic25/pyrowave), fork of Themaister/pyrowave; MIT; Swiftlight `Dependencies/pyrowave/LICENSE` |
 | PyroWave (standalone decoder backend) | `488564aa2b5ffca0377938c27a1b67fce817c5b9` | Same fork; MIT; `Packages/moonlight-apple-decoder/Dependencies/pyrowave/LICENSE` |
 | moonlight-common-c | 62e066388f1a1b133e0bee947b9a374311a3354b | Git submodule LICENSE.txt; GPL v3; explicit targeted patch series |
@@ -23,4 +24,4 @@ Both app packaging paths copy its MIT notice to `Licenses/PyroWave.txt`; a
 missing submodule notice fails packaging. See
 [dependency maintenance](dev/dependencies.md#direct-pyrowave-dependency).
 
-Fixture images are deterministically generated patterns created for this repository. Fixture manifests/provenance document encoders and commands. Encoder tooling is used only offline to prepare test media, never shipped as a decoder dependency.
+The existing replay fixture images are deterministically generated patterns created for this repository. Fixture manifests/provenance document encoders and commands. The small profile probe access units retain their separate Moonlight Qt source attribution and provenance. Encoder tooling is used only offline to prepare test media, never shipped as a decoder dependency.

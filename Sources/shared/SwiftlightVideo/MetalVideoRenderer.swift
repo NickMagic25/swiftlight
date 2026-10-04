@@ -750,7 +750,7 @@ public final class MetalVideoRenderer: @unchecked Sendable {
         }
         let tenBit = frame.bitDepth == 10
         let planar = frame.gpuFrame != nil
-        let chromaDivisor = frame.gpuFrame?.chromaFormat == 3 ? 1 : 2
+        var chromaDivisor = frame.gpuFrame?.chromaFormat == 3 ? 1 : 2
         guard [UInt16(1), 5, 6, 9].contains(frame.color.matrix), [UInt16(1), 6, 13, 16].contains(frame.color.transfer),
               [UInt16(1), 9].contains(frame.color.primaries) else {
             throw RendererFailure.unsupportedColor("matrix \(frame.color.matrix), transfer \(frame.color.transfer), primaries \(frame.color.primaries)")
@@ -769,21 +769,18 @@ public final class MetalVideoRenderer: @unchecked Sendable {
             }
             textures = gpu.planes
         } else if let pixelBuffer = frame.pixelBuffer {
-            let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
-            let expected = tenBit ? [kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr10BiPlanarFullRange] :
-                [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange]
-            guard expected.contains(format), CVPixelBufferGetPlaneCount(pixelBuffer) == 2 else {
-                throw RendererFailure.unsupportedFormat(format)
-            }
+            let layout = try CanonicalVideoBufferLayout.validated(buffer: pixelBuffer,
+                width: frame.width, height: frame.height, bitDepth: frame.bitDepth)
+            chromaDivisor = layout.chromaDivisor
             for plane in 0..<2 {
-            var wrapper: CVMetalTexture?
-            let pixelFormat: MTLPixelFormat = plane == 0 ? (tenBit ? .r16Unorm : .r8Unorm) : (tenBit ? .rg16Unorm : .rg8Unorm)
-            let status = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pixelBuffer, nil, pixelFormat,
-                CVPixelBufferGetWidthOfPlane(pixelBuffer, plane), CVPixelBufferGetHeightOfPlane(pixelBuffer, plane), plane, &wrapper)
-            guard status == kCVReturnSuccess, let wrapper, let texture = CVMetalTextureGetTexture(wrapper) else {
-                throw RendererFailure.unavailable("CoreVideo Metal plane \(plane) import failed: \(status)")
-            }
-            wrappers.append(wrapper); textures.append(texture)
+                var wrapper: CVMetalTexture?
+                let pixelFormat: MTLPixelFormat = plane == 0 ? (tenBit ? .r16Unorm : .r8Unorm) : (tenBit ? .rg16Unorm : .rg8Unorm)
+                let status = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pixelBuffer, nil, pixelFormat,
+                    CVPixelBufferGetWidthOfPlane(pixelBuffer, plane), CVPixelBufferGetHeightOfPlane(pixelBuffer, plane), plane, &wrapper)
+                guard status == kCVReturnSuccess, let wrapper, let texture = CVMetalTextureGetTexture(wrapper) else {
+                    throw RendererFailure.unavailable("CoreVideo Metal plane \(plane) import failed: \(status)")
+                }
+                wrappers.append(wrapper); textures.append(texture)
             }
         } else { throw RendererFailure.unavailable("Decoded frame has no output storage") }
         let lease = TextureLease(frame: frame, wrappers: wrappers)

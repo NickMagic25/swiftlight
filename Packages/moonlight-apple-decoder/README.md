@@ -1,13 +1,34 @@
 # moonlight-apple-video
 
 A reusable C ABI around direct asynchronous Apple VideoToolbox decoding of AV1
-Main 8/10-bit and HEVC Main/Main10, plus native asynchronous Metal decoding of
+Main/High 8/10-bit and HEVC Main/Main10/Range Extensions, plus native asynchronous Metal decoding of
 PyroWave 4:2:0/4:4:4 into retained GPU planes. The implementation lives in
 `Packages/moonlight-apple-decoder` in the Swiftlight monorepo. It retains its own
 SwiftPM manifest and CMake build for library consumers and validation.
 Moonlight Qt is an optional consumer and
 compatibility reference. The core has no FFmpeg, Moonlight, Qt, SDL or renderer
 dependency. Native H.264 is not implemented.
+
+HEVC Range Extensions and AV1 High 4:4:4 use full-resolution chroma in canonical
+CoreVideo `444v`/`444f` (8-bit) or `x444`/`xf44` (10-bit) bi-planar outputs.
+`mav_config.chroma_format` can infer the sequence profile or require 4:2:0/4:4:4;
+a mismatched sequence or an output constraint that would downsample is rejected.
+Availability depends on the device and codec profile. Before negotiating 4:4:4,
+call `mav_query_profile_capability` off main: it requires hardware and decodes one
+bounded representative access unit, checking actual hardware output and exact
+chroma-plane dimensions. The call creates and drains a temporary session and can
+block in VideoToolbox. Failures are not cached, including resource failures.
+The actual stream must still produce hardware-validated output.
+
+The embedded representative samples in [profile_samples.hpp](src/profile_samples.hpp)
+are adapted from Moonlight Qt contributors under GPLv3, with the published source
+revision, original/adapted SHA-256 hashes and transformations recorded in the
+header. [import-profile-samples.py](scripts/import-profile-samples.py) reproduces
+them from committed source. The two single-IDR HEVC 4:4:4 samples lower only the
+SPS reorder declaration from two to zero; production still rejects reordering.
+AV1 imports omit only terminal zero padding after parser-delimited sized OBUs.
+These probes establish profile/output availability, not image quality,
+throughput, live-stream or display acceptance.
 
 ## Build
 
@@ -30,8 +51,14 @@ cd Packages/moonlight-apple-decoder
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 cmake --build build -j
 ctest --test-dir build --output-on-failure
+MAV_PROFILE_HARDWARE_TESTS=1 build/mav-profile-probe
 cmake --install build --prefix "$PWD/install"
 ```
+
+On a machine known to support HEVC 4:4:4, add `MAV_PROFILE_REQUIRE_HEVC444=1`
+to make missing 8/10-bit profile outputs fail the gate instead of reporting
+device-specific unavailability. This does not change the library's runtime
+capability policy.
 
 Consumers use `find_package(MoonlightAppleVideo CONFIG REQUIRED)` then
 `target_link_libraries(app PRIVATE MoonlightAppleVideo::Decoder)`.

@@ -27,7 +27,8 @@ int main(int argc,char** argv){@autoreleasepool {
         ok&=CVPixelBufferGetIOSurface(sink.retained)!=nullptr;
         id<MTLDevice> device=MTLCreateSystemDefaultDevice();CVMetalTextureCacheRef cache=nullptr;
         ok&=CVMetalTextureCacheCreate(kCFAllocatorDefault,nullptr,device,nullptr,&cache)==kCVReturnSuccess;
-        bool ten=CVPixelBufferGetPixelFormatType(sink.retained)==kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange||CVPixelBufferGetPixelFormatType(sink.retained)==kCVPixelFormatType_420YpCbCr10BiPlanarFullRange;
+        bool ten=CVPixelBufferGetPixelFormatType(sink.retained)==kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange||CVPixelBufferGetPixelFormatType(sink.retained)==kCVPixelFormatType_420YpCbCr10BiPlanarFullRange||
+            CVPixelBufferGetPixelFormatType(sink.retained)==kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange||CVPixelBufferGetPixelFormatType(sink.retained)==kCVPixelFormatType_444YpCbCr10BiPlanarFullRange;
         for(size_t i=0;cache&&i<2;++i){CVMetalTextureRef texture=nullptr;auto f=i?(ten?MTLPixelFormatRG16Unorm:MTLPixelFormatRG8Unorm):(ten?MTLPixelFormatR16Unorm:MTLPixelFormatR8Unorm);
             auto s=CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault,cache,sink.retained,nullptr,f,CVPixelBufferGetWidthOfPlane(sink.retained,i),CVPixelBufferGetHeightOfPlane(sink.retained,i),i,&texture);
             ok&=s==kCVReturnSuccess&&texture&&CVMetalTextureGetTexture(texture)!=nil;if(texture)CFRelease(texture);}

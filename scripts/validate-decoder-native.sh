@@ -9,7 +9,7 @@ cmake -S "$decoder_root" -B "$decoder_build" \
   -DMAV_VT_EXPERIMENTS=OFF
 cmake --build "$decoder_build" --parallel "${SWIFTLIGHT_BUILD_JOBS:-4}"
 if [[ "${SWIFTLIGHT_RUN_HARDWARE_TESTS:-0}" == 1 ]]; then
-  ctest --test-dir "$decoder_build" --output-on-failure
+  MAV_PROFILE_HARDWARE_TESTS=1 ctest --test-dir "$decoder_build" --output-on-failure
 else
-  ctest --test-dir "$decoder_build" --output-on-failure --exclude-regex '^pyrowave-metal$'
+  MAV_PROFILE_HARDWARE_TESTS=0 ctest --test-dir "$decoder_build" --output-on-failure --exclude-regex '^pyrowave-metal$'
 fi

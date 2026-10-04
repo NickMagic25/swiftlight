@@ -24,6 +24,7 @@ struct ReplayReport: Encodable {
     var codec: String = "unknown"
     var profile = 0
     var bitDepth = 0
+    var chroma = "unknown"
     var width = 0
     var height = 0
     var fixtureSHA256 = ""
@@ -68,8 +69,9 @@ func run(manifestURL: URL, mode: String, report: inout ReplayReport) throws {
     guard manifestData.count <= 8 * 1024 * 1024 else { throw ReplayError.invalid("Manifest exceeds 8 MiB") }
     let fixture = try JSONDecoder().decode(Fixture.self, from: manifestData)
     report.codec = fixture.codec.rawValue; report.profile = fixture.profile; report.bitDepth = fixture.bit_depth
+    report.chroma = fixture.chroma
     report.width = fixture.width; report.height = fixture.height; report.fixtureSHA256 = digest(manifestData)
-    guard fixture.schema_version == 1, [8, 10].contains(fixture.bit_depth), fixture.chroma == "420",
+    guard fixture.schema_version == 1, [8, 10].contains(fixture.bit_depth), ["420", "444"].contains(fixture.chroma),
           fixture.width > 0, fixture.height > 0, fixture.width <= 8192, fixture.height <= 8192,
           fixture.timebase.num > 0, fixture.timebase.den > 0, fixture.frame_rate.num > 0, fixture.frame_rate.den > 0,
           fixture.access_units.count > 0, fixture.access_units.count <= 10000, fixture.access_units[0].random_access,
@@ -95,7 +97,13 @@ func run(manifestURL: URL, mode: String, report: inout ReplayReport) throws {
     guard fixture.codec.hardwareCandidate else {
         report.status = "BLOCKED"; throw ReplayError.invalid("Hardware \(fixture.codec.rawValue) candidate unavailable on this device")
     }
-    let decoder = try VideoDecoder(codec: fixture.codec)
+    let is444 = fixture.chroma == "444"
+    if is444 && !fixture.codec.hardwareProfileCandidate(bitDepth: fixture.bit_depth, chromaFormat: 3) {
+        report.status = "BLOCKED"
+        throw ReplayError.invalid("Hardware \(fixture.codec.rawValue) \(fixture.bit_depth)-bit 4:4:4 is unavailable on this device")
+    }
+    let decoder = try VideoDecoder(codec: fixture.codec, bitDepth: is444 ? fixture.bit_depth : 0,
+                                   chromaFormat: is444 ? 3 : 1)
     let renderer = try MetalVideoRenderer()
     let pacedTarget = mode == "paced" ? try renderer.makeReadbackTarget(width: fixture.width, height: fixture.height) : nil
     defer { report.decoder = decoder.statistics; report.renderer = renderer.statistics; try? decoder.close() }
@@ -136,7 +144,8 @@ func run(manifestURL: URL, mode: String, report: inout ReplayReport) throws {
             let frame = decoder.takeLatestFrame()
             if unit.expected_display_count == 1 {
                 guard let frame, frame.id == unit.frame_id, frame.width == fixture.width, frame.height == fixture.height,
-                      frame.bitDepth == fixture.bit_depth, frame.hardwareAccelerated else { throw ReplayError.invalid("Missing or mismatched hardware output for AU \(unit.frame_id)") }
+                      frame.bitDepth == fixture.bit_depth, frame.chromaFormat == (is444 ? 3 : 1),
+                      frame.hardwareAccelerated else { throw ReplayError.invalid("Missing or mismatched hardware output for AU \(unit.frame_id)") }
                 let comparison = try VideoReadbackValidator.compare(frame: frame, renderer: renderer)
                 report.comparisons.append(comparison)
                 guard comparison.passed else { throw ReplayError.invalid("Production shader/readback differs from CPU reference: \(comparison.maximumAbsoluteError)") }

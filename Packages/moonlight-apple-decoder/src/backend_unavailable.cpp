@@ -8,5 +8,6 @@ public:
 };
 std::unique_ptr<Backend> make_backend(){return std::make_unique<Unavailable>();}
 mav_result backend_capability(mav_codec codec,mav_capability& c){c.codec=codec;c.api_available=0;c.hardware_decode_candidate=0;return MAV_API_UNAVAILABLE;}
+mav_result backend_profile_capability(mav_codec codec,uint32_t,uint32_t,mav_capability& c){return backend_capability(codec,c);}
 void retain_pixel(mav_pixel_buffer){}void release_pixel(mav_pixel_buffer){}
 }

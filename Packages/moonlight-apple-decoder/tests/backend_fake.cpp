@@ -43,6 +43,7 @@ public:
 };
 std::unique_ptr<Backend> make_backend(){return std::make_unique<Fake>();}
 mav_result backend_capability(mav_codec c,mav_capability& cap){cap.codec=c;cap.api_available=1;cap.hardware_decode_candidate=1;return MAV_OK;}
+mav_result backend_profile_capability(mav_codec c,uint32_t,uint32_t,mav_capability& cap){cap.codec=c;cap.api_available=1;cap.hardware_decode_candidate=0;return MAV_UNSUPPORTED;}
 void retain_pixel(mav_pixel_buffer){++references;}
 void release_pixel(mav_pixel_buffer){--references;}
 }

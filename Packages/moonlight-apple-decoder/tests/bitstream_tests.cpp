@@ -1,5 +1,6 @@
 #include "bitstream.hpp"
 #include "test_stream.hpp"
+#include "profile_samples.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -49,7 +50,7 @@ void av1_tests() {
     for (const auto& bytes:invalid) check(parser.prepare(bytes.data(),bytes.size(),p,error)==ParseResult::Malformed,"AV1 malformed length/header safely rejected");
     auto unsupported_layer=key;unsupported_layer[0]|=4;unsupported_layer.insert(unsupported_layer.begin()+1,0x20);
     check(parser.prepare(unsupported_layer.data(),unsupported_layer.size(),p,error)==ParseResult::Unsupported,"AV1 unsupported temporal layer");
-    auto bad_profile=key;bad_profile[2]|=0x20;
+    auto bad_profile=key;bad_profile[2]|=0x40;
     check(parser.prepare(bad_profile.data(),bad_profile.size(),p,error)==ParseResult::Unsupported,"AV1 unsupported profile");
     auto two=av1_frame();append(two,av1_frame());check(parser.prepare(two.data(),two.size(),p,error)==ParseResult::Unsupported,"AV1 multiple displayed images explicitly rejected");
     auto header=av1_frame();header[0]=0x1a;check(parser.prepare(header.data(),header.size(),p,error)==ParseResult::Malformed,"AV1 missing tile group");
@@ -79,27 +80,33 @@ std::vector<uint8_t> hevc_nal(unsigned type,const std::vector<uint8_t>& payload,
     }
     return n;
 }
-void profile(Writer& w,unsigned depth) {
-    w.bits(0,3);w.bits(depth==10?2:1,5);w.bits(0,32);w.bits(0,32);w.bits(0,16);w.bits(120,8);
+void profile(Writer& w,unsigned depth,unsigned chroma=1,unsigned override_profile=0) {
+    w.bits(0,3);w.bits(override_profile?override_profile:chroma==3?4:depth==10?2:1,5);w.bits(0,32);w.bits(0,32);w.bits(0,16);w.bits(120,8);
 }
-std::vector<uint8_t> vps(unsigned depth=8) {
-    Writer w;w.bits(0,4);w.bits(3,2);w.bits(0,6);w.bits(0,3);w.bits(1,1);w.bits(65535,16);profile(w,depth);
+std::vector<uint8_t> vps(unsigned depth=8,unsigned chroma=1) {
+    Writer w;w.bits(0,4);w.bits(3,2);w.bits(0,6);w.bits(0,3);w.bits(1,1);w.bits(65535,16);profile(w,depth,chroma);
     w.bits(1,1);w.ue(3);w.ue(0);w.ue(0);w.bits(0,6);w.ue(0);w.bits(0,1);w.bits(0,1);w.trailing();return hevc_nal(32,w.bytes);
 }
-std::vector<uint8_t> sps(unsigned depth=8,unsigned width=128,unsigned id=0,unsigned reorder=0) {
-    Writer w;w.bits(0,4);w.bits(0,3);w.bits(1,1);profile(w,depth);w.ue(id);w.ue(1);w.ue(width);w.ue(64);w.bits(0,1);
+std::vector<uint8_t> sps(unsigned depth=8,unsigned width=128,unsigned id=0,unsigned reorder=0,unsigned chroma=1,unsigned extensions=0,unsigned range_flags=0,unsigned crop_right=0,bool separate=false,unsigned override_profile=0) {
+    Writer w;w.bits(0,4);w.bits(0,3);w.bits(1,1);profile(w,depth,chroma,override_profile);w.ue(id);w.ue(chroma);
+    if(chroma==3)w.bits(separate,1);
+    w.ue(width);w.ue(64);w.bits(crop_right!=0,1);
+    if(crop_right){w.ue(0);w.ue(crop_right);w.ue(0);w.ue(0);}
     w.ue(depth-8);w.ue(depth-8);w.ue(0);w.bits(1,1);w.ue(3);w.ue(reorder);w.ue(0);
     w.ue(0);w.ue(3);w.ue(0);w.ue(3);w.ue(0);w.ue(0);w.bits(0,4); // scaling/AMP/SAO/PCM
     w.ue(0);w.bits(0,3);w.bits(1,1); // no ref sets/long-term/MVP/smoothing, VUI present
     w.bits(0,1);w.bits(0,1);w.bits(1,1);w.bits(5,3);w.bits(0,1);w.bits(1,1);
     w.bits(depth==10?9:1,8);w.bits(depth==10?16:1,8);w.bits(depth==10?9:1,8);
     w.bits(1,1);w.ue(0);w.ue(0);w.bits(0,6); // chroma location, neutral/field/info/window/timing/restriction
-    w.bits(0,1);w.trailing();return hevc_nal(33,w.bytes,3);
+    w.bits(extensions!=0,1);if(extensions){w.bits(extensions,8);if(extensions&128)w.bits(range_flags,9);}
+    w.trailing();return hevc_nal(33,w.bytes,3);
 }
-std::vector<uint8_t> pps(unsigned id=0,unsigned sps_id=0,bool output_flag=false) {
+std::vector<uint8_t> pps(unsigned id=0,unsigned sps_id=0,bool output_flag=false,unsigned extensions=0,bool transform_skip=false,unsigned qp_count=0,unsigned sao_scale=0) {
     Writer w;w.ue(id);w.ue(sps_id);w.bits(0,1);w.bits(output_flag,1);w.bits(0,3);
-    w.bits(0,2);w.ue(0);w.ue(0);w.ue(0);w.bits(0,2);w.bits(0,1);w.ue(0);w.ue(0);w.bits(0,4);
-    w.bits(0,2);w.bits(0,1);w.bits(0,1);w.bits(0,1);w.bits(0,1);w.ue(0);w.bits(0,1);w.bits(0,1);w.trailing();
+    w.bits(0,2);w.ue(0);w.ue(0);w.ue(0);w.bits(0,1);w.bits(transform_skip,1);w.bits(0,1);w.ue(0);w.ue(0);w.bits(0,4);
+    w.bits(0,2);w.bits(0,1);w.bits(0,1);w.bits(0,1);w.bits(0,1);w.ue(0);w.bits(0,1);w.bits(extensions!=0,1);
+    if(extensions){w.bits(extensions,8);if(extensions&128){if(transform_skip)w.ue(3);w.bits(1,1);w.bits(qp_count!=0,1);if(qp_count){w.ue(0);w.ue(qp_count-1);for(unsigned i=0;i<qp_count;++i){w.ue(0);w.ue(0);}}w.ue(sao_scale);w.ue(0);}}
+    w.trailing();
     return hevc_nal(34,w.bytes);
 }
 std::vector<uint8_t> slice(unsigned type=19,bool first=true,unsigned pps_id=0,unsigned slice_type=2,bool output_flag=false,bool display=true) {
@@ -244,5 +251,61 @@ void transactional_parser_tests() {
         check(next.format==initial.format&&!next.config_changed,"public parser retains original cache after late rejection");
     }
 }
+void profile_tests() {
+    for(unsigned depth:{8u,10u})for(bool full:{false,true}) {
+        Bitstream av1(Codec::AV1);auto unit=av1_sequence(depth,127,63,0,3,full);append(unit,av1_frame());
+        auto high=accept(av1,unit);
+        check(high.format.profile==1&&high.format.chroma==3&&high.format.bit_depth==depth,"AV1 High 4:4:4 8/10 profile");
+        check(high.format.color.range_valid&&high.format.color.full_range==full&&!high.format.color.chroma_position_valid,"AV1 High skips absent monochrome/siting syntax and preserves range");
+        check((high.format.av1c[2]&31)==0&&((high.format.av1c[2]>>6)&1)==(depth==10),"AV1 High av1C has no subsampling/monochrome/twelve-bit/siting bits");
+        Format verified;std::string error;
+        check(validate_av1c(high.format.av1c.data(),high.format.av1c.size(),verified,error)==ParseResult::Ok&&verified==high.format,"AV1 High av1C round trip");
+        auto mismatch=high.format.av1c;mismatch[2]|=12;
+        check(validate_av1c(mismatch.data(),mismatch.size(),verified,error)==ParseResult::Malformed,"AV1 High av1C rejects forced 4:2:0 subsampling");
+        for(size_t boundary=0;boundary<=unit.size();++boundary) {
+            Bitstream parser(Codec::AV1);Span spans[]={{unit.data(),boundary},{unit.data()+boundary,unit.size()-boundary}};Prepared out;
+            check(parser.prepare(spans,2,out,error)==ParseResult::Ok&&out.format==high.format&&out.bytes==unit,"AV1 High all span boundaries preserve profile and payload");
+        }
+    }
+    for(unsigned depth:{8u,10u}) {
+        Bitstream parser(Codec::HEVC);auto key=vps(depth,3);append(key,sps(depth,129,0,0,3,128,511,1));append(key,pps(0,0,false,128,true,6));append(key,slice());
+        auto rext=accept(parser,key);
+        check(rext.format.profile==4&&rext.format.chroma==3&&rext.format.bit_depth==depth,"HEVC RExt 4:4:4 8/10 profile");
+        check(rext.format.width==128&&rext.format.height==64,"HEVC 4:4:4 conformance crop uses full resolution units");
+        for(size_t boundary=0;boundary<=key.size();++boundary) {
+            Bitstream fragmented(Codec::HEVC);Span spans[]={{key.data(),boundary},{key.data()+boundary,key.size()-boundary}};Prepared out;std::string error;
+            check(fragmented.prepare(spans,2,out,error)==ParseResult::Ok&&out.format==rext.format&&out.bytes==rext.bytes,"HEVC RExt span boundaries preserve extensions and sample");
+        }
+        Prepared out;std::string error;
+        auto reject=[&](const std::vector<uint8_t>& bytes,ParseResult expected,const char* reason){check(parser.prepare(bytes.data(),bytes.size(),out,error)==expected,reason);};
+        reject(sps(depth,128,0,0,3,0,0,0,true),ParseResult::Unsupported,"HEVC separate colour planes remain rejected");
+        reject(sps(depth,128,0,0,3,0,0,0,false,2),ParseResult::Malformed,"HEVC Main10 cannot signal 4:4:4");
+        reject(sps(depth,128,0,1,3),ParseResult::Unsupported,"HEVC RExt display reordering remains rejected");
+        reject(sps(depth,128,0,0,2),ParseResult::Unsupported,"HEVC 4:2:2 remains unsupported");
+        reject(sps(12,128,0,0,3),ParseResult::Unsupported,"HEVC RExt 12-bit remains unsupported");
+        reject(sps(depth,128,0,0,3,64),ParseResult::Unsupported,"HEVC multilayer extension remains rejected");
+        reject(pps(0,0,false,1),ParseResult::Unsupported,"HEVC reserved PPS extension remains rejected");
+        reject(pps(0,0,false,128,true,7),ParseResult::Malformed,"HEVC chroma QP list bounded to six entries");
+        reject(pps(0,0,false,128,false,0,1),ParseResult::Malformed,"HEVC 8/10-bit SAO scale must be zero");
+        auto truncated=sps(depth,128,0,0,3,128,511);truncated.pop_back();
+        reject(truncated,ParseResult::Malformed,"HEVC SPS range extension cannot be truncated");
+        check(accept(parser,slice(1,true,0,1)).format==rext.format,"HEVC invalid RExt candidate does not replace accepted profile");
+    }
+    // Real bounded probe AUs must traverse production parsing; this catches
+    // fixture transformations or sequence syntax drifting away from admission.
+    using namespace profile_samples;
+    struct Fixture {const uint8_t* data;size_t size;Codec codec;unsigned depth,chroma,profile;};
+#define FIXTURE(name,codec,depth,chroma,profile) {name,sizeof(name),Codec::codec,depth,chroma,profile}
+    Fixture fixtures[]={FIXTURE(hevc_main8_420,HEVC,8,1,1),FIXTURE(hevc_main10_420,HEVC,10,1,2),
+        FIXTURE(hevc_rext8_444,HEVC,8,3,4),FIXTURE(hevc_rext10_444,HEVC,10,3,4),
+        FIXTURE(av1_main8_420,AV1,8,1,0),FIXTURE(av1_main10_420,AV1,10,1,0),
+        FIXTURE(av1_high8_444,AV1,8,3,1),FIXTURE(av1_high10_444,AV1,10,3,1)};
+#undef FIXTURE
+    for(const auto& fixture:fixtures) {
+        Bitstream parser(fixture.codec);auto out=accept(parser,std::vector<uint8_t>(fixture.data,fixture.data+fixture.size));
+        check(out.format.width==1280&&out.format.height==720&&out.format.profile==fixture.profile&&out.format.bit_depth==fixture.depth&&out.format.chroma==fixture.chroma,"representative sample exact requested profile");
+        check(out.random_access&&out.samples.size()==1&&out.displayed_frames==1&&out.samples[0].display,"representative sample is one displayed random-access picture");
+    }
 }
-int main() {av1_tests();hevc_tests();hevc_annex_b_properties();transactional_parser_tests();malformed_properties();std::cout<<"PASS bitstream "<<checks<<" checks\n";}
+}
+int main() {av1_tests();hevc_tests();hevc_annex_b_properties();transactional_parser_tests();profile_tests();malformed_properties();std::cout<<"PASS bitstream "<<checks<<" checks\n";}

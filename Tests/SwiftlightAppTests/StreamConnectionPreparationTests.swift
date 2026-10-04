@@ -41,6 +41,41 @@ struct StreamConnectionPreparationTests {
         #expect(configuration(av1SDR).supportedVideoFormats == 0x1000)
     }
 
+    @Test func compressed444ServerBitsProduceExactlyOne444TransportFormat() throws {
+        let cases: [(CodecPreference, HDRPreference, UInt32, UInt32)] = [
+            (.hevc, .off, 0x80000, 0x400),
+            (.hevc, .on, 0x100000, 0x800),
+            (.av1, .off, 0x200000, 0x4000),
+            (.av1, .on, 0x400000, 0x8000)
+        ]
+        for (codec, hdr, serverFlags, format) in cases {
+            var settings = StreamSettings(); settings.codec = codec; settings.hdr = hdr
+            settings.chromaSampling = .yuv444
+            let prepared = try prepare(settings, flags: serverFlags, compressed444: true)
+            #expect(prepared.selection.codec == codec && prepared.selection.chromaSampling == .yuv444)
+            #expect(prepared.launchRequest.hdr == (hdr == .on))
+            #expect(configuration(prepared).supportedVideoFormats == format)
+            #expect(configuration(prepared).hdr == prepared.launchRequest.hdr)
+        }
+    }
+
+    @Test func compressed444AutoUsesHEVCHDRWhenAV1OnlySupportsSDR444() throws {
+        var settings = StreamSettings(); settings.chromaSampling = .yuv444
+        let prepared = try prepare(settings, flags: 0x380000, compressed444: true)
+        #expect(prepared.selection.codec == .hevc && prepared.selection.hdr)
+        #expect(configuration(prepared).supportedVideoFormats == 0x800)
+        settings.hdr = .off
+        #expect(configuration(try prepare(settings, flags: 0x380000, compressed444: true)).supportedVideoFormats == 0x4000)
+    }
+
+    @Test func compressed444CannotBorrowGenericClientCapabilitiesOrTransportHostBits() throws {
+        var settings = StreamSettings(); settings.chromaSampling = .yuv444; settings.hdr = .off
+        let message = "This host and device share no supported hardware HEVC or AV1 4:4:4 profile. Choose 4:2:0 or another codec."
+        expectSettingsError(message) { _ = try prepare(settings, flags: 0x780000) }
+        expectSettingsError(message) { _ = try prepare(settings, flags: 0xCC00, compressed444: true) }
+        expectSettingsError(message) { _ = try prepare(settings, flags: 0x30300, compressed444: true) }
+    }
+
     @Test func pyrowaveProfilesKeepAuthenticatedLaunchAndTransportInAgreement() throws {
         let cases: [(StreamChromaSampling, HDRPreference, UInt32, UInt32)] = [
             (.yuv420, .off, 0x00800000, 0x010000),
@@ -137,13 +172,15 @@ struct StreamConnectionPreparationTests {
     }
 
     private func prepare(_ settings: StreamSettings, flags: UInt32, permissions: UInt32? = nil,
-                         displayHDR: Bool = true) throws -> StreamConnectionPreparation {
+                         displayHDR: Bool = true, compressed444: Bool = false) throws -> StreamConnectionPreparation {
         var display = DisplayGeometry.fallback; display.refreshHz = 120
         let host = HostInfo(id: "fixture", name: "Fixture", appVersion: "7.1", gfeVersion: "3.2",
             httpsPort: 47984, isPaired: true, currentAppID: 0, codecSupport: flags,
             permissions: permissions, rawFields: [:])
         return try StreamConnectionPreparation(appID: 17, settings: settings, display: display, host: host,
-            device: .init(hevc: true, av1: true, hdr: displayHDR, pyrowave: true,
+            device: .init(hevc: true, av1: true, hdr: displayHDR,
+                          hevc444: compressed444, hevcHDR444: compressed444,
+                          av1444: compressed444, av1HDR444: compressed444, pyrowave: true,
                           pyrowave444: true, pyrowaveHDR: true, pyrowaveHDR444: true))
     }
 

@@ -160,7 +160,7 @@ mav_result submit(mav_decoder* d,const mav_access_unit* u) {
     {std::lock_guard<std::mutex> l(d->state);recovery=d->need_random_access;}
     if(has_picture) {
         if((d->config.width&&p.format.width!=d->config.width)||(d->config.height&&p.format.height!=d->config.height)||
-            (d->config.bit_depth&&p.format.bit_depth!=d->config.bit_depth)||(d->config.chroma_format&&p.format.chroma!=d->config.chroma_format)||(u->codec!=MAV_CODEC_PYROWAVE&&p.format.chroma!=1))return reject(d,MAV_UNSUPPORTED);
+            (d->config.bit_depth&&p.format.bit_depth!=d->config.bit_depth)||(d->config.chroma_format&&p.format.chroma!=d->config.chroma_format))return reject(d,MAV_UNSUPPORTED);
         if(recovery&&!p.random_access)return reject(d,MAV_NEED_RANDOM_ACCESS);
     }
     s->bitstream_color=parsed_color(p.format.color);
@@ -248,6 +248,13 @@ void mav_config_default(mav_config* c,mav_codec codec){if(!c)return;std::memset(
 void mav_access_unit_default(mav_access_unit* u,mav_codec codec){if(!u)return;std::memset(u,0,sizeof(*u));u->struct_size=sizeof(*u);u->version=MAV_ABI_VERSION;u->codec=codec;u->framing=codec==MAV_CODEC_PYROWAVE?MAV_FRAMING_PYROWAVE:codec==MAV_CODEC_AV1?MAV_FRAMING_AV1_LOW_OVERHEAD:MAV_FRAMING_HEVC_ANNEX_B;}
 const char* mav_result_string(mav_result r){switch(r){case MAV_OK:return "OK";case MAV_WOULD_BLOCK:return "WOULD_BLOCK";case MAV_INVALID_ARGUMENT:return "INVALID_ARGUMENT";case MAV_MALFORMED_INPUT:return "MALFORMED_INPUT";case MAV_UNSUPPORTED:return "UNSUPPORTED";case MAV_NEED_RANDOM_ACCESS:return "NEED_RANDOM_ACCESS";case MAV_DECODER_FAILED:return "DECODER_FAILED";case MAV_OUT_OF_MEMORY:return "OUT_OF_MEMORY";case MAV_REENTRANT_CALL:return "REENTRANT_CALL";case MAV_CLOSED:return "CLOSED";case MAV_TIMEOUT:return "TIMEOUT";case MAV_API_UNAVAILABLE:return "API_UNAVAILABLE";}return "UNKNOWN";}
 mav_result mav_query_capability(mav_codec codec,mav_capability* c){if(!c||!tag(c->struct_size,c->version,sizeof(*c))||(codec!=MAV_CODEC_AV1&&codec!=MAV_CODEC_HEVC&&codec!=MAV_CODEC_PYROWAVE))return MAV_INVALID_ARGUMENT;return codec==MAV_CODEC_PYROWAVE?pyrowave_capability(*c):backend_capability(codec,*c);}
+mav_result mav_query_profile_capability(mav_codec codec,uint32_t depth,uint32_t chroma,mav_capability* c){
+    if(!c||!tag(c->struct_size,c->version,sizeof(*c)))return MAV_INVALID_ARGUMENT;
+    c->codec=codec;c->api_available=0;c->hardware_decode_candidate=0;
+    if((codec!=MAV_CODEC_AV1&&codec!=MAV_CODEC_HEVC)||(depth!=8&&depth!=10)||(chroma!=1&&chroma!=3))return MAV_INVALID_ARGUMENT;
+    if(callback_depth)return MAV_REENTRANT_CALL;
+    try{return backend_profile_capability(codec,depth,chroma,*c);}catch(const std::bad_alloc&){return MAV_OUT_OF_MEMORY;}catch(...){return MAV_DECODER_FAILED;}
+}
 mav_result mav_decoder_create(const mav_config* c,mav_decoder** out){
     if(!out)return MAV_INVALID_ARGUMENT;*out=nullptr;
     if(!c||!tag(c->struct_size,c->version,sizeof(*c))||!c->completion||(c->codec!=MAV_CODEC_AV1&&c->codec!=MAV_CODEC_HEVC&&c->codec!=MAV_CODEC_PYROWAVE)||
@@ -255,7 +262,6 @@ mav_result mav_decoder_create(const mav_config* c,mav_decoder** out){
        c->realtime<0||c->realtime>1||c->power_efficiency< -1||c->power_efficiency>1||!valid_color(c->fallback_color)||
        (c->bit_depth&&c->bit_depth!=8&&c->bit_depth!=10)||c->width>65536||c->height>65536)return MAV_INVALID_ARGUMENT;
     if(c->chroma_format&&c->chroma_format!=1&&c->chroma_format!=3)return MAV_INVALID_ARGUMENT;
-    if(c->codec!=MAV_CODEC_PYROWAVE&&c->chroma_format==3)return MAV_UNSUPPORTED;
     if(c->power_efficiency==1&&c->realtime)return MAV_UNSUPPORTED;
     try{auto d=new mav_decoder(*c);*out=d;return MAV_OK;}catch(const std::bad_alloc&){return MAV_OUT_OF_MEMORY;}catch(...){return MAV_DECODER_FAILED;}
 }

@@ -31,17 +31,20 @@ inline std::vector<uint8_t> obu(unsigned type, const std::vector<uint8_t>& paylo
 inline void append(std::vector<uint8_t>& destination, const std::vector<uint8_t>& source) {
     destination.insert(destination.end(), source.begin(), source.end());
 }
-inline std::vector<uint8_t> av1_sequence(unsigned depth = 8, unsigned width = 64, unsigned height = 64, unsigned chroma_position = 0) {
+inline std::vector<uint8_t> av1_sequence(unsigned depth = 8, unsigned width = 64, unsigned height = 64, unsigned chroma_position = 0, unsigned chroma = 1, bool full_range = false) {
     Writer w;
-    w.bits(0, 3); w.bits(0, 1); w.bits(0, 1); // Main, not a still picture
+    w.bits(chroma == 3 ? 1 : 0, 3); w.bits(0, 1); w.bits(0, 1); // profile, not a still picture
     w.bits(0, 1); w.bits(0, 1); w.bits(0, 5); // no timing/delay, one operating point
     w.bits(0, 12); w.bits(0, 5); // all layers, level 2.0
     w.bits(15, 4); w.bits(15, 4); w.bits(width - 1, 16); w.bits(height - 1, 16);
     w.bits(0, 1); w.bits(0, 3); // no frame IDs, coding tools
     w.bits(0, 5); w.bits(1, 1); w.bits(1, 1); // no order hint, choose screen/integer MV
-    w.bits(0, 3); w.bits(depth == 10, 1); w.bits(0, 1); // superres/filter flags, depth, monochrome
+    w.bits(0, 3); w.bits(depth == 10, 1); // superres/filter flags, depth
+    if (chroma != 3) w.bits(0, 1); // High profile has no monochrome flag
     w.bits(1, 1); w.bits(depth == 10 ? 9 : 1, 8); w.bits(depth == 10 ? 16 : 1, 8); w.bits(depth == 10 ? 9 : 1, 8);
-    w.bits(0, 1); w.bits(chroma_position, 2); w.bits(0, 1); w.bits(0, 1); // range/chroma/delta/film grain
+    w.bits(full_range, 1);
+    if (chroma != 3) w.bits(chroma_position, 2);
+    w.bits(0, 1); w.bits(0, 1); // delta/film grain
     w.trailing(); return obu(1, w.bytes);
 }
 inline std::vector<uint8_t> av1_frame(bool key = true, bool display = true) {
@@ -53,8 +56,8 @@ inline std::vector<uint8_t> av1_frame(bool key = true, bool display = true) {
     if (!key || !display) w.bits(1, 8); // refresh reference slot zero
     w.bits(0, 16); w.trailing(); return obu(6, w.bytes);
 }
-inline std::vector<uint8_t> av1_key_unit(unsigned depth = 8, unsigned width = 64, unsigned height = 64) {
-    auto result = av1_sequence(depth, width, height); append(result, av1_frame()); return result;
+inline std::vector<uint8_t> av1_key_unit(unsigned depth = 8, unsigned width = 64, unsigned height = 64, unsigned chroma = 1) {
+    auto result = av1_sequence(depth, width, height, 0, chroma); append(result, av1_frame()); return result;
 }
 inline std::vector<uint8_t> av1_existing(unsigned index = 0) {
     Writer w; w.bits(1, 1); w.bits(index, 3); w.trailing(); return obu(3, w.bytes);

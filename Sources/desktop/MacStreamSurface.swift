@@ -406,6 +406,12 @@ private final class FramePresentationSignal: @unchecked Sendable {
                 needsRedraw = true; return
             }
         } else { _ = applyEDRMetadata(frame, force: true) }
+        // A display-link update can still carry the previous pixel format after
+        // an output-format transition. Keep the selected frame
+        // for the next supplied drawable instead of rendering into stale storage.
+        guard drawable.texture.pixelFormat == metalLayer.pixelFormat else {
+            needsRedraw = true; return
+        }
         do {
             if try renderer.render(frame, into: drawable,
                 scaleMode: settings.scaling == .fill ? .fill : settings.scaling == .integer ? .integer : .fit,

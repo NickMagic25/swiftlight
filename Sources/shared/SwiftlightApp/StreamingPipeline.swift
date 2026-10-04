@@ -4,8 +4,10 @@ import SwiftlightTransport
 import os
 
 struct StreamRenderOptions: Codable, Equatable, Sendable {
-    var cacheEDRMetadata = false
-    var configureEDRBeforeAcquire = false
+    // A drawable must be acquired with the metadata for its selected frame.
+    // Stable HDR frames reuse the layer state rather than rebuilding tone mapping.
+    var cacheEDRMetadata = true
+    var configureEDRBeforeAcquire = true
     var captureScheduledCallback = true
     var nativePQOutput = false
     /// Native render-loop lifetime boundary; disable only in explicit debug A/B captures.
@@ -147,8 +149,8 @@ final class StreamingPipeline: @unchecked Sendable {
     func setup(_ description: VideoStreamDescription) -> Bool {
         let codec: VideoCodec
         switch description.videoFormat {
-        case 0x100, 0x200: codec = .hevc
-        case 0x1000, 0x2000: codec = .av1
+        case 0x100, 0x200, 0x400, 0x800: codec = .hevc
+        case 0x1000, 0x2000, 0x4000, 0x8000: codec = .av1
         case 0x10000, 0x20000, 0x40000, 0x80000: codec = .pyrowave
         default: recordFailure("Host selected an unsupported video format."); return false
         }
@@ -186,7 +188,7 @@ final class StreamingPipeline: @unchecked Sendable {
             hostProcessingMilliseconds: input.hostProcessingLatencyMilliseconds,
             pyrowaveFragments: input.pyrowaveFragments.map { .init(offset: $0.offset, size: $0.length, kind: $0.kind.rawValue) },
             pyrowaveCriticalPackets: UInt32(input.pyrowaveCriticalPackets),
-            color: owner.codec == .pyrowave ? Self.pyrowaveColor(hdrActive: input.hdrActive, metadata: input.hdrMetadata) : nil)
+            color: Self.transportColor(codec: owner.codec, hdrActive: input.hdrActive, metadata: input.hdrMetadata))
         var result = owner.submit(frame)
         if result == .wouldBlock {
             do {
@@ -215,23 +217,42 @@ final class StreamingPipeline: @unchecked Sendable {
     /// Vibepollo's sequence header carries no authoritative color description.
     /// The transport captures host HDR state with this frame and requests Rec.709 SDR.
     static func pyrowaveColor(hdrActive: Bool, metadata: TransportHDRMetadata?) -> VideoColor {
+        var color = VideoColor(primaries: hdrActive ? 9 : 1, transfer: hdrActive ? 16 : 1,
+            matrix: hdrActive ? 9 : 1, fullRange: false, chromaLocation: 1)
+        if let fallback = hdrMetadataFallback(hdrActive: hdrActive, metadata: metadata) {
+            color.mastering = fallback.mastering; color.contentLight = fallback.contentLight
+        }
+        return color
+    }
+    /// HEVC/AV1 bitstream and VideoToolbox fields remain authoritative. Host control
+    /// values fill only missing static HDR metadata on this captured access unit.
+    static func transportColor(codec: VideoCodec, hdrActive: Bool, metadata: TransportHDRMetadata?) -> VideoColor? {
+        if codec == .pyrowave { return pyrowaveColor(hdrActive: hdrActive, metadata: metadata) }
+        return hdrMetadataFallback(hdrActive: hdrActive, metadata: metadata)
+    }
+    private static func hdrMetadataFallback(hdrActive: Bool, metadata: TransportHDRMetadata?) -> VideoColor? {
+        guard hdrActive, let metadata else { return nil }
         func u16(_ value: UInt16) -> [UInt8] { [UInt8(value >> 8), UInt8(value & 255)] }
         func u32(_ value: UInt32) -> [UInt8] {
             [UInt8(value >> 24), UInt8((value >> 16) & 255), UInt8((value >> 8) & 255), UInt8(value & 255)]
         }
-        var color = VideoColor(primaries: hdrActive ? 9 : 1, transfer: hdrActive ? 16 : 1,
-            matrix: hdrActive ? 9 : 1, fullRange: false, chromaLocation: 1)
-        if hdrActive, let metadata {
-            if metadata.maxDisplayLuminance > 0 {
-                color.mastering = [metadata.greenX, metadata.greenY, metadata.blueX, metadata.blueY,
-                    metadata.redX, metadata.redY, metadata.whiteX, metadata.whiteY].flatMap(u16)
-                color.mastering += u32(UInt32(metadata.maxDisplayLuminance) * 10_000)
-                color.mastering += u32(UInt32(metadata.minDisplayLuminance))
-            }
-            if metadata.maxContentLightLevel > 0 {
-                color.contentLight = u16(metadata.maxContentLightLevel) + u16(metadata.maxFrameAverageLightLevel)
-            }
+        var color = VideoColor(hasColorDescription: false, hasRange: false, hasChromaLocation: false)
+        let chromaticities = [metadata.greenX, metadata.greenY, metadata.blueX, metadata.blueY,
+            metadata.redX, metadata.redY, metadata.whiteX, metadata.whiteY]
+        let maximumLuminance = UInt32(metadata.maxDisplayLuminance) * 10_000
+        // Optional control metadata must not reject an otherwise valid compressed
+        // frame. Match the native metadata bounds and omit incomplete host blocks.
+        if metadata.redX > 0, metadata.maxDisplayLuminance > 0,
+           chromaticities.allSatisfy({ $0 <= 50_000 }), UInt32(metadata.minDisplayLuminance) <= maximumLuminance {
+            color.mastering = chromaticities.flatMap(u16)
+            color.mastering += u32(maximumLuminance)
+            color.mastering += u32(UInt32(metadata.minDisplayLuminance))
         }
+        if metadata.maxContentLightLevel > 0 || metadata.maxFrameAverageLightLevel > 0,
+           metadata.maxContentLightLevel == 0 || metadata.maxFrameAverageLightLevel <= metadata.maxContentLightLevel {
+            color.contentLight = u16(metadata.maxContentLightLevel) + u16(metadata.maxFrameAverageLightLevel)
+        }
+        guard !color.mastering.isEmpty || !color.contentLight.isEmpty else { return nil }
         return color
     }
     func close() {
@@ -277,7 +298,8 @@ final class StreamingPipeline: @unchecked Sendable {
     var decodedDetail: String {
         lock.lock(); let format = latestDecodedFormat, viewport = latestViewport; lock.unlock()
         guard let format else { return "Waiting for decoded output" }
-        return "Decoded \(format.width) × \(format.height) · \(format.bitDepth)-bit · viewport \(Int(viewport.width)) × \(Int(viewport.height))"
+        let chroma = StreamStatisticsSampler.chromaDescription(format.chromaFormat).map { " · \($0)" } ?? ""
+        return "Decoded \(format.width) × \(format.height) · \(format.bitDepth)-bit\(chroma) · viewport \(Int(viewport.width)) × \(Int(viewport.height))"
     }
     var renderStatistics: RenderStatistics? { lock.lock(); let renderer = renderer; lock.unlock(); return renderer?.statistics }
     var error: String? { lock.lock(); defer { lock.unlock() }; return failure }

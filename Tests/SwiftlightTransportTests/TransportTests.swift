@@ -4,6 +4,27 @@ import SwiftlightCore
 @testable import SwiftlightTransport
 
 final class TransportTests: XCTestCase {
+    func testHEVCAndAV1ProfilesCreateNativeTransportAndRetainDescription() throws {
+        let callbacks = TransportCallbacks(setup: { _ in true }, video: { _ in true }, event: { _ in })
+        for (format, av1, depth, chroma444): (UInt32, Bool, Int, Bool) in [
+            (0x100, false, 8, false), (0x200, false, 10, false),
+            (0x400, false, 8, true), (0x800, false, 10, true),
+            (0x1000, true, 8, false), (0x2000, true, 10, false),
+            (0x4000, true, 8, true), (0x8000, true, 10, true)
+        ] {
+            let stream = VideoStreamDescription(videoFormat: format, width: 1280, height: 720, fps: 60)
+            XCTAssertEqual(stream.isAV1, av1)
+            XCTAssertFalse(stream.isPyrowave)
+            XCTAssertEqual(stream.bitDepth, depth)
+            XCTAssertEqual(stream.isYUV444, chroma444)
+            let config = TransportConfiguration(address: "localhost", appVersion: "7.1.431.0", rtspURL: nil,
+                serverCodecSupport: 0x007B0300, width: 1280, height: 720, fps: 60, bitrateKbps: 20000,
+                supportedVideoFormats: format, inputKey: Data(repeating: 1, count: 16), inputKeyID: 1,
+                hdr: depth == 10)
+            _ = try StreamTransport(configuration: config, callbacks: callbacks)
+        }
+    }
+
     func testAudioNegotiationUsesSameMaskForLaunchAndTransport() throws {
         let callbacks = TransportCallbacks(setup: { _ in true }, video: { _ in true }, event: { _ in })
         for (channels, expected): (AudioChannelConfiguration, UInt32) in [

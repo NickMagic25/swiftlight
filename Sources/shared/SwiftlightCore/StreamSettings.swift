@@ -61,7 +61,7 @@ public struct StreamSettings: Codable, Equatable, Sendable {
     public var automaticBitrate = true
     public var codec: CodecPreference = .auto
     public var hdr: HDRPreference = .auto
-    /// PyroWave profile selection. Existing HEVC/AV1 paths remain 4:2:0.
+    /// An explicit 4:4:4 request requires a compatible host and decoder profile.
     public var chromaSampling: StreamChromaSampling = .yuv420
     public var scaling: VideoScaling = .fit
     public var pointerMode: PointerMode = .relative
@@ -168,15 +168,23 @@ public struct CodecCapabilities: Sendable {
     public var hdr: Bool
     public var hevcHDR: Bool
     public var av1HDR: Bool
+    public var hevc444: Bool
+    public var hevcHDR444: Bool
+    public var av1444: Bool
+    public var av1HDR444: Bool
     public var pyrowave: Bool
     public var pyrowave444: Bool
     public var pyrowaveHDR: Bool
     public var pyrowaveHDR444: Bool
     public init(hevc: Bool, av1: Bool, hdr: Bool, hevcHDR: Bool? = nil, av1HDR: Bool? = nil,
+                hevc444: Bool = false, hevcHDR444: Bool = false,
+                av1444: Bool = false, av1HDR444: Bool = false,
                 pyrowave: Bool = false, pyrowave444: Bool = false,
                 pyrowaveHDR: Bool = false, pyrowaveHDR444: Bool = false) {
         self.hevc = hevc; self.av1 = av1; self.hdr = hdr
         self.hevcHDR = hevcHDR ?? hdr; self.av1HDR = av1HDR ?? hdr
+        self.hevc444 = hevc444; self.hevcHDR444 = hevcHDR444
+        self.av1444 = av1444; self.av1HDR444 = av1HDR444
         self.pyrowave = pyrowave; self.pyrowave444 = pyrowave444
         self.pyrowaveHDR = pyrowaveHDR; self.pyrowaveHDR444 = pyrowaveHDR444
     }
@@ -210,6 +218,42 @@ public struct CodecSelection: Equatable, Sendable {
             }
             return CodecSelection(codec: .pyrowave, hdr: enabled, chromaSampling: chromaSampling,
                 explanation: "PyroWave \(enabled ? "HDR10" : "SDR") \(chromaSampling.label) requested; requires a fast wired LAN.")
+        }
+        if chromaSampling == .yuv444 {
+            // Profile bits are independent: 4:2:0 and 8-bit support do not
+            // establish either 4:4:4 profile, nor does 10-bit imply 8-bit.
+            let hevcSDR = host.hevc444 && device.hevc444
+            let av1SDR = host.av1444 && device.av1444
+            let hevcHDR = host.hdr && device.hdr && host.hevcHDR444 && device.hevcHDR444
+            let av1HDR = host.hdr && device.hdr && host.av1HDR444 && device.av1HDR444
+            let selected: CodecPreference
+            switch preference {
+            case .auto:
+                if hdr != .off && av1HDR { selected = .av1 }
+                else if hdr != .off && hevcHDR { selected = .hevc }
+                else if av1SDR { selected = .av1 }
+                else if hevcSDR { selected = .hevc }
+                else { throw SettingsError.invalid("This host and device share no supported hardware HEVC or AV1 4:4:4 profile. Choose 4:2:0 or another codec.") }
+            case .hevc:
+                guard hevcSDR || (hdr != .off && hevcHDR) else {
+                    throw SettingsError.invalid("HEVC 4:4:4 hardware decoding is unavailable for this host/device. Choose 4:2:0 or Auto.")
+                }
+                selected = .hevc
+            case .av1:
+                guard av1SDR || (hdr != .off && av1HDR) else {
+                    throw SettingsError.invalid("AV1 4:4:4 hardware decoding is unavailable for this host/device. Choose 4:2:0 or Auto.")
+                }
+                selected = .av1
+            case .pyrowave:
+                throw SettingsError.invalid("PyroWave negotiation could not be completed.")
+            }
+            let canHDR = selected == .av1 ? av1HDR : hevcHDR
+            guard hdr != .on || canHDR else {
+                throw SettingsError.invalid("HDR 4:4:4 requires a supported host 10-bit profile, hardware decoder, and HDR-capable destination display.")
+            }
+            let enabled = hdr != .off && canHDR
+            return CodecSelection(codec: selected, hdr: enabled, chromaSampling: .yuv444,
+                explanation: "\(selected.rawValue.uppercased()) \(enabled ? "HDR10" : "SDR") 4:4:4 requested; hardware support is confirmed by decoded output.")
         }
         let hevc = host.hevc && device.hevc, av1 = host.av1 && device.av1
         let hevcHDR = hevc && host.hdr && device.hdr && host.hevcHDR && device.hevcHDR
