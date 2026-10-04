@@ -20,6 +20,8 @@ report. No report is uploaded automatically.
 
 - App/OS versions, export capture time, connection settings, requested/decoded
   format strings, thermal state, terminal phase and safe failure category/code.
+  Requested and negotiated strings include chroma sampling; decoded strings
+  include it only when identified from the actual output storage and plane geometry.
 - Timeline start/end dates, monotonic elapsed duration and at most 600 recent
   samples. Samples contain stream statistics and phase, at most once per second
   plus an unconditional terminal sample. `discardedSamples` identifies truncation.
@@ -209,7 +211,12 @@ the original settings and disconnects locally while leaving Desktop running on t
 host. Comparison checkpoints persist locally; ordinary finalized debug reports remain temporary.
 
 The production defaults are decoded-frame pacing, VSync off and three drawable
-buffers. HDR ordering/caching and root-layer changes remain opt-in after measured throughput regressions.
+buffers. HDR metadata is cached and configured before drawable acquisition;
+stable frames reuse the same tone-mapping state. A display-link update whose
+metadata changes is deferred to the next supplied drawable. Legacy per-frame
+metadata updates and acquisition ordering remain explicit debug comparisons;
+root-layer changes remain opt-in. Matched live cadence and physical HDR brightness
+must still be measured on the destination display.
 Explicitly saved presentation settings are retained. The comparison runner also
 has a debug-only native PQ experiment using `bgr10a2Unorm` and Rec.2100 PQ. It leaves
 `edrMetadata` nil: Apple's non-nil metadata contract requires a linear output color

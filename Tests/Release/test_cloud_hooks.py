@@ -43,14 +43,15 @@ class CloudHookTests(unittest.TestCase):
         return plistlib.loads((self.root / "App" / ("Mobile-Info.plist" if mobile else "Info.plist")).read_bytes())
 
     def test_versions_only_the_action_platform(self):
-        for platform, tag, mobile in (("macOS", "macos-v1.2.3", False),
-                                      ("iOS", "ios-v2.3.4", True)):
+        for platform, mobile in (("macOS", False), ("iOS", True)):
             with self.subTest(platform=platform):
                 unchanged = self.plist(not mobile)
-                result = self.run_hook("ci_pre_xcodebuild.sh", CI_PRODUCT_PLATFORM=platform, CI_TAG=tag)
+                result = self.run_hook("ci_pre_xcodebuild.sh", CI_PRODUCT_PLATFORM=platform, CI_TAG="v1.2.3",
+                                       CI_COMMIT="A1" * 20)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.plist(mobile)["CFBundleShortVersionString"], tag.split("v")[1])
+                self.assertEqual(self.plist(mobile)["CFBundleShortVersionString"], "1.2.3")
                 self.assertEqual(self.plist(mobile)["CFBundleVersion"], "42")
+                self.assertEqual(self.plist(mobile)["GitCommitSHA"], "a1" * 20)
                 self.assertEqual(self.plist(not mobile), unchanged)
 
     def test_branch_build_number_is_updated_for_each_platform(self):
@@ -61,14 +62,38 @@ class CloudHookTests(unittest.TestCase):
             self.assertEqual(self.plist(mobile), {"CFBundleShortVersionString": "0.2.1", "CFBundleVersion": "42"})
             self.assertEqual(self.plist(not mobile), unchanged)
 
-    def test_wrong_channel_or_malformed_tag_never_changes_either_product(self):
-        for platform, tag in (("iOS", "macos-v1.2.3"), ("macOS", "ios-v1.2.3"),
-                              ("iOS", "v1.2.3"), ("iOS", "ios-v01.2.3")):
-            with self.subTest(platform=platform, tag=tag):
-                result = self.run_hook("ci_pre_xcodebuild.sh", CI_PRODUCT_PLATFORM=platform, CI_TAG=tag)
-                self.assertNotEqual(result.returncode, 0)
-                for mobile in (False, True):
-                    self.assertEqual(self.plist(mobile), {"CFBundleShortVersionString": "0.2.1", "CFBundleVersion": "1"})
+    def test_branch_build_stores_commit_for_only_the_action_platform(self):
+        for platform, mobile in (("macOS", False), ("iOS", True)):
+            with self.subTest(platform=platform):
+                unchanged = self.plist(not mobile)
+                result = self.run_hook("ci_pre_xcodebuild.sh", CI_PRODUCT_PLATFORM=platform, CI_COMMIT="B2" * 32)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.plist(mobile), {"CFBundleShortVersionString": "0.2.1", "CFBundleVersion": "42",
+                                                    "GitCommitSHA": "b2" * 32})
+                self.assertEqual(self.plist(not mobile), unchanged)
+
+    def test_invalid_commit_never_changes_either_product_or_runs_validation(self):
+        for platform in ("iOS", "macOS"):
+            for tag in ("", "v1.2.3"):
+                for commit_sha in ("a1b2c3d", "g" * 40, "a" * 41, "a" * 40 + "\n"):
+                    with self.subTest(platform=platform, tag=tag, commit_sha=commit_sha):
+                        originals = {path: path.read_bytes() for path in (self.root / "App").glob("*.plist")}
+                        result = self.run_hook("ci_pre_xcodebuild.sh", CI_PRODUCT_PLATFORM=platform, CI_TAG=tag,
+                                               CI_COMMIT=commit_sha, SWIFTLIGHT_RUN_VALIDATION="1")
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("Commit SHA", result.stderr)
+                        self.assertFalse((self.root / "calls").exists())
+                        for path, original in originals.items():
+                            self.assertEqual(path.read_bytes(), original)
+
+    def test_prefixed_or_malformed_tag_never_changes_either_product(self):
+        for platform in ("iOS", "macOS"):
+            for tag in ("ios-v1.2.3", "macos-v1.2.3", "v01.2.3", "v1.2.3-beta", "1.2.3"):
+                with self.subTest(platform=platform, tag=tag):
+                    result = self.run_hook("ci_pre_xcodebuild.sh", CI_PRODUCT_PLATFORM=platform, CI_TAG=tag)
+                    self.assertNotEqual(result.returncode, 0)
+                    for mobile in (False, True):
+                        self.assertEqual(self.plist(mobile), {"CFBundleShortVersionString": "0.2.1", "CFBundleVersion": "1"})
 
     def test_mobile_archive_prepares_only_device_dependencies(self):
         result = self.run_hook("ci_post_clone.sh", CI_PRODUCT_PLATFORM="iOS", CI_XCODEBUILD_ACTION="archive")

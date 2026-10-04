@@ -20,6 +20,17 @@ public enum VideoCodec: String, Codable, Sendable, CaseIterable {
         value.struct_size = UInt32(MemoryLayout<mav_capability>.size); value.version = UInt32(MAV_ABI_VERSION)
         return mav_query_capability(native, &value) == MAV_OK && value.hardware_decode_candidate != 0
     }
+    /// Probes the requested profile through the native decoder's bounded hardware
+    /// decode check. Call off the UI actor; generic codec support does not establish
+    /// support for HEVC range extensions or the AV1 High profile.
+    public func hardwareProfileCandidate(bitDepth: Int, chromaFormat: Int) -> Bool {
+        guard [8, 10].contains(bitDepth), [1, 3].contains(chromaFormat) else { return false }
+        if self == .pyrowave { return sp_device_is_supported() != 0 }
+        var value = mav_capability()
+        value.struct_size = UInt32(MemoryLayout<mav_capability>.size); value.version = UInt32(MAV_ABI_VERSION)
+        return mav_query_profile_capability(native, UInt32(bitDepth), UInt32(chromaFormat), &value) == MAV_OK &&
+            value.api_available != 0 && value.hardware_decode_candidate != 0
+    }
 }
 
 public struct VideoFailure: Error, CustomStringConvertible, Sendable {
@@ -105,26 +116,28 @@ public struct VideoColor: Codable, Sendable, Equatable {
     public var contentLight: [UInt8]
     public var hasColorDescription: Bool
     public var hasRange: Bool
+    public var hasChromaLocation: Bool
     public init(primaries: UInt16 = 1, transfer: UInt16 = 1, matrix: UInt16 = 1, fullRange: Bool = false,
                 chromaLocation: UInt8 = 0, mastering: [UInt8] = [], contentLight: [UInt8] = [],
-                hasColorDescription: Bool = true, hasRange: Bool = true) {
+                hasColorDescription: Bool = true, hasRange: Bool = true, hasChromaLocation: Bool = true) {
         self.primaries = primaries; self.transfer = transfer; self.matrix = matrix; self.fullRange = fullRange
         self.chromaLocation = chromaLocation; self.mastering = mastering; self.contentLight = contentLight
-        self.hasColorDescription = hasColorDescription; self.hasRange = hasRange
+        self.hasColorDescription = hasColorDescription; self.hasRange = hasRange; self.hasChromaLocation = hasChromaLocation
     }
     init(_ value: mav_color) {
         let described = value.valid & UInt32(MAV_COLOR_DESCRIPTION) != 0
         hasColorDescription = described; hasRange = value.valid & UInt32(MAV_COLOR_RANGE) != 0
+        hasChromaLocation = value.valid & UInt32(MAV_COLOR_CHROMA_LOCATION) != 0
         primaries = described ? value.primaries : 1; transfer = described ? value.transfer : 1
         matrix = described ? value.matrix : 1; fullRange = value.valid & UInt32(MAV_COLOR_RANGE) != 0 && value.full_range != 0
-        chromaLocation = value.valid & UInt32(MAV_COLOR_CHROMA_LOCATION) != 0 ? value.chroma_location : 0
+        chromaLocation = hasChromaLocation ? value.chroma_location : 0
         var source = value
         mastering = value.valid & UInt32(MAV_COLOR_MASTERING) != 0 ? withUnsafeBytes(of: &source.mastering) { Array($0) } : []
         contentLight = value.valid & UInt32(MAV_COLOR_CONTENT_LIGHT) != 0 ? withUnsafeBytes(of: &source.content_light) { Array($0) } : []
     }
     var native: mav_color {
         var value = mav_color()
-        value.valid = UInt32(MAV_COLOR_CHROMA_LOCATION)
+        if hasChromaLocation { value.valid |= UInt32(MAV_COLOR_CHROMA_LOCATION) }
         if hasColorDescription { value.valid |= UInt32(MAV_COLOR_DESCRIPTION) }
         if hasRange { value.valid |= UInt32(MAV_COLOR_RANGE) }
         value.primaries = primaries; value.transfer = transfer; value.matrix = matrix
@@ -139,6 +152,24 @@ public struct VideoColor: Codable, Sendable, Equatable {
         }
         return value
     }
+    private enum CodingKeys: String, CodingKey {
+        case primaries, transfer, matrix, fullRange, chromaLocation, mastering, contentLight
+        case hasColorDescription, hasRange, hasChromaLocation
+    }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(primaries: try values.decode(UInt16.self, forKey: .primaries),
+            transfer: try values.decode(UInt16.self, forKey: .transfer),
+            matrix: try values.decode(UInt16.self, forKey: .matrix),
+            fullRange: try values.decode(Bool.self, forKey: .fullRange),
+            chromaLocation: try values.decode(UInt8.self, forKey: .chromaLocation),
+            mastering: try values.decode([UInt8].self, forKey: .mastering),
+            contentLight: try values.decode([UInt8].self, forKey: .contentLight),
+            hasColorDescription: try values.decode(Bool.self, forKey: .hasColorDescription),
+            hasRange: try values.decode(Bool.self, forKey: .hasRange),
+            // Prior serialized values always supplied their stored siting to the ABI.
+            hasChromaLocation: try values.decodeIfPresent(Bool.self, forKey: .hasChromaLocation) ?? true)
+    }
 }
 
 /// Decoder-confirmed output format. Width/height describe the decoded image, while
@@ -148,9 +179,12 @@ public struct DecodedVideoFormat: Codable, Sendable, Equatable {
     public let width: Int
     public let height: Int
     public let bitDepth: Int
+    /// Actual canonical output sampling: 1 is 4:2:0, 3 is 4:4:4; nil is unavailable.
+    public let chromaFormat: UInt32?
     public let color: VideoColor
     public init(codec: VideoCodec, frame: DecodedFrame) {
-        self.codec = codec; width = frame.width; height = frame.height; bitDepth = frame.bitDepth; color = frame.color
+        self.codec = codec; width = frame.width; height = frame.height; bitDepth = frame.bitDepth
+        chromaFormat = frame.chromaFormat; color = frame.color
     }
 }
 
@@ -248,6 +282,13 @@ public final class DecodedFrame: @unchecked Sendable {
     public let height: Int
     public let bitDepth: Int
     public let color: VideoColor
+    /// Identified from actual storage and plane geometry rather than the request.
+    public var chromaFormat: UInt32? {
+        if let gpuFrame { return [UInt32(1), 3].contains(gpuFrame.chromaFormat) ? gpuFrame.chromaFormat : nil }
+        guard let pixelBuffer, let layout = try? CanonicalVideoBufferLayout.validated(buffer: pixelBuffer,
+            width: width, height: height, bitDepth: bitDepth) else { return nil }
+        return layout.chromaDivisor == 1 ? 3 : 1
+    }
     public let callbackNanoseconds: UInt64
     /// Zero means unavailable. These share mav_monotonic_time_ns's clock domain.
     public let firstPacketNanoseconds: UInt64
@@ -566,8 +607,10 @@ public final class VideoDecoder: @unchecked Sendable {
         config.max_frames_in_flight = UInt32(max(1, min(maxFramesInFlight, 16)))
         config.hardware_policy = MAV_HARDWARE_REQUIRED
         guard width >= 0, height >= 0, width <= 16384, height <= 16384,
-              bitDepth == 0 || bitDepth == 8 || bitDepth == 10 else { throw VideoFailure("configure decoder", MAV_INVALID_ARGUMENT) }
+              bitDepth == 0 || bitDepth == 8 || bitDepth == 10,
+              chromaFormat == 0 || chromaFormat == 1 || chromaFormat == 3 else { throw VideoFailure("configure decoder", MAV_INVALID_ARGUMENT) }
         config.width = UInt32(width); config.height = UInt32(height); config.bit_depth = UInt32(bitDepth)
+        if chromaFormat != 0 { config.chroma_format = chromaFormat }
         if let fallbackColor { config.fallback_color = fallbackColor.native }
         config.completion = decoderCompletion
         config.context = Unmanaged.passUnretained(mailbox).toOpaque()

@@ -46,6 +46,7 @@ std::unique_ptr<Backend> make_backend();
 std::unique_ptr<Backend> make_pyrowave_backend();
 mav_result pyrowave_capability(mav_capability&);
 mav_result backend_capability(mav_codec,mav_capability&);
+mav_result backend_profile_capability(mav_codec,uint32_t,uint32_t,mav_capability&);
 void retain_pixel(mav_pixel_buffer);
 void release_pixel(mav_pixel_buffer);
 }

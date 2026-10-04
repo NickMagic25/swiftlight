@@ -4,7 +4,7 @@ set -eu
 repo_root="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$repo_root"
 
-# Each platform has its own immutable release tags. Branch/TestFlight builds also
+# Both platforms use the same immutable release tags. Branch/TestFlight builds
 # need a fresh build number; retain their checked-in marketing version. Changes
 # happen only in the disposable Cloud checkout, before Xcode processes the plist.
 if [ "${CI_XCODE_SCHEME:-}" != "Swiftlight" ]; then
@@ -12,18 +12,18 @@ if [ "${CI_XCODE_SCHEME:-}" != "Swiftlight" ]; then
   exit 1
 fi
 case "${CI_PRODUCT_PLATFORM:-}" in
-  iOS) version_prefix=ios; version_plist=App/Mobile-Info.plist ;;
-  macOS) version_prefix=macos; version_plist=App/Info.plist ;;
+  iOS) version_plist=App/Mobile-Info.plist ;;
+  macOS) version_plist=App/Info.plist ;;
   *) echo "error: Unsupported or missing Cloud action platform: ${CI_PRODUCT_PLATFORM:-unset}" >&2; exit 1 ;;
 esac
+set --
+if [ -n "${CI_COMMIT:-}" ]; then
+  set -- --commit-sha "$CI_COMMIT"
+fi
 if [ -n "${CI_TAG:-}" ]; then
-  case "$CI_TAG" in
-    "$version_prefix"-v*) ;;
-    *) echo "error: $CI_PRODUCT_PLATFORM Cloud release tags must be named $version_prefix-vX.Y.Z" >&2; exit 1 ;;
-  esac
-  python3 scripts/release-version.py "${CI_TAG#*-}" --build-number "${CI_BUILD_NUMBER:?CI_BUILD_NUMBER is required}" --plist "$version_plist"
+  python3 scripts/release-version.py "$CI_TAG" --build-number "${CI_BUILD_NUMBER:?CI_BUILD_NUMBER is required}" --plist "$version_plist" "$@"
 elif [ -n "${CI_BUILD_NUMBER:-}" ]; then
-  python3 scripts/release-version.py --build-number "$CI_BUILD_NUMBER" --plist "$version_plist"
+  python3 scripts/release-version.py --build-number "$CI_BUILD_NUMBER" --plist "$version_plist" "$@"
 fi
 
 # Configure this variable as "1" on the PR and release workflows in Xcode

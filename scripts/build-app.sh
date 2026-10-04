@@ -58,9 +58,15 @@ mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources/Licenses"
 cp -f "$bin_path/swiftlight-desktop" "$staged_app/Contents/MacOS/Swiftlight"
 cp -f App/Info.plist "$staged_app/Contents/Info.plist"
 cp -f App/AppIcon.icns "$staged_app/Contents/Resources/AppIcon.icns"
+version_args=(--build-number "${BUILD_NUMBER:-1}" --plist "$staged_app/Contents/Info.plist")
 if [[ -n "${RELEASE_TAG:-}" ]]; then
-  python3 scripts/release-version.py "$RELEASE_TAG" --build-number "${BUILD_NUMBER:-1}" --plist "$staged_app/Contents/Info.plist"
+  version_args+=("$RELEASE_TAG")
 fi
+commit_sha="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+if [[ -n "$commit_sha" ]]; then
+  version_args+=(--commit-sha "$commit_sha")
+fi
+python3 scripts/release-version.py "${version_args[@]}"
 cp -f LICENSE "$staged_app/Contents/Resources/Licenses/Swiftlight.txt"
 cp -f .build/dependencies/licenses/*.txt "$staged_app/Contents/Resources/Licenses/"
 cp -f Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt "$staged_app/Contents/Resources/Licenses/moonlight-common-c.txt"

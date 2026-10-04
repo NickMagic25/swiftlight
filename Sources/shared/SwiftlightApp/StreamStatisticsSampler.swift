@@ -23,18 +23,19 @@ struct StreamStatisticsSampler {
         }
         if let selection {
             snapshot.requestedFormat = "\(selection.codec.rawValue.uppercased()) · \(selection.hdr ? "HDR10 · 10-bit · Rec.2020" : "SDR · 8-bit · Rec.709") · Limited"
-            if selection.codec == .pyrowave { snapshot.requestedFormat += " · \(selection.chromaSampling.label)" }
+            snapshot.requestedFormat += " · \(selection.chromaSampling.label)"
         }
         if let negotiated {
-            // Setup echoes requested dimensions/FPS; only its codec is negotiated.
+            // Setup echoes requested dimensions/FPS; codec and profile are negotiated.
             // Received geometry and frame rate must come from actual output.
             let codec = negotiated.isPyrowave ? "PyroWave" : (negotiated.isAV1 ? "AV1" : "HEVC")
-            let chroma = negotiated.isPyrowave ? (negotiated.isYUV444 ? " · 4:4:4" : " · 4:2:0") : ""
+            let chroma = negotiated.isYUV444 ? " · 4:4:4" : " · 4:2:0"
             snapshot.negotiatedVideo = "\(codec) · \(negotiated.bitDepth)-bit\(chroma)"
         }
         if let format = decodedFormat {
             snapshot.receivedSize = PixelSize(format.width, format.height)
-            snapshot.decodedColor = "\(format.bitDepth)-bit · \(Self.colorDescription(format.color))"
+            let chroma = Self.chromaDescription(format.chromaFormat).map { " · \($0)" } ?? ""
+            snapshot.decodedColor = "\(format.bitDepth)-bit · \(Self.colorDescription(format.color))\(chroma)"
         }
         if let diagnostics {
             let video = diagnostics.video
@@ -75,6 +76,10 @@ struct StreamStatisticsSampler {
     }
 
     mutating func resetPresentationSample() { simplePresentationSample = nil }
+
+    static func chromaDescription(_ chromaFormat: UInt32?) -> String? {
+        switch chromaFormat { case 1: "4:2:0"; case 3: "4:4:4"; default: nil }
+    }
 
     private static func summarize(_ timing: SwiftlightVideo.TimingSummary) -> StreamTimingSummary? {
         guard let minimum = timing.minimumMilliseconds, let maximum = timing.maximumMilliseconds,

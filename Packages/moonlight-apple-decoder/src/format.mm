@@ -49,7 +49,8 @@ mav_color image_color(CVPixelBufferRef p) {
     c.matrix=code(p,kCVImageBufferYCbCrMatrixKey,CVYCbCrMatrixGetIntegerCodePointForString);
     if(c.primaries!=2||c.transfer!=2||c.matrix!=2)c.valid|=MAV_COLOR_DESCRIPTION;
     auto fmt=CVPixelBufferGetPixelFormatType(p);c.valid|=MAV_COLOR_RANGE;
-    c.full_range=fmt==kCVPixelFormatType_420YpCbCr8BiPlanarFullRange||fmt==kCVPixelFormatType_420YpCbCr10BiPlanarFullRange;
+    c.full_range=fmt==kCVPixelFormatType_420YpCbCr8BiPlanarFullRange||fmt==kCVPixelFormatType_420YpCbCr10BiPlanarFullRange||
+        fmt==kCVPixelFormatType_444YpCbCr8BiPlanarFullRange||fmt==kCVPixelFormatType_444YpCbCr10BiPlanarFullRange;
     const CFStringRef loc[]={kCVImageBufferChromaLocation_Left,kCVImageBufferChromaLocation_Center,kCVImageBufferChromaLocation_TopLeft,kCVImageBufferChromaLocation_Top,kCVImageBufferChromaLocation_BottomLeft,kCVImageBufferChromaLocation_Bottom};
     CFHolder<CFTypeRef> cl(copy_attachment(p,kCVImageBufferChromaLocationTopFieldKey));
     for(uint8_t i=0;cl.value&&i<6;++i)if(CFEqual(cl,loc[i])){c.valid|=MAV_COLOR_CHROMA_LOCATION;c.chroma_location=i;}

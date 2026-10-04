@@ -1,4 +1,5 @@
 #include "apple.hpp"
+#include "profile_samples.hpp"
 #ifdef MAV_VT_EXPERIMENTS
 #include "vt_experiment.hpp"
 #endif
@@ -44,7 +45,12 @@ class VideoToolboxBackend final:public Backend {
 #else
             pixel_matches=out.pixel_format==info_.pixel_format;
 #endif
-            if(!pixel_matches||out.width!=parsed_.width||out.height!=parsed_.height) {out.result=MAV_UNSUPPORTED;}
+            size_t chroma_width=parsed_.chroma==3?out.width:(out.width+1)/2;
+            size_t chroma_height=parsed_.chroma==3?out.height:(out.height+1)/2;
+            bool planes_match=CVPixelBufferGetPlaneCount(image)==2&&
+                CVPixelBufferGetWidthOfPlane(image,0)==out.width&&CVPixelBufferGetHeightOfPlane(image,0)==out.height&&
+                CVPixelBufferGetWidthOfPlane(image,1)==chroma_width&&CVPixelBufferGetHeightOfPlane(image,1)==chroma_height;
+            if(!pixel_matches||!planes_match||out.width!=parsed_.width||out.height!=parsed_.height) {out.result=MAV_UNSUPPORTED;}
             else {out.image=image;out.color=image_color(image);
 #ifdef MAV_VT_EXPERIMENTS
                 // image_color's production FourCC list contains linear bi-planar
@@ -93,7 +99,9 @@ public:
         OSStatus status=create_format(f,c.codec,color,&format_);info_.last_status=status;if(status)return vt_result(status);
         auto dimensions=CMVideoFormatDescriptionGetDimensions(format_);
         if(dimensions.width!=static_cast<int32_t>(f.width)||dimensions.height!=static_cast<int32_t>(f.height)){invalidate();return MAV_MALFORMED_INPUT;}
-        uint32_t pixel=f.bit_depth==10?(color.full_range?kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange):(color.full_range?kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+        uint32_t pixel=f.chroma==3?
+            (f.bit_depth==10?(color.full_range?kCVPixelFormatType_444YpCbCr10BiPlanarFullRange:kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange):(color.full_range?kCVPixelFormatType_444YpCbCr8BiPlanarFullRange:kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange)):
+            (f.bit_depth==10?(color.full_range?kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange):(color.full_range?kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
 #ifdef MAV_VT_EXPERIMENTS
         if(!experiment_.select_pixel(pixel)){experiment_.log_failure(MAV_UNSUPPORTED);invalidate();return MAV_UNSUPPORTED;}
 #endif
@@ -197,6 +205,68 @@ mav_result backend_capability(mav_codec codec,mav_capability& c) {
     else c.api_available=1;
     if(!c.api_available)return MAV_API_UNAVAILABLE;
     c.hardware_decode_candidate=VTIsHardwareDecodeSupported(codec==MAV_CODEC_AV1?kCMVideoCodecType_AV1:kCMVideoCodecType_HEVC);
+    return MAV_OK;
+}
+mav_result backend_profile_capability(mav_codec codec,uint32_t depth,uint32_t chroma,mav_capability& cap) {
+    auto available=backend_capability(codec,cap);
+    bool candidate=cap.hardware_decode_candidate!=0;
+    cap.hardware_decode_candidate=0;
+    if(available!=MAV_OK)return available;
+    if(!candidate)return MAV_UNSUPPORTED;
+    const uint8_t* bytes=nullptr;size_t size=0;
+    using namespace profile_samples;
+#define MAV_PROFILE_SAMPLE(name) do {bytes=name;size=sizeof(name);} while(0)
+    if(codec==MAV_CODEC_HEVC) {
+        if(chroma==3){if(depth==10)MAV_PROFILE_SAMPLE(hevc_rext10_444);else MAV_PROFILE_SAMPLE(hevc_rext8_444);}
+        else {if(depth==10)MAV_PROFILE_SAMPLE(hevc_main10_420);else MAV_PROFILE_SAMPLE(hevc_main8_420);}
+    } else {
+        if(chroma==3){if(depth==10)MAV_PROFILE_SAMPLE(av1_high10_444);else MAV_PROFILE_SAMPLE(av1_high8_444);}
+        else {if(depth==10)MAV_PROFILE_SAMPLE(av1_main10_420);else MAV_PROFILE_SAMPLE(av1_main8_420);}
+    }
+#undef MAV_PROFILE_SAMPLE
+    struct Probe {
+        uint32_t chroma=0,depth=0;std::atomic<unsigned> callbacks{0};bool validated=false;
+    } probe;probe.chroma=chroma;probe.depth=depth;
+    mav_config config;mav_config_default(&config,codec);
+    config.hardware_policy=MAV_HARDWARE_REQUIRED;config.max_frames_in_flight=1;
+    config.width=1280;config.height=720;config.bit_depth=depth;config.chroma_format=chroma;
+    config.pixel_format_count=2;
+    config.pixel_formats[0]=chroma==3?
+        (depth==10?kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange:kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange):
+        (depth==10?kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+    config.pixel_formats[1]=chroma==3?
+        (depth==10?kCVPixelFormatType_444YpCbCr10BiPlanarFullRange:kCVPixelFormatType_444YpCbCr8BiPlanarFullRange):
+        (depth==10?kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+    config.context=&probe;
+    config.completion=[](void* context,const mav_completion* completion) {
+        auto& p=*static_cast<Probe*>(context);auto image=completion->pixel_buffer;
+        if(completion->status==MAV_COMPLETION_OUTPUT&&completion->result==MAV_OK&&completion->hardware_accelerated&&
+            completion->bit_depth==p.depth&&completion->width==1280&&completion->height==720&&image&&CVPixelBufferGetPlaneCount(image)==2) {
+            uint32_t expected=p.chroma==3?
+                (p.depth==10?kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange:kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange):
+                (p.depth==10?kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+            p.validated=completion->pixel_format==expected&&CVPixelBufferGetPixelFormatType(image)==expected&&
+                CVPixelBufferGetWidthOfPlane(image,0)==1280&&CVPixelBufferGetHeightOfPlane(image,0)==720&&
+                CVPixelBufferGetWidthOfPlane(image,1)==(p.chroma==3?1280:640)&&CVPixelBufferGetHeightOfPlane(image,1)==(p.chroma==3?720:360);
+        }
+        p.callbacks.fetch_add(1,std::memory_order_release);
+    };
+    mav_decoder* decoder=nullptr;auto result=mav_decoder_create(&config,&decoder);
+    if(result!=MAV_OK)return result;
+    // Private decoder: no concurrent controls, and the public wrapper rejects
+    // callback reentrancy before creating this owner. Destruction always drains.
+    std::unique_ptr<mav_decoder,decltype(&mav_decoder_destroy)> owner(decoder,mav_decoder_destroy);
+    mav_access_unit unit;mav_access_unit_default(&unit,codec);mav_span span{bytes,size};
+    unit.spans=&span;unit.span_count=1;unit.flags=MAV_INPUT_RANDOM_ACCESS;
+    result=mav_decoder_submit_copy(decoder,&unit);
+    if(result!=MAV_OK)return result;
+    result=mav_decoder_drain(decoder);
+    if(result!=MAV_OK)return result;
+    mav_metrics metrics{};metrics.struct_size=sizeof(metrics);metrics.version=MAV_ABI_VERSION;
+    result=mav_decoder_get_metrics(decoder,&metrics);
+    if(result!=MAV_OK)return result;
+    if(probe.callbacks.load(std::memory_order_acquire)!=1||!probe.validated||!metrics.hardware_validated)return MAV_UNSUPPORTED;
+    cap.hardware_decode_candidate=1;
     return MAV_OK;
 }
 void retain_pixel(mav_pixel_buffer p){CVPixelBufferRetain(p);}

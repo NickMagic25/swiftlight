@@ -136,6 +136,10 @@ public struct HostInfo: Hashable, Codable, Sendable, Identifiable {
     public var supportsAV1: Bool { codecSupport & 0x10000 != 0 }
     // ServerCodecModeSupport profile bits are distinct from common-c's
     // VIDEO_FORMAT_* values and must never be used interchangeably.
+    public var supportsHEVC444: Bool { codecSupport & 0x00080000 != 0 }
+    public var supportsHEVCHDR444: Bool { codecSupport & 0x00100000 != 0 }
+    public var supportsAV1444: Bool { codecSupport & 0x00200000 != 0 }
+    public var supportsAV1HDR444: Bool { codecSupport & 0x00400000 != 0 }
     public var supportsPyrowave: Bool { codecSupport & 0x00800000 != 0 }
     public var supportsPyrowave444: Bool { codecSupport & 0x01000000 != 0 }
     public var supportsPyrowaveHDR: Bool { codecSupport & 0x02000000 != 0 }

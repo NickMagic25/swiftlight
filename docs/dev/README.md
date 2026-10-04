@@ -104,6 +104,7 @@ The reusable decoder source is in [`Packages/moonlight-apple-decoder/`](../../Pa
 - [Implementation report](implementation-report.md)
 - [Manual validation](manual-validation.md)
 - [Video validation](video-validation.md)
+- [HEVC/AV1 4:4:4 implementation and October 4 validation](chroma-444-validation-2026-10-04.md)
 - [Pairing follow-up](pairing-fix-validation.md)
 - [Cross-client session resume follow-up (deferred)](cross-client-session-resume.md)
 - [Presentation latency investigation](latency-optimization-2026-09-13.md)

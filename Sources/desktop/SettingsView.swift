@@ -16,6 +16,7 @@ struct SettingsView: View {
                     Button("Use as Global Defaults") { model.saveSettings(asDefault: true) }.swiftlightGlassButton()
                 }
             }
+            AppBuildIdentitySection()
         }.formStyle(.grouped)
     }
 }

@@ -105,7 +105,7 @@ Sequence sequence(const uint8_t* p,size_t n) {
     if (n>65535) malformed("AV1 sequence header exceeds configuration size limit");
     Sequence s; Bits b(p,n); auto& f=s.format;
     f.profile=uint8_t(b.get(3));
-    if (f.profile != 0) unsupported("AV1 baseline requires Main profile");
+    if (f.profile > 1) unsupported("AV1 requires Main 4:2:0 or High 4:4:4 profile");
     bool still=b.bit(); s.reduced=b.bit();
     if (s.reduced && !still) malformed("AV1 reduced header without still_picture");
     if (s.reduced) f.level=uint8_t(b.get(5));
@@ -144,23 +144,30 @@ Sequence sequence(const uint8_t* p,size_t n) {
     }
     s.enable_superres=b.bit(); b.skip(2);
     f.bit_depth=b.bit()?10:8;
-    if (b.bit()) unsupported("AV1 monochrome is outside the required 4:2:0 baseline");
+    // High profile has no monochrome syntax element and fixes subsampling to 0.
+    if (f.profile==0 && b.bit()) unsupported("AV1 monochrome unsupported");
+    f.chroma=f.profile==1?3:1;
     auto& c=f.color;
     c.description_valid=b.bit();
     if (c.description_valid) { c.primaries=uint16_t(b.get(8)); c.transfer=uint16_t(b.get(8)); c.matrix=uint16_t(b.get(8)); }
-    if (c.primaries==1 && c.transfer==13 && c.matrix==0) unsupported("AV1 RGB identity signaling is not Main 4:2:0");
+    if (c.primaries==1 && c.transfer==13 && c.matrix==0) {
+        // RGB identity is syntactically High 4:4:4, but not YCbCr output.
+        unsupported("AV1 RGB identity signaling unsupported by the YCbCr renderer");
+    }
     c.full_range=b.bit(); c.range_valid=true;
-    s.chroma_sample_position=uint8_t(b.get(2));
-    if (s.chroma_sample_position==3) malformed("reserved AV1 chroma sample position");
-    // Normalize to HEVC chroma_sample_loc_type: 0=left, 2=top-left.
-    c.chroma_position=s.chroma_sample_position==2?2:0;
-    c.chroma_position_valid=s.chroma_sample_position!=0;
+    if (f.chroma==1) {
+        s.chroma_sample_position=uint8_t(b.get(2));
+        if (s.chroma_sample_position==3) malformed("reserved AV1 chroma sample position");
+        // Normalize to HEVC chroma_sample_loc_type: 0=left, 2=top-left.
+        c.chroma_position=s.chroma_sample_position==2?2:0;
+        c.chroma_position_valid=s.chroma_sample_position!=0;
+    }
     b.skip(1); b.skip(1); b.trailing();
     s.valid=true; return s;
 }
 void make_av1c(Sequence& seq,const uint8_t* p,size_t n) {
     auto& f=seq.format;
-    f.av1c={0x81,uint8_t((f.profile<<5)|f.level),uint8_t((seq.tier<<7)|((f.bit_depth==10)<<6)|12|seq.chroma_sample_position),
+    f.av1c={0x81,uint8_t((f.profile<<5)|f.level),uint8_t((seq.tier<<7)|((f.bit_depth==10)<<6)|(f.chroma==1?12:0)|seq.chroma_sample_position),
             uint8_t(seq.initial_delay?(0x10|seq.delay):0)};
     f.av1c.insert(f.av1c.end(),p,p+n);
 }
@@ -292,10 +299,11 @@ void ptl(Bits& b,unsigned sublayers,Format& f) {
     if (b.get(2)) unsupported("HEVC nonzero profile space unsupported");
     b.skip(1); f.profile=uint8_t(b.get(5)); uint32_t compat=b.get(32);
     b.skip(48); f.level=uint8_t(b.get(8));
-    if (f.profile!=1 && f.profile!=2) {
+    if (f.profile!=1 && f.profile!=2 && f.profile!=4) {
         if (compat & (uint32_t(1)<<30)) f.profile=1;
         else if (compat & (uint32_t(1)<<29)) f.profile=2;
-        else unsupported("HEVC baseline requires Main or Main10 profile");
+        else if (compat & (uint32_t(1)<<27)) f.profile=4;
+        else unsupported("HEVC requires Main, Main10 or Range Extensions profile");
     }
     bool profile[8]{},level[8]{};
     for (unsigned i=0;i<sublayers;++i) { profile[i]=b.bit(); level[i]=b.bit(); }
@@ -376,16 +384,20 @@ Sps hevc_sps(const uint8_t* p,size_t n) {
     auto raw=rbsp(p+2,n-2); Bits b(raw.data(),raw.size()); Sps s;
     s.vps=b.get(4); unsigned sublayers=b.get(3); if (sublayers>6) malformed("HEVC invalid sublayer count");
     b.skip(1); ptl(b,sublayers,s.format); s.id=b.ue(15);
-    unsigned chroma=b.ue(3); if (chroma!=1) unsupported("HEVC baseline requires 4:2:0 chroma");
+    unsigned chroma=b.ue(3); if (chroma!=1 && chroma!=3) unsupported("HEVC requires 4:2:0 or 4:4:4 chroma");
+    if (chroma==3 && b.bit()) unsupported("HEVC separate colour planes unsupported");
+    if (chroma==3 && s.format.profile!=4) malformed("HEVC 4:4:4 requires Range Extensions profile");
+    s.format.chroma=uint8_t(chroma);
     s.coded_width=b.ue(65535); s.coded_height=b.ue(65535);
     if (!s.coded_width || !s.coded_height) malformed("HEVC zero picture dimension");
     uint32_t left=0,right=0,top=0,bottom=0;
     if (b.bit()) { left=b.ue(32767); right=b.ue(32767); top=b.ue(32767); bottom=b.ue(32767); }
-    if (2*(left+right)>=s.coded_width || 2*(top+bottom)>=s.coded_height) malformed("HEVC conformance crop exceeds picture");
-    s.format.width=s.coded_width-2*(left+right); s.format.height=s.coded_height-2*(top+bottom);
+    unsigned crop_scale=chroma==1?2:1;
+    if (crop_scale*(left+right)>=s.coded_width || crop_scale*(top+bottom)>=s.coded_height) malformed("HEVC conformance crop exceeds picture");
+    s.format.width=s.coded_width-crop_scale*(left+right); s.format.height=s.coded_height-crop_scale*(top+bottom);
     unsigned luma=b.ue(8)+8,chroma_depth=b.ue(8)+8;
     if (luma!=chroma_depth) unsupported("HEVC unequal luma/chroma depth unsupported");
-    if (luma!=8 && luma!=10) unsupported("HEVC baseline requires 8 or 10 bit samples");
+    if (luma!=8 && luma!=10) unsupported("HEVC requires 8 or 10 bit samples");
     if (s.format.profile==1 && luma!=8) malformed("HEVC Main profile cannot signal 10-bit samples");
     s.format.bit_depth=uint8_t(luma); s.poc_bits=b.ue(12)+4;
     bool all=b.bit();
@@ -416,7 +428,11 @@ Sps hevc_sps(const uint8_t* p,size_t n) {
     }
     if (b.bit()) { unsigned count=b.ue(32); for (unsigned i=0;i<count;++i) b.skip(s.poc_bits+1); }
     b.skip(2); if (b.bit()) hevc_vui(b,s.format.color,sublayers);
-    if (b.bit() && b.get(8)) unsupported("HEVC SPS range/multilayer extensions unsupported");
+    if (b.bit()) {
+        unsigned extensions=b.get(8);
+        if (extensions&127) unsupported("HEVC SPS multilayer/3D/SCC/reserved extensions unsupported");
+        if (extensions&128) b.skip(9); // sps_range_extension: nine bounded tool flags
+    }
     b.trailing();
     s.bytes.assign(p,p+n); return s;
 }
@@ -424,7 +440,7 @@ Pps hevc_pps(const uint8_t* p,size_t n) {
     if (n>65535) malformed("HEVC PPS exceeds configuration size limit");
     auto raw=rbsp(p+2,n-2); Bits b(raw.data(),raw.size()); Pps pps;
     pps.id=b.ue(63); pps.sps=b.ue(15); pps.dependent=b.bit(); pps.output_flag=b.bit(); pps.extra_bits=b.get(3);
-    b.skip(2); b.ue(14); b.ue(14); b.se(); b.skip(2);
+    b.skip(2); b.ue(14); b.ue(14); b.se(); b.skip(1); bool transform_skip=b.bit();
     if (b.bit()) b.ue(6);
     b.se(); b.se(); b.skip(4);
     bool tiles=b.bit(); b.skip(1);
@@ -437,7 +453,23 @@ Pps hevc_pps(const uint8_t* p,size_t n) {
     if (b.bit()) { b.skip(1); if (!b.bit()) { b.se(); b.se(); } }
     if (b.bit()) scaling_lists(b);
     b.skip(1); b.ue(4); b.skip(1);
-    if (b.bit() && b.get(8)) unsupported("HEVC PPS range/multilayer extensions unsupported");
+    if (b.bit()) {
+        unsigned extensions=b.get(8);
+        if (extensions&127) unsupported("HEVC PPS multilayer/3D/SCC/reserved extensions unsupported");
+        if (extensions&128) {
+            if (transform_skip) b.ue(3); // max transform skip log2 size minus two
+            b.skip(1); // cross_component_prediction_enabled_flag
+            if (b.bit()) {
+                b.ue(6); unsigned count=b.ue(5)+1;
+                for (unsigned i=0;i<count;++i) {
+                    auto cb=b.se(),cr=b.se();
+                    if (cb< -12 || cb>12 || cr< -12 || cr>12) malformed("HEVC chroma QP list offset out of range");
+                }
+            }
+            // Supported sample depths are <=10, so both scales must be zero.
+            b.ue(0); b.ue(0);
+        }
+    }
     b.trailing(); pps.bytes.assign(p,p+n); return pps;
 }
 void hevc_sei(const uint8_t* p,size_t n,Color& c) {

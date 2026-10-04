@@ -31,7 +31,8 @@ Each Cloud action starts in a separate environment. The scripts in
   because Cloud build actions can select either destination type. macOS
   actions prepare macOS libraries. iPhone and iPad use the same iOS SDK.
 - `ci_pre_xcodebuild.sh` gives every Cloud build its `CI_BUILD_NUMBER`, including
-  branch builds. Release tags also set the marketing version. Set
+  branch builds, and records `CI_COMMIT` as `GitCommitSHA` in the action's plist.
+  Release tags also set the marketing version. Set
   `SWIFTLIGHT_RUN_VALIDATION=1` to run the existing SwiftPM, Python and native
   host checks before the action. That gate prepares its own macOS dependencies;
   it does not establish an iPhone or iPad runtime result.
@@ -100,8 +101,8 @@ the updated project is available on the remote branch.
 | `Swiftlight PR` | Pull requests targeting `main` | Build `Swiftlight` for macOS; set `SWIFTLIGHT_RUN_VALIDATION=1` | None; preserve the existing Mac gate. |
 | `Swiftlight iOS PR` | Pull requests targeting `main` | Build `Swiftlight` for Any iOS Simulator; run `SwiftlightUITests` on an iPhone and an iPad; set `SWIFTLIGHT_RUN_VALIDATION=1` | None. |
 | `Swiftlight iOS beta` | Changes to `main`, plus manual runs | Test `Swiftlight` on both device families; archive `Swiftlight` for iOS with Release configuration; set `SWIFTLIGHT_RUN_VALIDATION=1` | Deployment Preparation: **TestFlight (Internal Testing Only)**. Add an internal TestFlight post-action for the tester group; retain the ad-hoc IPA artifact. |
-| `Swiftlight iOS release` | Protected `ios-v*` tags | Test both families; archive `Swiftlight` for iOS with Release configuration; clean environment and restricted workflow editing; set `SWIFTLIGHT_RUN_VALIDATION=1` | Deployment Preparation: **TestFlight and App Store**. Add the intended TestFlight group; retain the ad-hoc artifact. App Store submission remains a separate action. |
-| `Swiftlight macOS direct` | Protected `macos-v*` tags | Archive `Swiftlight` for macOS | Preserve the Developer ID/direct-distribution migration described below. |
+| `Swiftlight iOS release` | Protected `v*` tags | Test both families; archive `Swiftlight` for iOS with Release configuration; clean environment and restricted workflow editing; set `SWIFTLIGHT_RUN_VALIDATION=1` | Deployment Preparation: **TestFlight and App Store**. Add the intended TestFlight group; retain the ad-hoc artifact. App Store submission remains a separate action. |
+| `Swiftlight macOS direct` | Protected `v*` tags | Archive `Swiftlight` for macOS | Preserve the Developer ID/direct-distribution migration described below. |
 
 Select one iPhone and one iPad on the latest available iOS/iPadOS 26 runtime.
 Also run the pair on iOS/iPadOS 27 using an Xcode Cloud environment that actually
@@ -133,20 +134,30 @@ cannot later be promoted to external testing or the App Store; use a new release
 archive for that path. External TestFlight distribution is subject to beta
 review, as described in [distribution workflow configuration](https://developer.apple.com/documentation/xcode/creating-a-workflow-that-builds-your-app-for-distribution).
 
-### Version and channel isolation
+### Shared release versions
 
-Mobile release tags use `ios-vX.Y.Z`; Cloud Mac releases use `macos-vX.Y.Z`.
-The existing GitHub `v*` workflow remains the macOS direct-download channel.
-The pre-build hook rejects a tag from the wrong action platform and rejects prerelease,
-malformed or ambiguous versions before changing either plist.
+iOS and macOS Cloud releases use the same `vX.Y.Z` tags. Align both remote
+Cloud release workflows' start conditions with protected `v*` tags; the
+repository hooks do not configure those start conditions. These tags also
+trigger the existing GitHub macOS direct-download workflow. The pre-build
+hook rejects prerelease, malformed or ambiguous versions before changing
+the plist selected by the action's platform.
 
-For example, mobile tag `ios-v0.2.0` and Cloud build `42` produce marketing
-version `0.2.0`, build `42`, in `App/Mobile-Info.plist`. A later branch build
-uses its checked-in marketing version and its own Cloud build number. Mac
-builds update only `App/Info.plist`. Set the mobile Cloud product's next build
-number above any previously uploaded build number; do not reset its counter
+For example, release tag `v0.2.0` produces marketing version `0.2.0` on both
+platforms. Cloud build `42` sets build `42` in the action's plist: iOS builds
+update `App/Mobile-Info.plist`, and Mac builds update `App/Info.plist`. A later
+branch build uses its checked-in marketing version and its own Cloud build
+number. Set the mobile Cloud product's next build number above any previously
+uploaded build number; do not reset its counter
 while reusing an App Store Connect version. Local builds retain their checked-in
 version until explicitly versioned or built by Cloud.
+
+The numeric `CFBundleVersion` remains the Cloud build number. `GitCommitSHA`
+stores the full commit hash supplied by `CI_COMMIT`; malformed hashes fail
+before changing the plist. Settings → About shows the version, build number
+and first seven characters of the hash, for example `0.2.0 (42, a1b2c3d)`.
+Builds without commit metadata show just the version and build number. The
+version helper removes any stale hash when no commit is supplied.
 
 Run the version and dispatch regression tests locally with:
 

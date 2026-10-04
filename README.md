@@ -56,9 +56,15 @@ See the [pairing and host guide](docs/host-protocol.md) for connection behavior 
 
 Stream settings apply when the next connection starts. Presentation settings—frame pacing, VSync, and drawable buffers—can be changed in Settings and apply on reconnect. HDR **Auto** selects a compatible mode; HDR **On** reports an incompatibility instead of silently falling back when the full path is unavailable.
 
+HEVC and AV1 HDR retain the host's mastering-display and content-light metadata when it is absent from the encoded video. The renderer uses that information for system tone mapping and configures it before acquiring a drawable. HDR brightness and shadow visibility still require validation on the destination display.
+
+In **Settings → Video → Chroma sampling**, choose **4:4:4 (sharper text)** to retain full color detail. The default remains **4:2:0**. HEVC and AV1 require matching host encoding and a successful hardware check for the exact 8-bit or 10-bit 4:4:4 profile; **Automatic** chooses a compatible codec. An unavailable explicitly requested mode reports an error. 4:4:4 uses more bandwidth, and changes apply on the next connection. See the [compatibility guide](docs/compatibility-matrix.md) for device validation.
+
 In **Settings → Stream Statistics**, choose **Simple** or **Detailed** and a panel position. **Control–Option–Shift–S** toggles the panel without releasing input capture. The [statistics guide](docs/stream-statistics.md) explains each value and its limitations.
 
 In **Settings → Audio**, choose the host channel layout and local output mode, then save it for the current computer or as a global default. Reconnect after changing audio settings. For AirPods spatialization, request 5.1 or 7.1 from the host, select **System Spatial Audio**, and use the macOS AirPods menu for Off, Fixed, or Head Tracked when available. See the [audio guide](docs/audio.md).
+
+**Settings → About** shows the app version and build number on Mac, iPhone and iPad. Cloud and packaged builds also show a short commit hash when available, such as `0.2.0 (42, a1b2c3d)`, to identify the source revision.
 
 ## Troubleshooting
 

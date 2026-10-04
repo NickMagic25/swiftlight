@@ -14,6 +14,7 @@ import tempfile
 SOURCE = Path(__file__).resolve().parents[2] / "scripts/build-app.sh"
 VERSION_SCRIPT = SOURCE.with_name("release-version.py")
 A, B = "A" * 40, "B" * 40
+COMMIT_SHA = "c" * 40
 ONE = f'  1) {A} "Apple Development: Fixture (TEAM)"\n     1 valid identities found\n'
 TWO = ONE + f'  2) {B} "Developer ID Application: Fixture (TEAM)"\n'
 STUB = '''#!/usr/bin/python3
@@ -29,6 +30,10 @@ if name == 'security':
 if name == 'swift':
     if '--show-bin-path' in args: print(root / 'bin')
     sys.exit(0)
+if name == 'git':
+    status = int(os.environ.get('STUB_GIT_EXIT', '0'))
+    if status == 0: print(os.environ.get('STUB_COMMIT_SHA', 'c' * 40))
+    sys.exit(status)
 phase = ('verify' if '--verify' in args else 'sign') if name == 'codesign' else name
 if os.environ.get('STUB_FAIL_AT') == phase: sys.exit(23)
 if name == 'otool':
@@ -48,6 +53,9 @@ CASES = [
     ("release_real", {"CONFIGURATION": "release", "SIGNING_IDENTITY": A}, True, A),
     ("release_version", {"CONFIGURATION": "release", "SIGNING_IDENTITY": A, "RELEASE_TAG": "v0.0.1", "BUILD_NUMBER": "42"}, True, A),
     ("release_invalid_version", {"CONFIGURATION": "release", "SIGNING_IDENTITY": A, "RELEASE_TAG": "v01.0.0"}, False, None),
+    ("uppercase_commit", {"SIGNING_IDENTITY": "-", "STUB_COMMIT_SHA": COMMIT_SHA.upper()}, True, "-"),
+    ("missing_git_metadata", {"SIGNING_IDENTITY": "-", "STUB_GIT_EXIT": "1"}, True, "-"),
+    ("invalid_commit", {"SIGNING_IDENTITY": "-", "STUB_COMMIT_SHA": "invalid"}, False, None),
     ("lookup_failure", {"STUB_SECURITY_EXIT": "7"}, False, None),
     ("sign_failure", {"STUB_FAIL_AT": "sign", "SIGNING_IDENTITY": "-"}, False, None),
     ("verify_failure", {"STUB_FAIL_AT": "verify", "SIGNING_IDENTITY": "-"}, False, None),
@@ -103,7 +111,7 @@ def run_case(root, source, case):
     tools.mkdir()
     (tools / "tool").write_text(STUB)
     (tools / "tool").chmod(0o755)
-    for command in ["security", "swift", "codesign", "plutil", "otool"]:
+    for command in ["security", "swift", "git", "codesign", "plutil", "otool"]:
         (tools / command).symlink_to("tool")
     app = root / ".build/Swiftlight.app"
     with ExitStack() as cleanup:
@@ -144,6 +152,10 @@ def run_case(root, source, case):
             with (app / "Contents/Info.plist").open("rb") as source_plist:
                 info = plistlib.load(source_plist)
             require(info["CFBundleExecutable"] == "Swiftlight", "Packaged executable identity changed")
+            if name == "missing_git_metadata":
+                require("GitCommitSHA" not in info, "Missing Git metadata produced a commit SHA")
+            else:
+                require(info["GitCommitSHA"] == COMMIT_SHA, "Commit SHA was not embedded before signing")
             sign = [args for command, args in calls if command == "codesign" and "--sign" in args][0]
             require(sign[sign.index("--sign") + 1] == identity, "Wrong signing identity")
             require("/.Swiftlight-stage." in sign[-1], "Signing did not target the staged bundle")
@@ -163,9 +175,9 @@ def run_case(root, source, case):
             require(binary.read_text() == "old-fake-binary", "Failure changed the old bundle")
         if old:
             require(old.read() == b"old-fake-binary", "Open old executable contents changed")
-        if name in {"missing_pyrowave_license", "missing_decoder_license"}:
+        if name in {"missing_pyrowave_license", "missing_decoder_license", "invalid_commit"}:
             require(not any(command == "codesign" for command, _ in calls),
-                    "Missing dependency notice reached signing")
+                    "Invalid build metadata or missing dependency notice reached signing")
         require(not list((root / ".build").glob(".Swiftlight-stage.*")), "Staging was not cleaned")
         if "SIGNING_IDENTITY" in extra:
             require(not any(command == "security" for command, _ in calls), "Explicit identity performed automatic lookup")

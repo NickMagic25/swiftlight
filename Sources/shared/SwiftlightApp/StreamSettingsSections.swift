@@ -70,14 +70,16 @@ struct StreamVideoSettingsSection: View {
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("codec")
+            Picker("Chroma sampling", selection: $settings.chromaSampling) {
+                Text("4:2:0 (lower bandwidth)").tag(StreamChromaSampling.yuv420)
+                Text("4:4:4 (sharper text)").tag(StreamChromaSampling.yuv444)
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("chromaSampling")
+            Text("4:4:4 preserves color detail in text and may need a higher bitrate. A compatible computer and hardware decoder are required.")
+                .font(.caption).foregroundStyle(.secondary)
             if settings.codec == .pyrowave {
-                Picker("Chroma sampling", selection: $settings.chromaSampling) {
-                    Text("4:2:0 (lower bandwidth)").tag(StreamChromaSampling.yuv420)
-                    Text("4:4:4 (sharper text)").tag(StreamChromaSampling.yuv444)
-                }
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("chromaSampling")
-                Text("PyroWave needs a fast wired connection. 4:4:4 keeps more color detail and uses more bandwidth.")
+                Text("PyroWave needs a fast wired connection.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Picker("HDR", selection: $settings.hdr) {

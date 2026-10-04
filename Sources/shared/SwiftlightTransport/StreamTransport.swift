@@ -34,7 +34,7 @@ public struct TransportConfiguration: Sendable {
 public struct VideoStreamDescription: Sendable {
     public let videoFormat: UInt32
     public let width, height, fps: Int
-    public var isAV1: Bool { videoFormat & 0x3000 != 0 }
+    public var isAV1: Bool { videoFormat & 0xF000 != 0 }
     public var isPyrowave: Bool { videoFormat & 0xF0000 != 0 }
     public var isYUV444: Bool { videoFormat & 0xACC04 != 0 }
     public var bitDepth: Int { videoFormat & 0xCAA00 != 0 ? 10 : 8 }
@@ -176,7 +176,7 @@ public final class StreamTransport: @unchecked Sendable {
     }
 
     public init(configuration: TransportConfiguration, callbacks: TransportCallbacks) throws {
-        let allowed: UInt32 = 0xF3300
+        let allowed: UInt32 = 0xFFF00
         let maximumBitrate = configuration.supportedVideoFormats & 0xF0000 != 0 ? 10_000_000 : 500_000
         guard configuration.inputKey.count == 16, !configuration.address.isEmpty,
               !configuration.appVersion.isEmpty, configuration.supportedVideoFormats != 0,

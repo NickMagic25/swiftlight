@@ -59,6 +59,42 @@ That lifecycle regression passed on the development Mac with hardware HEVC decod
 
 Color output is extended linear sRGB. BT.709/BT.601 matrices and SDR transfer signaling are supported alongside BT.2020 nonconstant-luminance/PQ. PQ maps 203 nits to 1.0 EDR; BT.2020 primaries are transformed into the declared linear sRGB layer space. The surface must configure the matching floating-point drawable, extended-linear color space and system tone mapping. This offscreen test does not verify display EDR headroom changes, HDR-to-SDR behavior, physical nits, or mastering/content-light-driven system tone mapping. HLG, other primaries/matrices, and packed native/lossless buffers reject visibly.
 
+`VideoTests.testHEVCAndAV1HDRMetadataFallbackPreservesAuthoritativeColorAndPriority`
+removes static HDR metadata units from copies of the committed HEVC/AV1 fixtures,
+then verifies that the production decoder restores per-access-unit host fallback
+metadata. The original fixtures remain unchanged. The test also checks that
+encoded metadata wins over conflicting fallback values and that an SDR bitstream
+is not relabeled as PQ. `TransportHDRColorTests` checks host units, missing values
+and independently rejected optional metadata blocks; `VideoColorTests` checks
+that a metadata-only fallback supplies no color, range or chroma-siting flags.
+These checks do not establish physical brightness or system tone-mapping behavior.
+
+`Canonical444RenderingTests` checks 8-bit and 10-bit canonical bi-planar 4:4:4,
+full/video range, clean-aperture crop and all chroma-siting values. Alternating
+saturated pixels are compared with an independent per-pixel reference, so a
+shared or interpolated 4:2:0 sample cannot satisfy the test. Packed formats and
+mislabeled depth reject visibly. `Canonical444DecoderTests` uses the native
+package's attributed profile access units through the production Swift adapter,
+checks actual hardware/full-resolution output and exact terminal accounting,
+and renders retained output after reset and destruction. An unavailable hardware
+profile is skipped explicitly, not reported as successful decoding.
+The attributed HEVC8 sample signals BT.601 primaries outside the renderer's
+supported gamut set. Its original color deliberately rejects; a separately
+constructed frame checks the retained canonical storage with explicitly
+supported test primaries. This does not establish original-gamut acceptance.
+
+The native `mav_query_profile_capability` probe performs actual decoding with
+hardware required and validates exact canonical storage and plane geometry.
+The codec-wide query remains a cheap candidate check. Profile queries run away
+from the app's UI actor; cancellation retires a connection before another probe
+or host launch. Readback and per-pixel maps remain diagnostic-only. The replay
+CLI and visible validation surface also accept explicit `"chroma": "444"`
+manifests and block unavailable profiles. These checks establish format support
+and rendering correctness, not live encoder interoperability or sustained
+4:4:4 cadence/HDR behavior.
+See the [October 4 4:4:4 validation record](chroma-444-validation-2026-10-04.md)
+for the executed hardware, build and live-stream checks.
+
 Regeneration uses the development-only fixture encoder in the local decoder
 package. Existing committed fixtures retain the encoder revision and provenance
 from their original generation; moving the source does not regenerate them:

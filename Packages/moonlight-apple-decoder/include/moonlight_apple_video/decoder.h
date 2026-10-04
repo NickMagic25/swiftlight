@@ -105,16 +105,17 @@ typedef void (*mav_capacity_callback)(void *context);
 typedef struct mav_config {
     uint32_t struct_size, version; mav_codec codec; uint32_t width, height, bit_depth;
     mav_hardware_policy hardware_policy; uint32_t max_frames_in_flight;
-    /* CoreVideo FourCC constraints, zero count chooses 420v/f or x420/xf20
-     * according to signaled bit depth/range. Never silently narrows to 8-bit. */
+    /* CoreVideo FourCC constraints, zero count chooses 420v/f, x420/xf20,
+     * 444v/f or x444/xf44 according to signaled depth, range and chroma.
+     * Never silently narrows bit depth or downsamples chroma. */
     uint32_t pixel_formats[8], pixel_format_count;
     int32_t realtime; /* 0/1 */
     int32_t power_efficiency; /* -1 default, 0 disabled; 1 unsupported with realtime */
     uint32_t thread_count; /* 0 default, optional diagnostic hint */
     mav_color fallback_color;
     mav_completion_callback completion; mav_capacity_callback capacity_available; void *context;
-    /* 0 infers PyroWave chroma from its sequence header, 1 is 4:2:0, 3 is
-     * 4:4:4. AV1/HEVC currently support 0 or 1. PyroWave's floating point
+    /* 0 infers chroma from the sequence header, 1 is 4:2:0, 3 is
+     * 4:4:4. An explicit value must match the bitstream. PyroWave's floating point
      * bitstream has no bit-depth flag: bit_depth chooses R8/R16 UNORM output. */
     uint32_t chroma_format;
 } mav_config;
@@ -131,14 +132,24 @@ typedef struct mav_metrics {
 typedef struct mav_capability {
     uint32_t struct_size, version; mav_codec codec;
     uint32_t api_available, hardware_decode_candidate;
-    /* Candidate is codec-level only. Exact support requires a real successful
-     * output and mav_metrics.hardware_validated for that stream configuration. */
+    /* mav_query_capability returns a codec-level candidate. The profile query
+     * validates a representative output; either still requires a successful
+     * output and mav_metrics.hardware_validated for the actual stream. */
 } mav_capability;
 void mav_config_default(mav_config *config, mav_codec codec);
 void mav_access_unit_default(mav_access_unit *unit, mav_codec codec);
 uint64_t mav_monotonic_time_ns(void);
 const char *mav_result_string(mav_result result);
 mav_result mav_query_capability(mav_codec codec, mav_capability *capability);
+/* HEVC/AV1 only, bit_depth 8/10 and chroma_format 1/3. Creates a short-lived,
+ * hardware-required decoder and decodes one bounded representative access unit.
+ * MAV_OK/candidate=1 requires actual hardware output with the exact canonical
+ * pixel format and chroma-plane dimensions. Failure leaves candidate=0; no
+ * result is cached, so temporary resource failures may be retried later.
+ * Call off main and outside decoder callbacks. VideoToolbox drain/destroy can
+ * block; this API does not promise a wall-clock timeout. */
+mav_result mav_query_profile_capability(mav_codec codec, uint32_t bit_depth,
+                                        uint32_t chroma_format, mav_capability *capability);
 mav_result mav_decoder_create(const mav_config *config, mav_decoder **decoder);
 /* One COMPLETE low-delay access unit. HEVC: Annex-B, any span boundaries.
  * AV1: low-overhead OBUs, each with an explicit LEB128 size field,

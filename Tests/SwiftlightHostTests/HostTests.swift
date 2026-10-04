@@ -87,6 +87,23 @@ import Testing
     }
 }
 
+@Test func compressed444ServerProfilesAreIndependentOf420AndTransportBits() throws {
+    let bits: [UInt32] = [0x80000, 0x100000, 0x200000, 0x400000]
+    for (index, bit) in bits.enumerated() {
+        let xml = try HostXML(data: Data("<root status_code=\"200\"><hostname>Host</hostname><uniqueid>fixture</uniqueid><appversion>7.1</appversion><ServerCodecModeSupport>\(bit)</ServerCodecModeSupport></root>".utf8))
+        let info = try xml.serverInfo(defaultHTTPSPort: 47984, authenticated: true)
+        #expect(info.supportsHEVC444 == (index == 0))
+        #expect(info.supportsHEVCHDR444 == (index == 1))
+        #expect(info.supportsAV1444 == (index == 2))
+        #expect(info.supportsAV1HDR444 == (index == 3))
+        #expect(!info.supportsHEVC && !info.supportsAV1 && !info.supportsPyrowave)
+    }
+    let transportBits: UInt32 = 0xCC00
+    let info = HostInfo(id: "fixture", name: "Fixture", appVersion: "7.1", gfeVersion: "3.2",
+        httpsPort: 47984, isPaired: true, currentAppID: 0, codecSupport: transportBits, permissions: nil, rawFields: [:])
+    #expect(!info.supportsHEVC444 && !info.supportsHEVCHDR444 && !info.supportsAV1444 && !info.supportsAV1HDR444)
+}
+
 @Test func cryptoInteroperabilityAndTamperRejection() throws {
     // AES-128 ECB known-answer vector (FIPS 197 Appendix C.1).
     let key = try Data(strictHex: "000102030405060708090A0B0C0D0E0F")

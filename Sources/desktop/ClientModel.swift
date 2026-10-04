@@ -385,7 +385,8 @@ import SwiftlightVideo
         hostPoller.stop()
         artwork.cancel()
         diagnosticTimeline = StreamDiagnosticTimeline()
-        diagnosticSettings = settings; diagnosticFailure = nil
+        let launchSettings = settings
+        diagnosticSettings = launchSettings; diagnosticFailure = nil
         streamDetail = "Preparing stream"; decodedDetail = "Waiting for decoded output"
         state.apply(.connect); let generation = state.generation
         activeApp = app; message = nil; renderFailure = nil; hostStatus = "Connecting stream…"
@@ -395,7 +396,7 @@ import SwiftlightVideo
         streamStatisticRows = []
         connectionTask = Task {
             do {
-                let launchDisplay = try await streamWindow.prepare(settings: settings)
+                let launchDisplay = try await streamWindow.prepare(settings: launchSettings)
                 try ensureCurrent(generation)
                 display = launchDisplay.0; hdrHeadroom = launchDisplay.1
                 let route = try await StreamConnectionRoute.resolve(client: client, hostID: host.id)
@@ -404,13 +405,12 @@ import SwiftlightVideo
                 if info.currentAppID > 0 && info.currentAppID != app.id {
                     throw RunningApplicationConflict(hostInfo: info)
                 }
-                activeStreamSettings = settings
-                let preparation = try StreamConnectionPreparation(appID: app.id, settings: settings,
+                let device = try await StreamDeviceCapabilities.resolve(settings: launchSettings, hdrDisplay: hdrHeadroom > 1)
+                try ensureCurrent(generation)
+                activeStreamSettings = launchSettings
+                let preparation = try StreamConnectionPreparation(appID: app.id, settings: launchSettings,
                     display: display, host: info,
-                    device: .init(hevc: VideoCodec.hevc.hardwareCandidate, av1: VideoCodec.av1.hardwareCandidate,
-                                  hdr: hdrHeadroom > 1,
-                                  pyrowave: VideoCodec.pyrowave.hardwareCandidate, pyrowave444: VideoCodec.pyrowave.hardwareCandidate,
-                                  pyrowaveHDR: VideoCodec.pyrowave.hardwareCandidate, pyrowaveHDR444: VideoCodec.pyrowave.hardwareCandidate))
+                    device: device)
                 let request = preparation.request, selection = preparation.selection
                 let launchResponse = try await route.client.launchOrResume(preparation.launchRequest)
                 try ensureCurrent(generation)

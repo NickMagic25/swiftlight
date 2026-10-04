@@ -204,6 +204,97 @@ final class VideoTests: XCTestCase {
         }
     }
 
+    func testHEVCAndAV1HDRMetadataFallbackPreservesAuthoritativeColorAndPriority() throws {
+        try requireHardware()
+        for codec in [VideoCodec.hevc, .av1] {
+            let original = try load("\(codec.rawValue)-hdr10")[0]
+            let baseline = try decodeOne(original, codec: codec)
+            XCTAssertEqual(baseline.color.mastering.count, 24)
+            XCTAssertEqual(baseline.color.contentLight.count, 4)
+            var stripped = original
+            stripped.bytes = try withoutHDRMetadata(original.bytes, codec: codec)
+            XCTAssertLessThan(stripped.bytes.count, original.bytes.count, "The fixture must contain metadata to remove")
+            let missing = try decodeOne(stripped, codec: codec)
+            XCTAssertTrue(missing.color.mastering.isEmpty && missing.color.contentLight.isEmpty)
+            var mastering = baseline.color.mastering
+            // Deliberately conflict with the fixture's 1000-nit mastering peak.
+            mastering.replaceSubrange(16..<20, with: [0x00, 0x6F, 0x63, 0x20]) // 730 nits in 1/10000-nit units.
+            let fallback = VideoColor(mastering: mastering, contentLight: [0x02, 0x58, 0x01, 0x2C],
+                hasColorDescription: false, hasRange: false, hasChromaLocation: false)
+            stripped.color = fallback
+            let recovered = try decodeOne(stripped, codec: codec)
+            XCTAssertEqual(recovered.color.mastering, fallback.mastering)
+            XCTAssertEqual(recovered.color.contentLight, fallback.contentLight)
+            XCTAssertEqual(recovered.bitDepth, 10)
+            XCTAssertEqual(recovered.color.primaries, missing.color.primaries)
+            XCTAssertEqual(recovered.color.transfer, missing.color.transfer)
+            XCTAssertEqual(recovered.color.matrix, missing.color.matrix)
+            XCTAssertEqual(recovered.color.fullRange, missing.color.fullRange)
+            XCTAssertEqual(recovered.color.chromaLocation, missing.color.chromaLocation)
+            XCTAssertEqual(recovered.color.hasChromaLocation, missing.color.hasChromaLocation)
+            var conflict = original; conflict.color = fallback
+            XCTAssertEqual(try decodeOne(conflict, codec: codec).color, baseline.color,
+                "Bitstream HDR metadata must override the host fallback")
+            var sdr = try load("\(codec.rawValue)-sdr8")[0]; sdr.color = fallback
+            let sdrOutput = try decodeOne(sdr, codec: codec)
+            XCTAssertEqual(sdrOutput.bitDepth, 8)
+            XCTAssertEqual(sdrOutput.color.transfer, 1, "A host HDR snapshot must not relabel an SDR bitstream as PQ")
+            XCTAssertEqual(sdrOutput.color.primaries, 1)
+            XCTAssertEqual(sdrOutput.color.matrix, 1)
+        }
+    }
+
+    private func decodeOne(_ frame: CompressedFrame, codec: VideoCodec) throws -> DecodedFrame {
+        let decoder = try VideoDecoder(codec: codec)
+        defer { try? decoder.close() }
+        XCTAssertEqual(decoder.submit(frame), .accepted)
+        try decoder.drain()
+        return try XCTUnwrap(decoder.takeLatestFrame())
+    }
+
+    /// Remove metadata units only; retain actual sequence/SPS and compressed pictures.
+    /// The committed fixtures remain unchanged, and the production decoder parses them.
+    private func withoutHDRMetadata(_ data: Data, codec: VideoCodec) throws -> Data {
+        let bytes = [UInt8](data)
+        var output = Data()
+        if codec == .hevc {
+            var starts: [(start: Int, payload: Int)] = []
+            var at = 0
+            while at + 3 < bytes.count {
+                if bytes[at] == 0 && bytes[at + 1] == 0 && bytes[at + 2] == 0 && bytes[at + 3] == 1 {
+                    starts.append((at, at + 4)); at += 4
+                } else if bytes[at] == 0 && bytes[at + 1] == 0 && bytes[at + 2] == 1 {
+                    starts.append((at, at + 3)); at += 3
+                } else { at += 1 }
+            }
+            XCTAssertEqual(starts.first?.start, 0)
+            for (index, marker) in starts.enumerated() {
+                let end = index + 1 < starts.count ? starts[index + 1].start : bytes.count
+                let type = (bytes[marker.payload] >> 1) & 63
+                if type != 39 && type != 40 { output.append(contentsOf: bytes[marker.start..<end]) }
+            }
+        } else {
+            var at = 0
+            while at < bytes.count {
+                let start = at, header = bytes[at]; at += 1
+                XCTAssertNotEqual(header & 2, 0, "The fixture's OBUs require explicit lengths")
+                if header & 4 != 0 { at += 1 }
+                var size = 0, shift = 0
+                while true {
+                    let byte = try XCTUnwrap(at < bytes.count ? bytes[at] : nil); at += 1
+                    size |= Int(byte & 127) << shift; shift += 7
+                    if byte & 128 == 0 { break }
+                    guard shift < 56 else { throw RendererFailure.unavailable("Invalid fixture OBU length") }
+                }
+                let end = at + size
+                guard end <= bytes.count else { throw RendererFailure.unavailable("Truncated fixture OBU") }
+                if (header >> 3) & 15 != 5 { output.append(contentsOf: bytes[start..<end]) }
+                at = end
+            }
+        }
+        return output
+    }
+
     private func requireHardware() throws {
         guard ProcessInfo.processInfo.environment["SWIFTLIGHT_RUN_HARDWARE_TESTS"] == "1" else {
             throw XCTSkip("Run scripts/validate-offline.sh with real Apple hardware access; ordinary unit runs do not claim hardware coverage")

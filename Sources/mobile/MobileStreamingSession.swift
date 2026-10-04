@@ -70,12 +70,12 @@ import UIKit
             guard info.currentAppID == 0 || info.currentAppID == app.id else {
                 throw RunningApplicationConflict(hostInfo: info)
             }
+            var device = try await StreamDeviceCapabilities.resolve(settings: settings, hdrDisplay: hdrDisplay.supportsHDR)
+            try ensureCurrent(generation)
+            device.hdr = hdrDisplay.supportsHDR
             let preparation = try StreamConnectionPreparation(appID: app.id, settings: settings,
                 display: display, host: info,
-                device: .init(hevc: VideoCodec.hevc.hardwareCandidate, av1: VideoCodec.av1.hardwareCandidate,
-                              hdr: hdrDisplay.supportsHDR,
-                              pyrowave: VideoCodec.pyrowave.hardwareCandidate, pyrowave444: VideoCodec.pyrowave.hardwareCandidate,
-                              pyrowaveHDR: VideoCodec.pyrowave.hardwareCandidate, pyrowaveHDR444: VideoCodec.pyrowave.hardwareCandidate))
+                device: device)
             let request = preparation.request, selection = preparation.selection
             statisticsRequest = request; statisticsSelection = selection
             let audio = AVAudioSession.sharedInstance()

@@ -35,6 +35,8 @@ public enum VideoReadbackValidator {
         guard let buffer = frame.pixelBuffer else {
             throw RendererFailure.unavailable("CoreVideo reference comparison requires a VideoToolbox output buffer")
         }
+        let layout = try CanonicalVideoBufferLayout.validated(buffer: buffer,
+            width: frame.width, height: frame.height, bitDepth: frame.bitDepth)
         guard CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else {
             throw RendererFailure.unavailable("Diagnostic pixel map failed")
         }
@@ -65,8 +67,9 @@ public enum VideoReadbackValidator {
         let kr = frame.color.matrix == 9 ? 0.2627 : ([5, 6].contains(frame.color.matrix) ? 0.299 : 0.2126)
         let kb = frame.color.matrix == 9 ? 0.0593 : ([5, 6].contains(frame.color.matrix) ? 0.114 : 0.0722)
         let loc = frame.color.chromaLocation
-        let shiftX = [UInt8(0), 2, 4].contains(loc) ? 0.5 : 0.0
-        let shiftY = [UInt8(2), 3].contains(loc) ? 0.5 : ([UInt8(4), 5].contains(loc) ? -0.5 : 0.0)
+        let divisor = Double(layout.chromaDivisor)
+        let shiftX = layout.chromaDivisor == 2 && [UInt8(0), 2, 4].contains(loc) ? 0.5 : 0.0
+        let shiftY = layout.chromaDivisor == 2 ? ([UInt8(2), 3].contains(loc) ? 0.5 : ([UInt8(4), 5].contains(loc) ? -0.5 : 0.0)) : 0.0
         func linear(_ v: Double) -> Double {
             let x = max(0, v)
             if frame.color.transfer == 16 {
@@ -81,8 +84,8 @@ public enum VideoReadbackValidator {
             for x in 0..<width {
                 let sx = x + Int(content.minX), sy = y + Int(content.minY)
                 let luma = (code(yBase, sy * yStride + sx * (ten ? 2 : 1)) - low) / ySpan
-                let cb = (chroma((Double(sx) + 0.5 + shiftX) / 2 - 0.5, (Double(sy) + 0.5 + shiftY) / 2 - 0.5, 0) - center) / cSpan
-                let cr = (chroma((Double(sx) + 0.5 + shiftX) / 2 - 0.5, (Double(sy) + 0.5 + shiftY) / 2 - 0.5, 1) - center) / cSpan
+                let cb = (chroma((Double(sx) + 0.5 + shiftX) / divisor - 0.5, (Double(sy) + 0.5 + shiftY) / divisor - 0.5, 0) - center) / cSpan
+                let cr = (chroma((Double(sx) + 0.5 + shiftX) / divisor - 0.5, (Double(sy) + 0.5 + shiftY) / divisor - 0.5, 1) - center) / cSpan
                 var rgb = [linear(luma + 2 * (1 - kr) * cr), linear(luma - 2 * kb * (1 - kb) / (1 - kr - kb) * cb - 2 * kr * (1 - kr) / (1 - kr - kb) * cr), linear(luma + 2 * (1 - kb) * cb)]
                 if frame.color.primaries == 9 {
                     let r = rgb[0], g = rgb[1], b = rgb[2]

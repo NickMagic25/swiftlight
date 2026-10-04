@@ -22,6 +22,7 @@ struct MobileSettingsView: View {
             Form {
                 StreamSettingsSections(settings: $draft, preferences: $statisticsDraft,
                                        showByDefault: $showStatisticsByDefaultDraft)
+                AppBuildIdentitySection()
             }
             .accessibilityIdentifier("streamSettingsForm")
             .navigationTitle("Stream Settings")
