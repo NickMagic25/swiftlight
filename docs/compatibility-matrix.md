@@ -12,5 +12,6 @@ The following feature availability describes the Mac client. The mobile MVP expo
 | Stereo, 5.1, and 7.1 audio | Implemented; physical channel placement and sustained playback need broader device testing |
 | System Spatial Audio | Implemented for compatible macOS/AirPods configurations; availability is system-dependent |
 | Keyboard, mouse, and controllers | Implemented; device- and game-specific behavior can vary |
+| Stream start/end plugins | macOS only; YAML configuration with Bash, installed Python or Swift. Scripts retain App Sandbox restrictions; see [plugins](plugins.md) for interpreter and integration limits. |
 
 **Auto** is the recommended codec/HDR choice when you are unsure. Swiftlight reports an incompatibility when a mode explicitly selected by the user cannot be supported. See the [development compatibility snapshot](dev/compatibility-matrix.md) for exact test evidence and remaining release gates.

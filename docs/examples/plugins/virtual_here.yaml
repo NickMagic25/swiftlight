@@ -1,0 +1,17 @@
+schema_version: 1
+id: virtual_here
+name: Launch VirtualHere Server
+description: Ask macOS to open an already installed VirtualHere server application when streaming starts.
+fields:
+  - id: server_app
+    label: Server application path
+    description: Absolute path to your installed VirtualHere server app. USB permissions and sandbox compatibility need separate validation.
+    type: string
+    required: true
+hooks:
+  - event: stream.started
+    runtime: bash
+    timeout_seconds: 10
+    script: |
+      set -eu
+      /usr/bin/open -a "$SWIFTLIGHT_FIELD_SERVER_APP"

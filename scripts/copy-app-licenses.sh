@@ -17,6 +17,8 @@ decoder_root="$repo_root/Packages/moonlight-apple-decoder"
 # so repeated Xcode builds can replace notices without changing source modes.
 mkdir -p "$destination"
 install -m 644 "$repo_root/LICENSE" "$destination/Swiftlight.txt"
+install -m 644 "$repo_root/App/Licenses/Yams.txt" "$destination/Yams.txt"
+install -m 644 "$repo_root/App/Licenses/LibYAML.txt" "$destination/LibYAML.txt"
 install -m 644 "$repo_root/.build/dependencies/licenses/OpenSSL.txt" "$destination/OpenSSL.txt"
 install -m 644 "$repo_root/.build/dependencies/licenses/Opus.txt" "$destination/Opus.txt"
 install -m 644 "$decoder_root/LICENSE" "$destination/MoonlightAppleVideo.txt"

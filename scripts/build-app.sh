@@ -62,6 +62,8 @@ if [[ -n "${RELEASE_TAG:-}" ]]; then
   python3 scripts/release-version.py "$RELEASE_TAG" --build-number "${BUILD_NUMBER:-1}" --plist "$staged_app/Contents/Info.plist"
 fi
 cp -f LICENSE "$staged_app/Contents/Resources/Licenses/Swiftlight.txt"
+cp -f App/Licenses/Yams.txt "$staged_app/Contents/Resources/Licenses/Yams.txt"
+cp -f App/Licenses/LibYAML.txt "$staged_app/Contents/Resources/Licenses/LibYAML.txt"
 cp -f .build/dependencies/licenses/*.txt "$staged_app/Contents/Resources/Licenses/"
 cp -f Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt "$staged_app/Contents/Resources/Licenses/moonlight-common-c.txt"
 cp -f Packages/moonlight-apple-decoder/LICENSE "$staged_app/Contents/Resources/Licenses/MoonlightAppleVideo.txt"

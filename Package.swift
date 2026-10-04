@@ -30,6 +30,7 @@ let package = Package(
     platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17)],
     products: [
         .library(name: "SwiftlightCore", targets: ["SwiftlightCore"]),
+        .library(name: "SwiftlightPlugins", targets: ["SwiftlightPlugins"]),
         // The primary Xcode app project consumes these shared modules as local-package products.
         // Keep SwiftPM support for module tests, replay tooling, and the secondary app packager.
         .library(name: "SwiftlightHost", targets: ["SwiftlightHost"]),
@@ -40,9 +41,11 @@ let package = Package(
         .executable(name: "swiftlight-desktop", targets: ["SwiftlightApp"]),
         .executable(name: "swiftlight-replay", targets: ["SwiftlightReplay"])
     ],
-    dependencies: [decoder],
+    dependencies: [decoder, .package(url: "https://github.com/jpsim/Yams.git", exact: "6.2.2")],
     targets: [
         .target(name: "SwiftlightCore", path: "Sources/shared/SwiftlightCore"),
+        .target(name: "SwiftlightPlugins", dependencies: [.product(name: "Yams", package: "Yams")],
+                path: "Sources/shared/SwiftlightPlugins"),
         .target(name: "CHostCrypto", path: "Sources/shared/CHostCrypto", publicHeadersPath: "include",
                 cSettings: nativeIncludes,
                 linkerSettings: nativeLibrarySearch + [.linkedLibrary("crypto")]),
@@ -88,17 +91,18 @@ let package = Package(
             path: "Sources/shared/CNativeVideoABI", publicHeadersPath: "include"),
         .target(name: "SwiftlightVideo", dependencies: ["CPyrowaveBridge", "CNativeVideoABI",
                 .product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")], path: "Sources/shared/SwiftlightVideo"),
-        .executableTarget(name: "SwiftlightApp", dependencies: ["SwiftlightCore", "SwiftlightVideo", "SwiftlightHost", "SwiftlightTransport"],
+        .executableTarget(name: "SwiftlightApp", dependencies: ["SwiftlightCore", "SwiftlightVideo", "SwiftlightHost", "SwiftlightTransport", "SwiftlightPlugins"],
             path: "Sources",
             exclude: ["mobile", "tv", "shared/SwiftlightCore", "shared/SwiftlightHost", "shared/CHostCrypto",
                       "shared/SwiftlightTransport", "shared/CStreamBridge", "shared/CPyrowaveBridge", "shared/CNativeVideoABI",
-                      "shared/SwiftlightVideo", "shared/SwiftlightReplay"],
+                      "shared/SwiftlightVideo", "shared/SwiftlightReplay", "shared/SwiftlightPlugins"],
             sources: ["desktop", "shared/SwiftlightApp"]),
         .executableTarget(name: "SwiftlightReplay", dependencies: ["SwiftlightVideo", .product(name: "MoonlightAppleVideo", package: "moonlight-apple-decoder")], path: "Sources/shared/SwiftlightReplay"),
         .testTarget(name: "SwiftlightHostTests", dependencies: ["SwiftlightHost"]),
         .testTarget(name: "SwiftlightAppTests", dependencies: ["SwiftlightApp"]),
         .testTarget(name: "SwiftlightTransportTests", dependencies: ["SwiftlightTransport", "CStreamBridge"]),
         .testTarget(name: "SwiftlightCoreTests", dependencies: ["SwiftlightCore"]),
+        .testTarget(name: "SwiftlightPluginsTests", dependencies: ["SwiftlightPlugins"]),
         .testTarget(name: "SwiftlightVideoTests", dependencies: ["SwiftlightVideo"])
     ],
     swiftLanguageModes: [.v6],

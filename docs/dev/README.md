@@ -80,6 +80,8 @@ The reusable decoder source is in [`Packages/moonlight-apple-decoder/`](../../Pa
 - [Release CI, signing secrets, and DMG distribution](releases.md)
 - [Xcode Cloud and App Store Connect migration](xcode-cloud.md)
 - [Architecture](architecture.md)
+- [Mac plugin schema, execution and lifecycle](plugin-system.md)
+- [Mac plugin validation and remaining integrations](plugins-validation-2026-10-04.md)
 - [First-party decoder and pinned dependency maintenance](dependencies.md)
 - [Transport and ownership](transport.md)
 - [Video lifetime](video-lifetime.md)

@@ -73,7 +73,7 @@ struct SwiftlightApp: App {
             }
         }
         Window("Video Validation", id: "replay") { ReplayPreview() }.defaultSize(width: 1000, height: 700)
-        Settings { SettingsView(model: model).frame(width: 520).padding(24) }
+        Settings { SettingsView(model: model).frame(width: 620, height: 720).padding(16) }
         #elseif os(iOS)
         WindowGroup {
             MobileContentView(model: model, session: session)

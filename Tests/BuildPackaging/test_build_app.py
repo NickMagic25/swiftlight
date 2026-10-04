@@ -55,6 +55,7 @@ CASES = [
     ("homebrew", {"STUB_HOMEBREW": "1", "SIGNING_IDENTITY": "-"}, False, None),
     ("missing_pyrowave_license", {"SIGNING_IDENTITY": "-"}, False, None),
     ("missing_decoder_license", {"SIGNING_IDENTITY": "-"}, False, None),
+    ("missing_yaml_license", {"SIGNING_IDENTITY": "-"}, False, None),
     ("legacy_decoder_override", {"SIGNING_IDENTITY": "-"}, True, "-"),
     ("invalid_configuration", {"CONFIGURATION": "invalid"}, False, None),
     ("first_install", {"SIGNING_IDENTITY": "-"}, True, "-"),
@@ -76,7 +77,7 @@ def run_case(root, source, case):
     bootstrap = root / "scripts/bootstrap-dependencies.sh"
     bootstrap.write_text("#!/bin/bash\nexit 0\n")
     bootstrap.chmod(0o755)
-    for relative in ["App/Info.plist", "App/AppIcon.icns", "LICENSE", ".build/dependencies/licenses/native.txt",
+    for relative in ["App/Info.plist", "App/AppIcon.icns", "LICENSE", "App/Licenses/Yams.txt", "App/Licenses/LibYAML.txt", ".build/dependencies/licenses/native.txt",
                      "Sources/shared/CStreamBridge/vendor/common-c/LICENSE.txt",
                      "Packages/moonlight-apple-decoder/LICENSE",
                      "Dependencies/pyrowave/LICENSE", "bin/swiftlight-desktop"]:
@@ -91,6 +92,8 @@ def run_case(root, source, case):
     decoder_license.write_text("Monorepo decoder notice\n")
     if name == "missing_decoder_license":
         decoder_license.unlink()
+    if name == "missing_yaml_license":
+        (root / "App/Licenses/LibYAML.txt").unlink()
     legacy_decoder = root / ".build/checkouts/moonlight-apple-decoder"
     legacy_decoder.mkdir(parents=True)
     (legacy_decoder / "LICENSE").write_text("Stale checkout notice\n")
@@ -132,6 +135,9 @@ def run_case(root, source, case):
         binary = app / "Contents/MacOS/Swiftlight"
         if success:
             require(binary.read_text() == "new-fake-binary", "New bundle was not installed")
+            for notice in ("Yams", "LibYAML"):
+                require((app / f"Contents/Resources/Licenses/{notice}.txt").read_bytes() ==
+                        (root / f"App/Licenses/{notice}.txt").read_bytes(), "YAML parser notice was not packaged")
             require((app / "Contents/Resources/AppIcon.icns").read_bytes() ==
                     (root / "App/AppIcon.icns").read_bytes(), "Mac icon was not packaged")
             require((app / "Contents/Resources/Licenses/PyroWave.txt").read_bytes() ==
@@ -163,7 +169,7 @@ def run_case(root, source, case):
             require(binary.read_text() == "old-fake-binary", "Failure changed the old bundle")
         if old:
             require(old.read() == b"old-fake-binary", "Open old executable contents changed")
-        if name in {"missing_pyrowave_license", "missing_decoder_license"}:
+        if name in {"missing_pyrowave_license", "missing_decoder_license", "missing_yaml_license"}:
             require(not any(command == "codesign" for command, _ in calls),
                     "Missing dependency notice reached signing")
         require(not list((root / ".build").glob(".Swiftlight-stage.*")), "Staging was not cleaned")

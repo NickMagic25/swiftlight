@@ -10,6 +10,7 @@ Swiftlight is a native Apple client for Moonlight game streaming, with a macOS a
 - Use keyboard, mouse, and physical controllers, including relative and absolute mouse modes.
 - Choose Stereo, 5.1, or 7.1 audio, with Direct output or System Spatial Audio on compatible AirPods.
 - View optional stream statistics and export the last completed stream's privacy-filtered diagnostics.
+- Configure Mac-only [stream plugins](docs/plugins.md) from local or HTTPS YAML files, with custom settings and Bash, Python or Swift start/end actions.
 
 The same `Swiftlight` Xcode app target supports iPhone and iPad destinations on iOS and iPadOS 26 or later, with adaptive navigation, discovery, PIN pairing, cover-art browsing, and full-screen streaming with performance, HDR, and surround/spatial audio settings. tvOS remains future work. Swiftlight is still under active development; see the [mobile guide](docs/mobile.md), [compatibility guide](docs/compatibility-matrix.md), and [acceptance status](docs/dev/acceptance-matrix.md) for validation boundaries.
 

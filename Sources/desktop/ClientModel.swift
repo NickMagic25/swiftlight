@@ -3,9 +3,38 @@ import AppKit
 import Combine
 import SwiftlightCore
 import SwiftlightHost
+import SwiftlightPlugins
 import SwiftlightTransport
 import SwiftlightVideo
 
+/// Captures the attempt identity before asynchronous connection work, and only
+/// admits hooks once decoded output has moved that attempt into streaming.
+/// Taking the end context retires it before teardown can suspend the caller.
+struct PluginStreamLifecycle {
+    private var generation: UInt64?
+    private var context: PluginStreamContext?
+    private var started = false
+
+    mutating func prepare(_ context: PluginStreamContext, generation: UInt64) {
+        self.generation = generation
+        self.context = context
+        started = false
+    }
+
+    mutating func markStarted(generation: UInt64) -> PluginStreamContext? {
+        guard self.generation == generation, !started, let context else { return nil }
+        started = true
+        return context
+    }
+
+    mutating func takeEndContext() -> PluginStreamContext? {
+        let result = started ? context : nil
+        generation = nil
+        context = nil
+        started = false
+        return result
+    }
+}
 
 @MainActor final class ClientModel: ObservableObject {
     @Published var hosts: [SavedHost] = []
@@ -49,6 +78,8 @@ import SwiftlightVideo
     let network = NetworkStatus()
     let streamWindow = StreamWindowController()
     let artwork = AppArtworkStore()
+    let plugins: PluginManager
+    private var pluginLifecycle = PluginStreamLifecycle()
     private let hostStore = SavedHostStore()
     private var client: HostClient?
     private var controlTask: Task<Void, Never>?
@@ -69,8 +100,9 @@ import SwiftlightVideo
     var selectedHost: SavedHost? { hosts.first { $0.id == selectedHostID } }
     var isSessionActive: Bool { [.connecting, .negotiating, .streaming, .reconfiguring, .disconnecting].contains(state.phase) }
     var libraryApps: [RemoteApp] { RemoteApplicationAction.library(apps: apps, host: hostInfo) }
-    init(startServices: Bool = true, pollingInterval: Duration = .seconds(5)) {
+    init(startServices: Bool = true, pollingInterval: Duration = .seconds(5), pluginManager: PluginManager? = nil) {
         hostPoller = IdleHostPoller(interval: pollingInterval)
+        plugins = pluginManager ?? PluginManager(loadsSavedPlugins: startServices)
         guard startServices else { return }
         if let data = UserDefaults.standard.data(forKey: "streamStatisticsPreferences"),
            let saved = try? JSONDecoder().decode(StreamStatisticsPreferences.self, from: data) { statisticsPreferences = saved }
@@ -80,7 +112,7 @@ import SwiftlightVideo
         network.$available.dropFirst().sink { [weak self] available in
             guard !available, let self, self.isSessionActive else { return }
             self.diagnosticFailure = "Network path lost"
-            self.state.apply(.pathLost); self.message = self.state.error; self.teardown()
+            self.state.apply(.pathLost); self.message = self.state.error; self.teardown(reason: "network_lost")
         }.store(in: &observers)
         // NSWorkspace notifications are emitted by its own notification center.
         NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification).sink { [weak self] _ in
@@ -388,6 +420,8 @@ import SwiftlightVideo
         diagnosticSettings = settings; diagnosticFailure = nil
         streamDetail = "Preparing stream"; decodedDetail = "Waiting for decoded output"
         state.apply(.connect); let generation = state.generation
+        pluginLifecycle.prepare(PluginStreamContext(sessionID: UUID().uuidString,
+            hostID: host.id, hostName: host.name, appID: app.id, appName: app.name), generation: generation)
         activeApp = app; message = nil; renderFailure = nil; hostStatus = "Connecting stream…"
         statisticsRequest = nil; statisticsSelection = nil
         statisticsSampler = StreamStatisticsSampler()
@@ -436,7 +470,7 @@ import SwiftlightVideo
             } catch {
                 guard state.generation == generation else { return }
                 diagnosticFailure = "\(String(reflecting: type(of: error))) code \((error as NSError).code)"
-                state.apply(.failure(error.localizedDescription), generation: generation); message = error.localizedDescription; teardown()
+                state.apply(.failure(error.localizedDescription), generation: generation); message = error.localizedDescription; teardown(reason: "connection_failed")
             }
         }
     }
@@ -446,18 +480,20 @@ import SwiftlightVideo
     private func handle(_ event: TransportEvent, generation: UInt64) {
         guard generation == state.generation else { return }
         switch event {
-        case .terminated(let code): diagnosticFailure = "Host terminated: \(code)"; state.apply(.failure("Host disconnected (\(code)).")); message = state.error; teardown()
-        case .failed(let stage, let code): diagnosticFailure = "Transport stage \(stage), code \(code)"; state.apply(.failure("Connection failed at \(stage) (\(code)).")); message = state.error; teardown()
+        case .terminated(let code): diagnosticFailure = "Host terminated: \(code)"; state.apply(.failure("Host disconnected (\(code)).")); message = state.error; teardown(reason: "host_terminated")
+        case .failed(let stage, let code): diagnosticFailure = "Transport stage \(stage), code \(code)"; state.apply(.failure("Connection failed at \(stage) (\(code)).")); message = state.error; teardown(reason: "connection_failed")
         case .rumble(let controller, let low, let high): ControllerHub.shared.rumble(index: Int(controller), low: low, high: high)
         case .audioFailure(let code): message = "Audio output failed (\(code)). Check the selected output device."
         case .qualityPoor(let poor): if poor { message = "Network quality is poor. Try a lower bitrate." }
         default: break
         }
     }
-    func disconnect() { intentGate.retire(); state.apply(.disconnect); teardown() }
+    func disconnect() { disconnect(reason: "disconnected") }
+    private func disconnect(reason: String) { intentGate.retire(); state.apply(.disconnect); teardown(reason: reason) }
     func waitForStreamTeardown() async { await stoppingTask?.value }
-    private func teardown() {
+    private func teardown(reason: String) {
         guard stoppingTask == nil else { return }
+        let pluginContext = pluginLifecycle.takeEndContext()
         finishStreamDiagnostics()
         connectionTask?.cancel(); transport?.releaseAllInputs(); transport?.cancelStart()
         let oldTransport = transport, oldPipeline = pipeline
@@ -469,6 +505,7 @@ import SwiftlightVideo
         stoppingTask = Task {
             await oldTransport?.stop()
             await Task.detached { oldPipeline?.close() }.value
+            if let pluginContext { plugins.endStream(sessionID: pluginContext.sessionID, reason: reason) }
             state.apply(.stopped); stoppingTask = nil
             if let hostInfo { applyHostInfo(hostInfo) }
             resumeHostPolling(immediately: true)
@@ -476,7 +513,7 @@ import SwiftlightVideo
     }
     func reconnect() {
         guard let app = activeApp, let hostID = selectedHostID else { return }
-        disconnect(); let ticket = intentGate.issue(hostID: hostID)
+        disconnect(reason: "reconnect"); let ticket = intentGate.issue(hostID: hostID)
         Task {
             await stoppingTask?.value
             guard intentGate.accepts(ticket, selectedHostID: selectedHostID) else { return }
@@ -487,7 +524,7 @@ import SwiftlightVideo
         sleeping = true; hostPoller.stop()
         guard isSessionActive else { return }
         intentGate.retire(); suspendedApp = activeApp; suspendedHostID = selectedHostID
-        state.apply(.suspend); teardown()
+        state.apply(.suspend); teardown(reason: "sleep")
     }
     func resumeSuspended() {
         guard let app = suspendedApp, let hostID = suspendedHostID, hostID == selectedHostID else { return }
@@ -522,15 +559,16 @@ import SwiftlightVideo
     func shutdown() async {
         shuttingDown = true; hostPoller.stop(); remoteApplicationAction = nil
         artwork.cancel(clear: true)
-        controlTask?.cancel(); disconnect()
+        controlTask?.cancel(); disconnect(reason: "shutdown")
         await stoppingTask?.value
         await controlTask?.value
+        await plugins.shutdown()
         discovery.stop()
     }
     private func updateStatistics() {
         if let error = pipeline?.error ?? pipeline?.statistics?.failureDescription ?? renderFailure, isSessionActive {
             diagnosticFailure = "Video pipeline failure; inspect decoder and renderer counters"
-            message = error; state.apply(.failure(error)); teardown(); return
+            message = error; state.apply(.failure(error)); teardown(reason: "video_failed"); return
         }
         if let pipeline {
             refreshStreamStatistics()
@@ -538,6 +576,7 @@ import SwiftlightVideo
             if decodedDetail != decoded { decodedDetail = decoded }
             if state.phase == .negotiating, let stats = pipeline.statistics, stats.output > 0 {
                 state.apply(.firstFrame); hostStatus = "Streaming"
+                if let context = pluginLifecycle.markStarted(generation: state.generation) { plugins.beginStream(context) }
             }
             if let diagnostics = transport?.diagnostics {
                 let detail = "RTT \(diagnostics.rttMilliseconds.map(String.init) ?? "unavailable") ms · audio queue \(diagnostics.pendingAudioMilliseconds) ms · route \(diagnostics.interfaceName.isEmpty ? "unknown" : diagnostics.interfaceName)"
