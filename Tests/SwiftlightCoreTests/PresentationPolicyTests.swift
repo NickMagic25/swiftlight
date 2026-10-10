@@ -18,6 +18,7 @@ final class PresentationPolicyTests: XCTestCase {
         XCTAssertTrue(decoded.launchInFullScreen)
         XCTAssertEqual(decoded.videoPacing, .immediate)
         XCTAssertFalse(decoded.displaySyncEnabled)
+        XCTAssertEqual(decoded.mobileTouchMode, .trackpad)
     }
 
     func testSavedWindowedPreferenceSurvivesSettingsRoundTrip() throws {

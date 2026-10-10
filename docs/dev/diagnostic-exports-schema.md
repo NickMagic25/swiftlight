@@ -43,6 +43,15 @@ report. No report is uploaded automatically.
 - Actual statistics-overlay visibility and input capture, requested rendering
   options, and the number of layer HDR-metadata updates. Released input capture
   exposes stream controls over the video, even when the statistics panel is hidden.
+  The additive `renderOptions.hdrPresentationMode` records the resolved HDR mode
+  (`systemToneMapped`, `linearUnmapped`, or `nativePQ`). The existing
+  `nativePQOutput` field remains consistent with that selection. Stream settings
+  retain the requested choice, which applies on the next stream in every build
+  configuration. The visible HDR tone mapping choices are Linear
+  (`linearUnmapped`) and PQ (`nativePQ`), with PQ as the default. Missing settings
+  and the former `systemToneMapped` setting migrate to `nativePQ`; explicit
+  Linear and PQ settings are retained. `systemToneMapped` remains an internal
+  baseline/fallback and a value that historical reports can contain.
 - Paired packet, enqueue, admission, VT, frame selection, CPU submission, kernel
   scheduling, GPU execution and confirmed presentation stages, as described below.
 - Network RTT/deviation, frame and compressed-byte counters, queue depths,
@@ -217,12 +226,26 @@ metadata changes is deferred to the next supplied drawable. Legacy per-frame
 metadata updates and acquisition ordering remain explicit debug comparisons;
 root-layer changes remain opt-in. Matched live cadence and physical HDR brightness
 must still be measured on the destination display.
-Explicitly saved presentation settings are retained. The comparison runner also
-has a debug-only native PQ experiment using `bgr10a2Unorm` and Rec.2100 PQ. It leaves
-`edrMetadata` nil: Apple's non-nil metadata contract requires a linear output color
-space with values above 1.0. Disabling metadata-driven tone mapping can change
-highlight handling, so PQ remains an experiment. See Apple's
+Explicitly saved presentation settings are retained. The comparison runner keeps
+an explicit system-tone-mapped baseline for named trials, independently of the
+saved HDR tone mapping choice. Its native PQ trial uses `bgr10a2Unorm` and Rec.2100
+PQ and leaves `edrMetadata` nil: Apple's non-nil metadata contract requires a
+linear output color space with values above 1.0. See Apple's
 [EDR metadata requirements](https://developer.apple.com/documentation/quartzcore/cametallayer/edrmetadata).
+The shared Video settings expose **Linear** and **PQ** on Mac and mobile in every
+build configuration, without changing pacing, drawable count, HUD or hierarchy.
+PQ is the default and both selections apply on the next stream. A missing setting
+or the former system-tone-mapped choice migrates to PQ; existing Linear and PQ
+choices are retained. Both selectable modes leave layer metadata unattached.
+The internal system-tone-mapped baseline remains available for fallback and
+controlled comparisons. `edrMetadataConfigured` records actual attachment
+after the transition. Linear output remains normalized to 203 nits in the shader,
+but without metadata that does not establish a physical 203-nit reference white.
+PQ retains its encoded signal range; it does not establish panel luminance.
+Either mode can change brightness or clip highlights. The user's M5 iPad Metal
+HUD showed Direct for both modes; that observation does not establish display
+luminance, presentation cadence or lower latency.
+See the [HDR tone mapping procedure](mobile-controller-presentation.md#hdr-tone-mapping).
 
 ## Mobile debug comparison captures
 

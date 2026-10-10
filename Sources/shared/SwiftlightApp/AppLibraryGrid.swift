@@ -11,12 +11,15 @@ struct AppLibraryGrid: View {
     let requestArtwork: (RemoteApp) -> Void
     let launch: (RemoteApp) -> Void
     let quit: ((RemoteApp) -> Void)?
+    let controllerSelectedAppID: Int?
+    let onColumnCountChange: ((Int) -> Void)?
     @FocusState private var focusedAppID: Int?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(apps: [RemoteApp], runningAppID: Int?, artwork: AppArtworkStore, loadingAllowed: Bool,
          requestArtwork: @escaping (RemoteApp) -> Void, launch: @escaping (RemoteApp) -> Void,
-         quit: ((RemoteApp) -> Void)? = nil) {
+         quit: ((RemoteApp) -> Void)? = nil, controllerSelectedAppID: Int? = nil,
+         onColumnCountChange: ((Int) -> Void)? = nil) {
         self.apps = apps
         self.runningAppID = runningAppID
         self.artwork = artwork
@@ -24,6 +27,8 @@ struct AppLibraryGrid: View {
         self.requestArtwork = requestArtwork
         self.launch = launch
         self.quit = quit
+        self.controllerSelectedAppID = controllerSelectedAppID
+        self.onColumnCountChange = onColumnCountChange
     }
 
     private var spacing: CGFloat {
@@ -47,11 +52,21 @@ struct AppLibraryGrid: View {
     }
 
     var body: some View {
+        let gridSpacing = spacing
+        #if os(iOS)
+        let singleColumn = dynamicTypeSize.isAccessibilitySize
+        let minimumColumnWidth: CGFloat = 140
+        #else
+        let singleColumn = false
+        let minimumColumnWidth: CGFloat = 180
+        #endif
         LazyVGrid(columns: columns, spacing: spacing) {
             ForEach(apps) { app in
                 AppCoverButton(app: app, image: artwork.images[app.id], isRunning: runningAppID == app.id,
-                               isFocused: focusedAppID == app.id) { launch(app) }
+                               isFocused: focusedAppID == app.id || controllerSelectedAppID == app.id) { launch(app) }
                     .focused($focusedAppID, equals: app.id)
+                    .id(app.id)
+                    .controllerMenuHighlight(controllerSelectedAppID == app.id)
                     .contextMenu {
                         Button(runningAppID == app.id ? "Resume" : "Play") { launch(app) }
                         if runningAppID == app.id, let quit {
@@ -65,6 +80,9 @@ struct AppLibraryGrid: View {
                     }
             }
         }
+        .onGeometryChange(for: Int.self) { geometry in
+            singleColumn ? 1 : ControllerMenuNavigation.columnCount(width: geometry.size.width, minimum: minimumColumnWidth, spacing: gridSpacing)
+        } action: { onColumnCountChange?($0) }
         .accessibilityIdentifier("appLibraryGrid")
     }
 }

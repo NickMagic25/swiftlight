@@ -2,6 +2,18 @@ import Foundation
 
 public enum CodecPreference: String, Codable, CaseIterable, Sendable { case auto, hevc, av1, pyrowave }
 public enum HDRPreference: String, Codable, CaseIterable, Sendable { case auto, on, off }
+public enum HDRPresentationMode: String, Codable, CaseIterable, Sendable {
+    case systemToneMapped, linearUnmapped, nativePQ
+    /// System tone mapping remains an internal baseline/fallback, not a Settings choice.
+    public static let selectableModes: [Self] = [.linearUnmapped, .nativePQ]
+    public var label: String {
+        switch self {
+        case .systemToneMapped: "System tone mapping"
+        case .linearUnmapped: "Linear"
+        case .nativePQ: "PQ"
+        }
+    }
+}
 public enum StreamChromaSampling: String, Codable, CaseIterable, Sendable {
     case yuv420, yuv444
     public var label: String { self == .yuv420 ? "4:2:0" : "4:4:4" }
@@ -22,6 +34,10 @@ public enum ResolutionMode: String, Codable, CaseIterable, Sendable {
     }
 }
 public enum PointerMode: String, Codable, CaseIterable, Sendable { case relative, absolute }
+public enum MobileTouchMode: String, Codable, CaseIterable, Sendable {
+    case trackpad, nativeTouch
+    public var label: String { self == .trackpad ? "Trackpad" : "Native Touch" }
+}
 public enum VideoScaling: String, Codable, CaseIterable, Sendable { case fit, fill, integer }
 public enum VideoPacing: String, Codable, CaseIterable, Sendable {
     case displayLink, immediate
@@ -61,10 +77,16 @@ public struct StreamSettings: Codable, Equatable, Sendable {
     public var automaticBitrate = true
     public var codec: CodecPreference = .auto
     public var hdr: HDRPreference = .auto
+    /// Output selection is independent of HDR negotiation. PQ is the default;
+    /// previously saved Linear and PQ selections remain unchanged.
+    public var hdrPresentationMode: HDRPresentationMode = .nativePQ
+    public var effectiveHDRPresentationMode: HDRPresentationMode { hdrPresentationMode }
     /// An explicit 4:4:4 request requires a compatible host and decoder profile.
     public var chromaSampling: StreamChromaSampling = .yuv420
     public var scaling: VideoScaling = .fit
     public var pointerMode: PointerMode = .relative
+    /// Finger input is independent of an attached mouse's pointer mode.
+    public var mobileTouchMode: MobileTouchMode = .trackpad
     /// macOS launch preference; other Apple platforms always present full screen.
     public var launchInFullScreen = true
     public var videoPacing: VideoPacing = .immediate
@@ -79,7 +101,7 @@ public struct StreamSettings: Codable, Equatable, Sendable {
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case resolution, customSize, framesPerSecond, bitrateMbps, automaticBitrate
-        case codec, hdr, chromaSampling, scaling, pointerMode, launchInFullScreen
+        case codec, hdr, hdrPresentationMode, chromaSampling, scaling, pointerMode, mobileTouchMode, launchInFullScreen
         case videoPacing, displaySyncEnabled, maximumDrawableCount
         case audioChannels, audioOutput, playAudioOnHost
     }
@@ -93,9 +115,12 @@ public struct StreamSettings: Codable, Equatable, Sendable {
         automaticBitrate = try values.decodeIfPresent(Bool.self, forKey: .automaticBitrate) ?? automaticBitrate
         codec = try values.decodeIfPresent(CodecPreference.self, forKey: .codec) ?? codec
         hdr = try values.decodeIfPresent(HDRPreference.self, forKey: .hdr) ?? hdr
+        hdrPresentationMode = try values.decodeIfPresent(HDRPresentationMode.self, forKey: .hdrPresentationMode) ?? hdrPresentationMode
+        if hdrPresentationMode == .systemToneMapped { hdrPresentationMode = .nativePQ }
         chromaSampling = try values.decodeIfPresent(StreamChromaSampling.self, forKey: .chromaSampling) ?? chromaSampling
         scaling = try values.decodeIfPresent(VideoScaling.self, forKey: .scaling) ?? scaling
         pointerMode = try values.decodeIfPresent(PointerMode.self, forKey: .pointerMode) ?? pointerMode
+        mobileTouchMode = try values.decodeIfPresent(MobileTouchMode.self, forKey: .mobileTouchMode) ?? mobileTouchMode
         // Existing global/per-host JSON predates this key. Preserve its settings
         // while adopting the full-screen launch default for the new preference.
         launchInFullScreen = try values.decodeIfPresent(Bool.self, forKey: .launchInFullScreen) ?? launchInFullScreen

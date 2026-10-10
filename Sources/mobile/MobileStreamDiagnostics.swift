@@ -11,8 +11,8 @@ import os
 /// Explicit debug trials reuse the renderer's bounded scalar timing records.
 /// No media callback, UI publication, or normal-release polling is added.
 @MainActor final class MobileStreamDiagnostics {
-    /// Explicit capture-only experiment. Normal and Release launches retain the
-    /// validated linear HDR output; this never changes persisted preferences.
+    /// Explicit capture-only overrides. Ordinary launches resolve the shared
+    /// HDR Settings choice (PQ by default); captures do not persist preferences.
     var renderOptions: StreamRenderOptions {
         var options = StreamRenderOptions()
         #if DEBUG

@@ -155,6 +155,43 @@ final class TransportTests: XCTestCase {
         XCTAssertEqual(value.firstReceiveUptimeNanoseconds, 1_000_000_000)
     }
     func testKeyboardWireMarkerAndHeldRelease() { XCTAssertTrue(sf_stream_validate_keyboard_wire_codes()) }
+    func testKeyboardTextAndAtomicStrokesPreserveHeldInputAndRollback() {
+        XCTAssertTrue(sf_stream_validate_keyboard_text_and_chords())
+    }
+    func testKeyboardShortcutSwiftMappingAndInactiveAPI() throws {
+        XCTAssertEqual(HostKeyboardShortcut.windows.native, SF_KEY_CHORD_WINDOWS)
+        XCTAssertEqual(HostKeyboardShortcut.altTab.native, SF_KEY_CHORD_ALT_TAB)
+        XCTAssertEqual(HostKeyboardShortcut.altF4.native, SF_KEY_CHORD_ALT_F4)
+        XCTAssertEqual(HostKeyboardShortcut.backspace.native, SF_KEY_CHORD_BACKSPACE)
+        XCTAssertEqual(HostKeyboardShortcut.enter.native, SF_KEY_CHORD_ENTER)
+        XCTAssertEqual(StreamTransport.maximumTextBytes, 4096)
+        let config = TransportConfiguration(address: "localhost", appVersion: "7.1.431.0", rtspURL: nil,
+            serverCodecSupport: 0x100, width: 1920, height: 1080, fps: 60, bitrateKbps: 20000,
+            supportedVideoFormats: 0x100, inputKey: Data(repeating: 1, count: 16), inputKeyID: 1)
+        let transport = try StreamTransport(configuration: config,
+            callbacks: TransportCallbacks(setup: { _ in true }, video: { _ in true }, event: { _ in }))
+        XCTAssertEqual(transport.sendText(""), -1)
+        XCTAssertEqual(transport.sendText("Café 猫 😀"), -1)
+        XCTAssertEqual(transport.keyStroke(0x8041, modifiers: 1), -1)
+        XCTAssertEqual(transport.keyChord(.altTab), -1)
+        transport.releaseAllInputs()
+    }
+    func testNativeTouchCapabilityPermissionAdmissionAndCleanup() { XCTAssertTrue(sf_stream_validate_native_touch()) }
+    func testNativeTouchSwiftPhasesAndInactiveTransport() throws {
+        XCTAssertEqual(TouchEventPhase.down.native, SF_TOUCH_DOWN)
+        XCTAssertEqual(TouchEventPhase.move.native, SF_TOUCH_MOVE)
+        XCTAssertEqual(TouchEventPhase.up.native, SF_TOUCH_UP)
+        XCTAssertEqual(TouchEventPhase.cancel.native, SF_TOUCH_CANCEL)
+        let config = TransportConfiguration(address: "localhost", appVersion: "7.1.431.0", rtspURL: nil,
+            serverCodecSupport: 0x100, width: 1920, height: 1080, fps: 60, bitrateKbps: 20000,
+            supportedVideoFormats: 0x100, inputKey: Data(repeating: 1, count: 16), inputKeyID: 1)
+        let transport = try StreamTransport(configuration: config,
+            callbacks: TransportCallbacks(setup: { _ in true }, video: { _ in true }, event: { _ in }))
+        XCTAssertEqual(transport.nativeTouchAvailability, .notStreaming)
+        XCTAssertEqual(transport.touch(event: .down, id: 1, x: 0.5, y: 0.5), -1)
+        transport.releaseAllInputs()
+        XCTAssertEqual(transport.touch(event: .cancel, id: 1, x: 0, y: 0), -1)
+    }
     func testCancellationAcrossPublishedLifecycleStates() { XCTAssertTrue(sf_stream_validate_cancel_state_race()) }
     func testCommonClockAndLaunchExtensions() {
         XCTAssertTrue(sf_stream_validate_clock_mapping())

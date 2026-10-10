@@ -4,10 +4,12 @@ import SwiftlightHost
 import SwiftlightCore
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var model: ClientModel
     @State private var showingAddHost = false
     @State private var showingSettings = false
     @State private var confirmingRemove = false
+    @State private var controllerNavigation = ControllerMenuNavigation()
     var body: some View {
         Group {
             if let pipeline = model.pipeline, let transport = model.transport {
@@ -33,29 +35,47 @@ struct ContentView: View {
                 }.background(.black)
             } else {
                 NavigationSplitView {
-                    List(selection: Binding(get: { model.selectedHostID }, set: { id in
-                        Task { @MainActor in
-                            if let host = model.hosts.first(where: { $0.id == id }) { model.selectHost(host) }
-                        }
-                    })) {
-                        Section("Your Computers") {
-                            ForEach(model.hosts) { host in
-                                Label(host.name, systemImage: "desktopcomputer").tag(host.id)
-                                    .help(host.address.description)
+                    ScrollViewReader { scroll in
+                        List(selection: Binding(get: { model.selectedHostID }, set: { id in
+                            Task { @MainActor in
+                                if let host = model.hosts.first(where: { $0.id == id }) { model.selectHost(host) }
+                            }
+                        })) {
+                            Section("Your Computers") {
+                                ForEach(model.hosts) { host in
+                                    Label(host.name, systemImage: "desktopcomputer").tag(host.id)
+                                        .id("saved:\(host.id)")
+                                        .controllerMenuHighlight(controllerNavigation.isActive && controllerNavigation.region == .computers && controllerNavigation.computerID == "saved:\(host.id)")
+                                        .help(host.address.description)
+                                }
                             }
                         }
-                    }
-                    .disabled(model.busy)
-                    .navigationTitle("Swiftlight")
-                    .navigationSplitViewColumnWidth(min: 210, ideal: 240)
-                    .safeAreaInset(edge: .bottom) {
-                        Button { showingAddHost = true } label: { Label("Add Computer", systemImage: "plus") }
-                            .swiftlightGlassButton().padding().frame(maxWidth: .infinity, alignment: .leading)
+                        .disabled(model.busy)
+                        .navigationTitle("Swiftlight")
+                        .navigationSplitViewColumnWidth(min: 210, ideal: 240)
+                        .safeAreaInset(edge: .bottom) {
+                            Button { showingAddHost = true } label: { Label("Add Computer", systemImage: "plus") }
+                                .swiftlightGlassButton().padding().frame(maxWidth: .infinity, alignment: .leading)
+                                .controllerMenuHighlight(controllerNavigation.isActive && controllerNavigation.region == .computers && controllerNavigation.computerID == "add")
+                        }
+                        .onChange(of: controllerNavigation.computerID) { _, selection in
+                            if controllerNavigation.isActive, let selection { scroll.scrollTo(selection, anchor: .center) }
+                        }
                     }
                 } detail: {
                     library
                 }
                 .background(DisplayProbe(onChange: updateDisplay).frame(width: 0, height: 0))
+            }
+        }
+        .controllerMenuInput(enabled: scenePhase == .active && !model.isSessionActive, handler: handleControllerMenu)
+        .onChange(of: model.selectedHostID) { _, selection in
+            if let selection { controllerNavigation.selectedComputer("saved:\(selection)") }
+        }
+        .onChange(of: model.libraryApps.map(\.id)) { _, applications in
+            if controllerNavigation.region == .applications,
+               !applications.contains(controllerNavigation.applicationID ?? -1) {
+                controllerNavigation.applicationID = applications.first
             }
         }
         .background(StreamWindowReader(controller: model.streamWindow).frame(width: 0, height: 0))
@@ -96,54 +116,125 @@ struct ContentView: View {
             Button("Remove Computer", role: .destructive) { model.removeHost() }
         }
     }
+
+    private var computerChoices: [String] { model.hosts.map { "saved:\($0.id)" } + ["add"] }
+
+    private func handleControllerMenu(_ action: MenuControllerAction) {
+        guard scenePhase == .active, !model.isSessionActive else { return }
+        if model.remoteApplicationAction != nil || confirmingRemove {
+            if action == .back { model.remoteApplicationAction = nil; confirmingRemove = false }
+            return
+        }
+        if showingAddHost {
+            if action == .back { showingAddHost = false }
+            return
+        }
+        if model.showingPairing {
+            if action == .back { model.cancelPairing() }
+            return
+        }
+        if showingSettings {
+            if action == .back { model.saveSettings(); showingSettings = false }
+            return
+        }
+        if model.message != nil {
+            if action == .back { model.message = nil }
+            return
+        }
+        controllerNavigation.isActive = true
+        if action == .back {
+            controllerNavigation.returnToComputers(computerChoices)
+            return
+        }
+        guard !model.busy else { return }
+        switch action {
+        case .move(let direction):
+            if direction == .right, controllerNavigation.region == .computers {
+                guard let hostID = model.selectedHostID else { return }
+                let selected = "saved:\(hostID)"
+                guard controllerNavigation.computerID == nil || controllerNavigation.computerID == selected else { return }
+                controllerNavigation.computerID = selected
+            }
+            controllerNavigation.move(direction, computers: computerChoices, applications: model.libraryApps.map(\.id))
+        case .activate:
+            if controllerNavigation.region == .computers {
+                let choice = controllerNavigation.computerID ?? model.selectedHostID.map { "saved:\($0)" } ?? computerChoices.first
+                if let host = model.hosts.first(where: { "saved:\($0.id)" == choice }) {
+                    controllerNavigation.selectedComputer("saved:\(host.id)")
+                    if model.selectedHostID == host.id { controllerNavigation.applicationID = model.libraryApps.first?.id }
+                    model.selectHost(host)
+                } else if choice == "add" {
+                    showingAddHost = true
+                }
+            } else if model.hostInfo?.isPaired == false {
+                model.showingPairing = true
+            } else if model.selectedHost == nil {
+                showingAddHost = true
+            } else if model.libraryApps.isEmpty {
+                model.refreshHost()
+            } else if let app = model.libraryApps.first(where: { $0.id == controllerNavigation.applicationID }) ?? model.libraryApps.first {
+                model.launch(app)
+            }
+        case .settings: showingSettings = true
+        case .back: break
+        }
+    }
     private func updateDisplay(_ geometry: DisplayGeometry, _ headroom: Double) {
         if model.display != geometry { model.display = geometry }
         if model.hdrHeadroom != headroom { model.hdrHeadroom = headroom }
     }
     @ViewBuilder private var library: some View {
         if let host = model.selectedHost {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(host.name).font(.largeTitle.bold())
-                            Text(host.address.description).foregroundStyle(.secondary).textSelection(.enabled)
-                            Text(model.hostStatus)
-                                .font(.callout).foregroundStyle(model.hostInfo?.isPaired == true ? .green : .secondary)
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(host.name).font(.largeTitle.bold())
+                                Text(host.address.description).foregroundStyle(.secondary).textSelection(.enabled)
+                                Text(model.hostStatus)
+                                    .font(.callout).foregroundStyle(model.hostInfo?.isPaired == true ? .green : .secondary)
+                            }
+                            Spacer()
+                            Menu {
+                                Button("Export Last Stream Diagnostics…") { model.exportLastStreamDiagnostics() }
+                                    .disabled(model.lastStreamDiagnostics == nil)
+                                Divider()
+                                Button("Pair Computer") { model.showingPairing = true }.disabled(model.hostInfo?.isPaired == true)
+                                Button("Unpair and Pair Again") { model.unpair() }
+                                Button("Remove Computer…", role: .destructive) { confirmingRemove = true }
+                            } label: { Image(systemName: "ellipsis").font(.title3) }
+                                .menuStyle(.button).swiftlightGlassButton().fixedSize().disabled(model.busy)
+                                .accessibilityLabel("Computer options")
                         }
-                        Spacer()
-                        Menu {
-                            Button("Export Last Stream Diagnostics…") { model.exportLastStreamDiagnostics() }
-                                .disabled(model.lastStreamDiagnostics == nil)
-                            Divider()
-                            Button("Pair Computer") { model.showingPairing = true }.disabled(model.hostInfo?.isPaired == true)
-                            Button("Unpair and Pair Again") { model.unpair() }
-                            Button("Remove Computer…", role: .destructive) { confirmingRemove = true }
-                        } label: { Image(systemName: "ellipsis").font(.title3) }
-                            .menuStyle(.button).swiftlightGlassButton().fixedSize().disabled(model.busy)
-                            .accessibilityLabel("Computer options")
-                    }
-                    if model.busy { ProgressView().controlSize(.small) }
-                    if model.hostInfo?.isPaired == false {
-                        ContentUnavailableView {
-                            Label("Pair this computer", systemImage: "lock.shield")
-                        } description: { Text("Connect securely to your Sunshine or Apollo host, then choose a game or desktop.") }
-                        actions: { Button("Pair Computer") { model.showingPairing = true }.swiftlightGlassButton(prominent: true) }
-                    } else if model.libraryApps.isEmpty && !model.busy {
-                        ContentUnavailableView("No applications loaded", systemImage: "square.grid.2x2", description: Text("Refresh the computer to load its application library."))
-                    } else {
-                        AppLibraryGrid(apps: model.libraryApps, runningAppID: model.hostInfo?.currentAppID,
-                                       artwork: model.artwork, loadingAllowed: !model.isSessionActive,
-                                       requestArtwork: { model.loadArtwork(for: $0) }, launch: model.launch,
-                                       quit: model.requestQuitRemoteApplication)
-                            .disabled(model.busy || model.isSessionActive)
-                    }
-                    if model.state.phase == .suspending { Button("Resume after Sleep") { model.resumeSuspended() }.swiftlightGlassButton(prominent: true) }
-                    if model.isSessionActive {
-                        HStack { ProgressView(); Text("Connecting to \(model.activeApp?.name ?? "host")…"); Spacer(); Button("Cancel") { model.disconnect() }.buttonStyle(.borderless) }
-                            .padding(16).swiftlightGlassSurface()
-                    }
-                }.padding(32)
+                        if model.busy { ProgressView().controlSize(.small) }
+                        if model.hostInfo?.isPaired == false {
+                            ContentUnavailableView {
+                                Label("Pair this computer", systemImage: "lock.shield")
+                            } description: { Text("Connect securely to your Sunshine or Apollo host, then choose a game or desktop.") }
+                            actions: { Button("Pair Computer") { model.showingPairing = true }.swiftlightGlassButton(prominent: true)
+                                .controllerMenuHighlight(controllerNavigation.isActive && controllerNavigation.region == .applications) }
+                        } else if model.libraryApps.isEmpty && !model.busy {
+                            ContentUnavailableView("No applications loaded", systemImage: "square.grid.2x2", description: Text("Refresh the computer to load its application library."))
+                        } else {
+                            AppLibraryGrid(apps: model.libraryApps, runningAppID: model.hostInfo?.currentAppID,
+                                           artwork: model.artwork, loadingAllowed: !model.isSessionActive,
+                                           requestArtwork: { model.loadArtwork(for: $0) }, launch: model.launch,
+                                           quit: model.requestQuitRemoteApplication,
+                                           controllerSelectedAppID: controllerNavigation.isActive && controllerNavigation.region == .applications ? controllerNavigation.applicationID : nil,
+                                           onColumnCountChange: { controllerNavigation.applicationColumns = $0 })
+                                .disabled(model.busy || model.isSessionActive)
+                        }
+                        if model.state.phase == .suspending { Button("Resume after Sleep") { model.resumeSuspended() }.swiftlightGlassButton(prominent: true) }
+                        if model.isSessionActive {
+                            HStack { ProgressView(); Text("Connecting to \(model.activeApp?.name ?? "host")…"); Spacer(); Button("Cancel") { model.disconnect() }.buttonStyle(.borderless) }
+                                .padding(16).swiftlightGlassSurface()
+                        }
+                    }.padding(32)
+                }
+                .onChange(of: controllerNavigation.applicationID) { _, selection in
+                    if controllerNavigation.isActive, let selection { scroll.scrollTo(selection, anchor: .center) }
+                }
             }
             .safeAreaInset(edge: .bottom) { NetworkFooter(network: model.network) }
             .navigationTitle(host.name)
@@ -152,7 +243,8 @@ struct ContentView: View {
             ContentUnavailableView {
                 Label("Your games. Your Mac.", systemImage: "gamecontroller")
             } description: { Text("Add a computer running Sunshine or Apollo to stream your library with native Apple video, audio, and input.").frame(maxWidth: 380) }
-            actions: { Button("Add Computer") { showingAddHost = true }.swiftlightGlassButton(prominent: true).controlSize(.large) }
+            actions: { Button("Add Computer") { showingAddHost = true }.swiftlightGlassButton(prominent: true).controlSize(.large)
+                .controllerMenuHighlight(controllerNavigation.isActive && controllerNavigation.region == .applications) }
         }
     }
     private var streamOverlay: some View {

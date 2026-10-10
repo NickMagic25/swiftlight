@@ -21,6 +21,9 @@ import UIKit
     @Published private(set) var statisticsRows: [StreamStatisticRow] = []
     @Published private(set) var statisticsPreferences = StreamStatisticsPreferences()
     @Published private(set) var controlsVisible = false
+    @Published private(set) var keyboardVisible = false
+    @Published private(set) var keyboardInputIssue: String?
+    @Published private(set) var touchInputIssue: MobileTouchInputIssue?
     /// Current output capability/user preference, not a head-tracking state.
     @Published private(set) var spatialPlaybackAvailable: Bool?
     private(set) var statisticsSnapshot = StreamStatisticsSnapshot()
@@ -46,6 +49,10 @@ import UIKit
     private var statisticsSampler = StreamStatisticsSampler()
     private var latencyCapture: MobileStreamDiagnostics?
 
+    /// Native presentation must retire an earlier attempt even when SwiftUI
+    /// coalesces an inactive-to-active reconnect into one update.
+    var presentationGeneration: UInt64 { state.generation }
+
     func updateDisplay(_ geometry: DisplayGeometry, _ hdr: MobileHDRDisplayCapabilities) {
         display = geometry; hdrDisplay = hdr
     }
@@ -58,7 +65,9 @@ import UIKit
         state.apply(.connect)
         let generation = state.generation
         latencyCapture = MobileStreamDiagnostics.makeIfEnabled(settings: settings)
-        isActive = true; hasVideo = false; errorMessage = nil; status = "Connecting"; self.settings = settings
+        isActive = true; hasVideo = false; errorMessage = nil; touchInputIssue = nil
+        keyboardVisible = false; keyboardInputIssue = nil
+        status = "Connecting"; self.settings = settings
         resetStatisticsSamples()
         statisticsRequest = nil; statisticsSelection = nil
         self.statisticsPreferences = statisticsPreferences
@@ -98,7 +107,8 @@ import UIKit
             observeInterruptions(generation: generation)
             let response = try await route.client.launchOrResume(preparation.launchRequest)
             try ensureCurrent(generation)
-            let pipeline = StreamingPipeline(renderOptions: latencyCapture?.renderOptions ?? .init())
+            let options = (latencyCapture?.renderOptions ?? .init()).resolvingHDRPresentation(settings: settings)
+            let pipeline = StreamingPipeline(renderOptions: options)
             let configuration = preparation.transportConfiguration(address: route.address.host,
                 sessionURL: response.sessionURL, displayRefreshHz: display.refreshHz)
             let transport = try StreamTransport(configuration: configuration, callbacks: .init(
@@ -126,6 +136,24 @@ import UIKit
         guard state.generation == generation, isActive else { throw CancellationError() }
     }
     func releaseInputs() { transport?.releaseAllInputs() }
+    func reportTouchInputIssue(_ issue: MobileTouchInputIssue) {
+        guard isActive else { return }
+        touchInputIssue = issue
+        setControlsVisible(true)
+    }
+    func setKeyboardVisible(_ visible: Bool) { keyboardVisible = visible && inputEnabled }
+    func showKeyboard() {
+        guard isActive, hasVideo, transportReady, sceneActive else { return }
+        setControlsVisible(false)
+        setKeyboardVisible(true)
+    }
+    func reportKeyboardInputIssue(_ result: Int32) {
+        guard isActive else { return }
+        keyboardInputIssue = result == -2
+            ? "Keyboard input is not allowed for this client on your computer."
+            : "Keyboard input could not be sent. Try again after checking your connection and computer's input permissions."
+        setControlsVisible(true)
+    }
     func setSceneActive(_ active: Bool) { sceneActive = active; updateInputAdmission() }
     func setControlsVisible(_ visible: Bool) {
         controlsVisible = visible && isActive && sceneActive
@@ -152,6 +180,7 @@ import UIKit
     }
     private func updateInputAdmission() {
         let enabled = sceneActive && !controlsVisible && isActive && transportReady && hasVideo
+        if !enabled { keyboardVisible = false }
         guard enabled != inputEnabled else { return }
         inputEnabled = enabled
         transport?.releaseAllInputs()

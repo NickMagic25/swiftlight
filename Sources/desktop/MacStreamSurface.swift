@@ -138,6 +138,7 @@ private final class FramePresentationSignal: @unchecked Sendable {
     private var lastFrame: DecodedFrame?
     private var edrMetadataState = HDRMetadataState()
     private var outputColorSpace = VideoOutputColorSpace.linearSRGB
+    private var hdrPresentationMode = HDRPresentationMode.systemToneMapped
     private var statisticsRows: [StreamStatisticRow] = []
     private var statisticsVisible = false
     private var statisticsPosition: StreamStatisticsPosition = .topLeading
@@ -296,7 +297,9 @@ private final class FramePresentationSignal: @unchecked Sendable {
             displayUpdateGranularity: window?.screen?.displayUpdateGranularity ?? 0,
             cacheEDRMetadata: pipeline.renderOptions.cacheEDRMetadata,
             metalLayerIsViewRoot: layer === metalLayer, viewOpaque: isOpaque,
-            windowOpaque: window?.isOpaque))
+            windowOpaque: window?.isOpaque,
+            wantsExtendedDynamicRangeContent: metalLayer.wantsExtendedDynamicRangeContent,
+            edrMetadataConfigured: metalLayer.edrMetadata != nil))
         displayChanges.publish(value.0, value.1) { [weak self] geometry, headroom in
             guard let self, self.window != nil else { return }
             self.onDisplay?(geometry, headroom)
@@ -423,13 +426,18 @@ private final class FramePresentationSignal: @unchecked Sendable {
         }
     }
     @discardableResult private func applyEDRMetadata(_ frame: DecodedFrame, force: Bool = false) -> Bool {
-        let usePQ = pipeline.renderOptions.nativePQOutput && frame.color.transfer == 16 &&
-            frame.color.primaries == 9 && frame.color.matrix == 9
+        let sourceMetadata = HDRMetadataValue(color: frame.color)
+        let requestedMode = pipeline.renderOptions.hdrPresentationMode
+        let supportsPQ = frame.color.transfer == 16 && frame.color.primaries == 9 && frame.color.matrix == 9
+        let nextMode: HDRPresentationMode = sourceMetadata == .none || (requestedMode == .nativePQ && !supportsPQ)
+            ? .systemToneMapped : requestedMode
+        let usePQ = nextMode == .nativePQ
         let nextOutput: VideoOutputColorSpace = usePQ ? .rec2020PQ : .linearSRGB
         let outputChanged = nextOutput != outputColorSpace
-        let value: HDRMetadataValue = usePQ ? .none : HDRMetadataValue(color: frame.color)
+        let modeChanged = nextMode != hdrPresentationMode
+        let value: HDRMetadataValue = nextMode == .systemToneMapped ? sourceMetadata : .none
         let metadataChanged = edrMetadataState.update(value)
-        let changed = outputChanged || metadataChanged
+        let changed = outputChanged || modeChanged || metadataChanged
         guard changed || force else { return false }
         if !force { CATransaction.begin(); CATransaction.setDisableActions(true) }
         if outputChanged {
@@ -443,8 +451,11 @@ private final class FramePresentationSignal: @unchecked Sendable {
             metalLayer.edrMetadata = .hdr10(displayInfo: mastering.isEmpty ? nil : mastering,
                 contentInfo: contentLight.isEmpty ? nil : contentLight, opticalOutputScale: 203)
         }
+        hdrPresentationMode = nextMode
         if !force { CATransaction.commit() }
-        pipeline.recordEDRMetadataUpdate(nativePQ: usePQ)
+        pipeline.recordEDRMetadataUpdate(nativePQ: usePQ,
+                                        wantsEDR: metalLayer.wantsExtendedDynamicRangeContent,
+                                        metadataConfigured: metalLayer.edrMetadata != nil)
         return changed
     }
     func updateStatistics(rows: [StreamStatisticRow], visible: Bool, position: StreamStatisticsPosition) {

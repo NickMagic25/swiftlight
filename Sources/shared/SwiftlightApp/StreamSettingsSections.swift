@@ -27,7 +27,7 @@ struct StreamVideoSettingsSection: View {
     private let frameRates = [30, 60, 90, 120, 144, 165, 240]
 
     var body: some View {
-        Section("Video") {
+        Section {
             Picker("Resolution", selection: $settings.resolution) {
                 ForEach(ResolutionMode.allCases, id: \.self) { Text($0.label).tag($0) }
             }
@@ -89,6 +89,12 @@ struct StreamVideoSettingsSection: View {
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("hdrPreference")
+            Picker("HDR tone mapping", selection: $settings.hdrPresentationMode) {
+                ForEach(HDRPresentationMode.selectableModes, id: \.self) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("hdrOutputExperiment")
+            .accessibilityValue(settings.hdrPresentationMode.label)
             if let hardwareDetail, !hardwareDetail.isEmpty {
                 Text(hardwareDetail).font(.caption).foregroundStyle(.secondary)
             }
@@ -99,12 +105,18 @@ struct StreamVideoSettingsSection: View {
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("videoScaling")
+            #if !os(iOS)
             Picker("Pointer", selection: $settings.pointerMode) {
                 Text("Relative (Games)").tag(PointerMode.relative)
                 Text("Absolute (Desktop)").tag(PointerMode.absolute)
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("pointerMode")
+            #endif
+        } header: {
+            Text("Video")
+        } footer: {
+            Text("HDR tone mapping applies to your next stream. PQ is the default. Linear may change brightness or clip highlights.")
         }
     }
 }

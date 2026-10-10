@@ -1,5 +1,6 @@
 #if os(iOS)
 import QuartzCore
+import SwiftlightCore
 import SwiftlightVideo
 import UIKit
 
@@ -27,22 +28,31 @@ struct MobileHDRDisplayCapabilities: Equatable, Sendable {
 }
 
 /// Narrow UIKit edge for the production renderer's extended-linear sRGB output
-/// and its explicitly enabled diagnostic PQ output.
+/// and its explicitly selected diagnostic HDR output modes.
 /// Call before acquiring the drawable for this frame. If a display-link drawable
 /// is already acquired and this returns true, use the next drawable instead.
 @MainActor struct MobileHDRLayerState {
     private var metadataState = HDRMetadataState()
     private(set) var outputColorSpace = VideoOutputColorSpace.linearSRGB
+    private(set) var hdrPresentationMode = HDRPresentationMode.systemToneMapped
 
     @discardableResult mutating func apply(color: VideoColor, to layer: CAMetalLayer,
-                                          nativePQOutput: Bool = false) throws -> Bool {
+                                          hdrPresentationMode requestedMode: HDRPresentationMode = .systemToneMapped) throws -> Bool {
         // Reuse the shared renderer's canonical PQ path only for matching HDR10
         // signaling. SDR and other supported color formats keep linear output.
-        let usePQ = nativePQOutput && color.transfer == 16 && color.primaries == 9 && color.matrix == 9
+        let sourceMetadata = HDRMetadataValue(color: color)
+        let wantsEDR = sourceMetadata != .none
+        let supportsPQ = color.transfer == 16 && color.primaries == 9 && color.matrix == 9
+        let nextMode: HDRPresentationMode = !wantsEDR || (requestedMode == .nativePQ && !supportsPQ)
+            ? .systemToneMapped : requestedMode
+        let usePQ = nextMode == .nativePQ
         let nextOutput: VideoOutputColorSpace = usePQ ? .rec2020PQ : .linearSRGB
         let outputChanged = nextOutput != outputColorSpace
-        let metadata = HDRMetadataValue(color: color)
-        let wantsEDR = metadata != .none
+        let modeChanged = nextMode != hdrPresentationMode
+        // System tone mapping requires a linear transfer and a format with
+        // values above 1. Packed PQ uses its matching color space instead.
+        // Both unmapped experiments can clip above current display headroom.
+        let metadata: HDRMetadataValue = nextMode == .systemToneMapped ? sourceMetadata : .none
         guard !wantsEDR || CAEDRMetadata.isAvailable else {
             throw RendererFailure.unavailable("HDR tone mapping is unavailable on this device")
         }
@@ -50,7 +60,7 @@ struct MobileHDRDisplayCapabilities: Equatable, Sendable {
         let enabledChanged = layer.wantsExtendedDynamicRangeContent != wantsEDR
         // The freshly created SDR layer already has the correct defaults. Avoid
         // dropping its first display-link drawable for a no-op configuration.
-        guard outputChanged || enabledChanged || (metadataChanged && (wantsEDR || layer.edrMetadata != nil)) else {
+        guard outputChanged || modeChanged || enabledChanged || (metadataChanged && (wantsEDR || layer.edrMetadata != nil)) else {
             _ = metadataState.update(metadata)
             return false
         }
@@ -63,12 +73,12 @@ struct MobileHDRDisplayCapabilities: Equatable, Sendable {
                   contentLight.isEmpty || contentLight.count == 4 else {
                 throw RendererFailure.unsupportedColor("Invalid HDR10 mastering or content light metadata")
             }
-            // Linear output uses 1.0 = 203 nits. Apple's normalized PQ format
-            // assumes a 10,000-nit scale. Retain MDCV/CLLI in both experiments;
-            // dropping HDR metadata would confound presentation and correctness.
+            // Only the baseline opts into system HDR10 tone mapping. Its
+            // shader uses 1.0 = 203 nits; unmapped modes retain source metadata
+            // in decoder diagnostics but do not attach it to this layer.
             nextMetadata = .hdr10(displayInfo: mastering.isEmpty ? nil : mastering,
                                   contentInfo: contentLight.isEmpty ? nil : contentLight,
-                                  opticalOutputScale: usePQ ? 10_000 : 203)
+                                  opticalOutputScale: 203)
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -81,12 +91,14 @@ struct MobileHDRDisplayCapabilities: Equatable, Sendable {
         CATransaction.commit()
         _ = metadataState.update(metadata)
         outputColorSpace = nextOutput
+        hdrPresentationMode = nextMode
         return true
     }
 
     mutating func reset(_ layer: CAMetalLayer) {
         metadataState = HDRMetadataState()
-        guard layer.edrMetadata != nil || layer.wantsExtendedDynamicRangeContent || outputColorSpace != .linearSRGB else { return }
+        guard layer.edrMetadata != nil || layer.wantsExtendedDynamicRangeContent ||
+              outputColorSpace != .linearSRGB || hdrPresentationMode != .systemToneMapped else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.edrMetadata = nil
@@ -96,6 +108,7 @@ struct MobileHDRDisplayCapabilities: Equatable, Sendable {
             layer.colorspace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
             outputColorSpace = .linearSRGB
         }
+        hdrPresentationMode = .systemToneMapped
         CATransaction.commit()
     }
 }

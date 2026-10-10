@@ -1,42 +1,29 @@
 #if os(iOS)
 import SwiftUI
+import SwiftlightCore
 import SwiftlightHost
 
 struct MobileContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var model: MobileClientModel
     @ObservedObject var session: MobileStreamingSession
+    @ObservedObject private var discovery: BonjourHostDiscovery
     @State private var showingSettings = false
     @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
     @State private var launchTask: Task<Void, Never>?
     @State private var launchGeneration: UInt64 = 0
     @State private var launchMessage: String?
+    @State private var controllerNavigation = ControllerMenuNavigation()
+
+    init(model: MobileClientModel, session: MobileStreamingSession) {
+        self.model = model
+        self.session = session
+        _discovery = ObservedObject(wrappedValue: model.discovery)
+    }
 
     var body: some View {
-        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-            MobileComputerList(model: model)
-                .navigationTitle("Computers")
-                .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 400)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Settings", systemImage: "gearshape") { showingSettings = true }
-                            .accessibilityIdentifier("streamSettings")
-                    }
-                }
-        } detail: {
-            library
-                .navigationTitle(model.selectedHost?.name ?? "Swiftlight")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        if model.selectedHost != nil {
-                            Button("Refresh", systemImage: "arrow.clockwise") { model.refresh() }
-                                .disabled(model.busy || session.isActive)
-                        }
-                        Button("Settings", systemImage: "gearshape") { showingSettings = true }
-                    }
-                }
-        }
+        MobileControllerEventContent { navigation }
+        .controllerMenuInput(enabled: scenePhase == .active && !session.isActive, handler: handleControllerMenu)
         .background(MobileDisplayProbe(onChange: session.updateDisplay).allowsHitTesting(false).accessibilityHidden(true))
         .sheet(isPresented: $model.showingAddComputer, onDismiss: model.dismissAddComputer) {
             MobileAddComputerView(model: model)
@@ -50,13 +37,7 @@ struct MobileContentView: View {
             MobileSettingsView(model: model)
                 .presentationSizing(.form)
         }
-        .fullScreenCover(isPresented: Binding(
-            get: { session.isActive },
-            set: { if !$0 { Task { await session.disconnect() } } }
-        )) {
-            MobileStreamScreen(session: session)
-                .interactiveDismissDisabled()
-        }
+        .background(MobileStreamPresentation(session: session).allowsHitTesting(false).accessibilityHidden(true))
         .alert("Unable to continue", isPresented: Binding(
             get: { launchMessage != nil || (model.message != nil && !model.showingAddComputer && !model.showingPairing) },
             set: { if !$0 { launchMessage = nil; model.message = nil } }
@@ -85,7 +66,19 @@ struct MobileContentView: View {
         .task { model.setForeground(scenePhase == .active) }
         .onChange(of: model.selectedHostID) { _, selection in
             cancelLaunch()
-            if selection != nil { preferredCompactColumn = .detail }
+            if let selection {
+                preferredCompactColumn = .detail
+                controllerNavigation.selectedComputer("saved:\(selection)")
+            }
+        }
+        .onChange(of: model.libraryApps.map(\.id)) { _, applications in
+            if controllerNavigation.region == .applications,
+               !applications.contains(controllerNavigation.applicationID ?? -1) {
+                controllerNavigation.applicationID = applications.first
+            }
+        }
+        .onChange(of: preferredCompactColumn) { _, column in
+            if column == .sidebar { controllerNavigation.returnToComputers(computerChoices) }
         }
         .onChange(of: session.isActive) { wasActive, isActive in
             model.setStreaming(isActive)
@@ -111,6 +104,110 @@ struct MobileContentView: View {
         }
     }
 
+    private var navigation: some View {
+        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
+            MobileComputerList(model: model, controllerSelection: controllerNavigation.isActive && controllerNavigation.region == .computers ? controllerNavigation.computerID : nil)
+                .navigationTitle("Computers")
+                .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 400)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Settings", systemImage: "gearshape") { showingSettings = true }
+                            .accessibilityIdentifier("streamSettings")
+                    }
+                }
+        } detail: {
+            library
+                .navigationTitle(model.selectedHost?.name ?? "Swiftlight")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        if model.selectedHost != nil {
+                            Button("Refresh", systemImage: "arrow.clockwise") { model.refresh() }
+                                .disabled(model.busy || session.isActive)
+                        }
+                        Button("Settings", systemImage: "gearshape") { showingSettings = true }
+                    }
+                }
+        }
+    }
+
+    private var computerChoices: [String] {
+        model.hosts.map { "saved:\($0.id)" } + ["add"] + nearbyComputers.map { "nearby:\($0.id)" }
+    }
+
+    private var nearbyComputers: [DiscoveredHost] {
+        discovery.hosts.filter { found in !model.hosts.contains { $0.address == found.address } }
+    }
+
+    private func handleControllerMenu(_ action: MenuControllerAction) {
+        guard scenePhase == .active, !session.isActive else { return }
+        // A controller can dismiss a modal, but can never activate its destructive
+        // action or move the hidden computer/game selection underneath it.
+        if model.remoteApplicationAction != nil {
+            if action == .back { model.remoteApplicationAction = nil }
+            return
+        }
+        if model.showingPairing {
+            if action == .back { model.cancelPairing() }
+            return
+        }
+        if model.showingAddComputer {
+            if action == .back { model.dismissAddComputer() }
+            return
+        }
+        if showingSettings {
+            if action == .back { showingSettings = false }
+            return
+        }
+        if launchMessage != nil || model.message != nil {
+            if action == .back { launchMessage = nil; model.message = nil }
+            return
+        }
+        controllerNavigation.isActive = true
+        if action == .back {
+            cancelLaunch()
+            controllerNavigation.returnToComputers(computerChoices)
+            preferredCompactColumn = .sidebar
+            return
+        }
+        guard !model.busy, launchTask == nil else { return }
+        switch action {
+        case .move(let direction):
+            if direction == .right, controllerNavigation.region == .computers {
+                guard let hostID = model.selectedHostID else { return }
+                let selected = "saved:\(hostID)"
+                guard controllerNavigation.computerID == nil || controllerNavigation.computerID == selected else { return }
+                controllerNavigation.computerID = selected
+            }
+            controllerNavigation.move(direction, computers: computerChoices, applications: model.libraryApps.map(\.id))
+            preferredCompactColumn = controllerNavigation.region == .computers ? .sidebar : .detail
+        case .activate:
+            if controllerNavigation.region == .computers {
+                let choice = controllerNavigation.computerID ?? model.selectedHostID.map { "saved:\($0)" } ?? computerChoices.first
+                if let host = model.hosts.first(where: { "saved:\($0.id)" == choice }) {
+                    controllerNavigation.selectedComputer("saved:\(host.id)")
+                    if model.selectedHostID == host.id { controllerNavigation.applicationID = model.libraryApps.first?.id }
+                    preferredCompactColumn = .detail
+                    model.selectHost(id: host.id)
+                } else if let host = nearbyComputers.first(where: { "nearby:\($0.id)" == choice }) {
+                    model.addComputer(host.address.description)
+                } else if choice == "add" {
+                    model.showingAddComputer = true
+                }
+            } else if model.hostInfo?.isPaired == false {
+                model.beginPairing()
+            } else if model.selectedHost == nil {
+                model.showingAddComputer = true
+            } else if model.hostInfo == nil || model.libraryApps.isEmpty {
+                model.refresh()
+            } else if let app = model.libraryApps.first(where: { $0.id == controllerNavigation.applicationID }) ?? model.libraryApps.first {
+                start(app)
+            }
+        case .settings: showingSettings = true
+        case .back: break
+        }
+    }
+
     @ViewBuilder private var library: some View {
         if model.selectedHost == nil {
             ContentUnavailableView {
@@ -121,6 +218,7 @@ struct MobileContentView: View {
                 Button("Add Host") { model.showingAddComputer = true }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+                    .controllerMenuHighlight(controllerNavigation.isActive && controllerNavigation.region == .applications)
             }
         } else if model.busy && model.apps.isEmpty {
             ProgressView(model.status)
@@ -134,6 +232,7 @@ struct MobileContentView: View {
                 Button("Pair Computer") { model.beginPairing() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+                    .controllerMenuHighlight(controllerNavigation.isActive && controllerNavigation.region == .applications)
             }
         } else if model.hostInfo == nil {
             ContentUnavailableView {
@@ -144,24 +243,32 @@ struct MobileContentView: View {
                 Button("Try Again") { model.refresh() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+                    .controllerMenuHighlight(controllerNavigation.isActive && controllerNavigation.region == .applications)
             }
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if model.libraryApps.isEmpty {
-                        ContentUnavailableView("No Applications", systemImage: "gamecontroller", description: Text("Add applications in Sunshine or Apollo on your computer, then refresh."))
-                    } else {
-                        AppLibraryGrid(apps: model.libraryApps, runningAppID: model.hostInfo?.currentAppID,
-                            artwork: model.artwork, loadingAllowed: model.artworkLoadingAllowed,
-                            requestArtwork: { model.loadArtwork(for: $0) }, launch: start,
-                            quit: model.requestQuitRemoteApplication)
-                            .disabled(model.busy || session.isActive || launchTask != nil)
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if model.libraryApps.isEmpty {
+                            ContentUnavailableView("No Applications", systemImage: "gamecontroller", description: Text("Add applications in Sunshine or Apollo on your computer, then refresh."))
+                        } else {
+                            AppLibraryGrid(apps: model.libraryApps, runningAppID: model.hostInfo?.currentAppID,
+                                artwork: model.artwork, loadingAllowed: model.artworkLoadingAllowed,
+                                requestArtwork: { model.loadArtwork(for: $0) }, launch: start,
+                                quit: model.requestQuitRemoteApplication,
+                                controllerSelectedAppID: controllerNavigation.isActive && controllerNavigation.region == .applications ? controllerNavigation.applicationID : nil,
+                                onColumnCountChange: { controllerNavigation.applicationColumns = $0 })
+                                .disabled(model.busy || session.isActive || launchTask != nil)
+                        }
+                        Text("During a stream, tap with three fingers to toggle statistics. Swipe inward from the left edge to disconnect and leave the application running on your computer. With VoiceOver, use the stream's accessibility actions. Touch and hold a running application here to quit it.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    Text("During a stream, tap with three fingers to toggle statistics. Swipe inward from the left edge to disconnect and leave the application running on your computer. With VoiceOver, use the stream's accessibility actions. Touch and hold a running application here to quit it.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    .padding(16)
                 }
-                .padding(16)
+                .onChange(of: controllerNavigation.applicationID) { _, selection in
+                    if controllerNavigation.isActive, let selection { scroll.scrollTo(selection, anchor: .center) }
+                }
             }
         }
     }
@@ -169,7 +276,12 @@ struct MobileContentView: View {
     private func start(_ app: RemoteApp) {
         guard launchTask == nil, !session.isActive else { return }
         launchMessage = nil
-        model.prepareLaunch(app, onPrepared: startPrepared)
+        launchGeneration &+= 1
+        let generation = launchGeneration
+        model.prepareLaunch(app) { preparedApp, client, host in
+            guard launchGeneration == generation else { return }
+            startPrepared(preparedApp, client: client, host: host)
+        }
     }
 
     private func startPrepared(_ app: RemoteApp, client: HostClient, host: HostInfo) {
@@ -206,70 +318,84 @@ struct MobileContentView: View {
         launchGeneration &+= 1
         launchTask?.cancel()
         launchTask = nil
+        model.cancelLaunchPreparation()
     }
 }
 
 private struct MobileComputerList: View {
     @ObservedObject var model: MobileClientModel
     @ObservedObject private var discovery: BonjourHostDiscovery
+    let controllerSelection: String?
 
-    init(model: MobileClientModel) {
+    init(model: MobileClientModel, controllerSelection: String?) {
         self.model = model
+        self.controllerSelection = controllerSelection
         _discovery = ObservedObject(wrappedValue: model.discovery)
     }
 
     var body: some View {
-        List(selection: Binding(get: { model.selectedHostID }, set: { model.selectHost(id: $0) })) {
-            Section("My Computers") {
-                ForEach(model.hosts) { host in
-                    NavigationLink(value: host.id) {
-                        Label {
-                            Text(host.name)
-                                .fixedSize(horizontal: false, vertical: true)
-                        } icon: {
-                            Image(systemName: "desktopcomputer")
+        ScrollViewReader { scroll in
+            List(selection: Binding(get: { model.selectedHostID }, set: { model.selectHost(id: $0) })) {
+                Section("My Computers") {
+                    ForEach(model.hosts) { host in
+                        NavigationLink(value: host.id) {
+                            Label {
+                                Text(host.name)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } icon: {
+                                Image(systemName: "desktopcomputer")
+                            }
+                            .frame(minHeight: 44)
                         }
-                        .frame(minHeight: 44)
+                        .id("saved:\(host.id)")
+                        .controllerMenuHighlight(controllerSelection == "saved:\(host.id)")
+                        .accessibilityIdentifier("savedComputer")
                     }
-                    .accessibilityIdentifier("savedComputer")
-                }
-                Button {
-                    model.showingAddComputer = true
-                } label: {
-                    Text("Add Host")
-                        .font(.headline)
-                        .foregroundStyle(.tint)
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityIdentifier("addComputer")
-                .disabled(model.busy)
-            }
-            Section {
-                ForEach(discovery.hosts.filter { found in !model.hosts.contains { $0.address == found.address } }) { host in
                     Button {
-                        model.addComputer(host.address.description)
+                        model.showingAddComputer = true
                     } label: {
-                        Label(host.name, systemImage: "desktopcomputer")
-                            .foregroundStyle(.primary)
+                        Text("Add Host")
+                            .font(.headline)
+                            .foregroundStyle(.tint)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityIdentifier("addComputer")
+                    .id("add")
+                    .controllerMenuHighlight(controllerSelection == "add")
+                    .disabled(model.busy)
+                }
+                Section {
+                    ForEach(discovery.hosts.filter { found in !model.hosts.contains { $0.address == found.address } }) { host in
+                        Button {
+                            model.addComputer(host.address.description)
+                        } label: {
+                            Label(host.name, systemImage: "desktopcomputer")
+                                .foregroundStyle(.primary)
+                                .frame(minHeight: 44)
+                        }
+                        .disabled(model.busy)
+                        .accessibilityHint("Connect to this computer")
+                        .id("nearby:\(host.id)")
+                        .controllerMenuHighlight(controllerSelection == "nearby:\(host.id)")
+                    }
+                    if discovery.hosts.isEmpty {
+                        Label("Looking for computers…", systemImage: "network")
+                            .foregroundStyle(.secondary)
                             .frame(minHeight: 44)
                     }
-                    .disabled(model.busy)
-                    .accessibilityHint("Connect to this computer")
+                } header: {
+                    Text("Nearby")
+                } footer: {
+                    Text(discovery.errorMessage ?? "Use the same local network as a computer running Sunshine or Apollo. You can also add a computer by address.")
                 }
-                if discovery.hosts.isEmpty {
-                    Label("Looking for computers…", systemImage: "network")
-                        .foregroundStyle(.secondary)
-                        .frame(minHeight: 44)
-                }
-            } header: {
-                Text("Nearby")
-            } footer: {
-                Text(discovery.errorMessage ?? "Use the same local network as a computer running Sunshine or Apollo. You can also add a computer by address.")
+            }
+            .listStyle(.sidebar)
+            .accessibilityIdentifier("computerList")
+            .onChange(of: controllerSelection) { _, selection in
+                if let selection { scroll.scrollTo(selection, anchor: .center) }
             }
         }
-        .listStyle(.sidebar)
-        .accessibilityIdentifier("computerList")
     }
 }
 
