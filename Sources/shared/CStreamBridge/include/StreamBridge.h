@@ -94,6 +94,22 @@ int sf_stream_mouse_move(SFStream *, int16_t dx, int16_t dy);
 int sf_stream_mouse_position(SFStream *, int16_t x, int16_t y, int16_t width, int16_t height);
 int sf_stream_mouse_button(SFStream *, int button, bool pressed);
 int sf_stream_key(SFStream *, uint16_t key, bool pressed, uint8_t modifiers);
+enum { SF_MAX_UTF8_TEXT_BYTES = 4096 };
+// Text is borrowed only until return. Invalid UTF-8, embedded NUL or an
+// oversized payload returns -4. All sends require active keyboard admission.
+int sf_stream_text(SFStream *, const char *text, size_t length);
+// Sends one normalized Win32 VK with requested modifiers as an atomic down/up
+// gesture. The VK may already carry 0x8000; modifier bits are Shift/Ctrl/Alt/Meta.
+// Physical modifiers remain held; failed releases remain owned for cleanup.
+int sf_stream_key_stroke(SFStream *, uint16_t key, uint8_t modifiers);
+typedef enum {
+    SF_KEY_CHORD_WINDOWS = 0, SF_KEY_CHORD_ALT_TAB = 1, SF_KEY_CHORD_ALT_F4 = 2,
+    SF_KEY_CHORD_BACKSPACE = 3, SF_KEY_CHORD_ENTER = 4
+} SFHostKeyboardShortcut;
+// Down/up transaction under the input mutex; preexisting held modifier keys
+// remain held. A held primary key/invalid shortcut returns -4. Queue errors
+// propagate after rollback; failed releases remain owned for input cleanup.
+int sf_stream_key_chord(SFStream *, SFHostKeyboardShortcut);
 int sf_stream_scroll(SFStream *, int16_t vertical, int16_t horizontal);
 int sf_stream_controller(SFStream *, uint8_t index, uint16_t active_mask, uint32_t buttons,
                          uint8_t left_trigger, uint8_t right_trigger,
@@ -131,6 +147,7 @@ uint32_t sf_stream_surround_audio_info(int channels);
 // Server-free seam runs the exact frame flattener, callback, and exactly-once completion owner.
 // A valid acquired frame is completed once even if malformed, cancelled, or rejected.
 bool sf_stream_validate_keyboard_wire_codes(void);
+bool sf_stream_validate_keyboard_text_and_chords(void);
 bool sf_stream_validate_native_touch(void);
 bool sf_stream_validate_video_telemetry(void);
 bool sf_stream_validate_cancel_state_race(void);

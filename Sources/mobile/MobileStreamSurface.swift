@@ -26,6 +26,21 @@ private struct MobileStreamControls: View {
                     }
                     Text("Tap with three fingers to show or hide statistics. Hold three fingers to open these controls.")
                     Text("Swipe one finger from the left edge to the middle of the screen to disconnect.")
+                    Text("Swipe inward from the right edge of the video to show or hide the system keyboard.")
+                }
+                Section {
+                    if let issue = session.keyboardInputIssue {
+                        Text(issue).accessibilityIdentifier("keyboardInputIssue")
+                    }
+                    Button("Show keyboard", systemImage: "keyboard") {
+                        guard session.presentationGeneration == generation else { return }
+                        session.showKeyboard()
+                    }
+                    .accessibilityIdentifier("showStreamKeyboard")
+                } header: {
+                    Text("Keyboard")
+                } footer: {
+                    Text("The keyboard includes Windows, Alt–Tab and Alt–F4 buttons for your computer.")
                 }
                 Section("Stream Statistics") {
                     Toggle("Show statistics", isOn: Binding(get: { session.showingStatistics }, set: { visible in
@@ -264,9 +279,18 @@ private struct MobileConnectionFeedback: View {
                 guard let session, session.presentationGeneration == generation else { return }
                 session.reportTouchInputIssue(issue)
             }
+            metal.reportKeyboardVisibility = { [weak session, generation] visible in
+                guard let session, session.presentationGeneration == generation else { return }
+                session.setKeyboardVisible(visible)
+            }
+            metal.reportKeyboardInputIssue = { [weak session, generation] result in
+                guard let session, session.presentationGeneration == generation else { return }
+                session.reportKeyboardInputIssue(result)
+            }
             surface = metal
         }
         surface?.inputEnabled = session.inputEnabled
+        surface?.keyboardRequestedVisible = session.keyboardVisible
         surface?.updateStatistics(rows: session.statisticsRows, visible: session.showingStatistics,
                                   position: session.statisticsPreferences.position)
         surface?.refreshPresentationDiagnostics()
@@ -360,6 +384,25 @@ private final class MobileFrameSignal: @unchecked Sendable {
     private lazy var touchInput = MobileTouchInput(mode: settings.mobileTouchMode, transport: transport) { [weak self] issue in
         self?.reportTouchInputIssue?(issue)
     }
+    var reportKeyboardVisibility: ((Bool) -> Void)?
+    var reportKeyboardInputIssue: ((Int32) -> Void)?
+    private lazy var softwareKeyboard = MobileStreamKeyboard(transport: transport,
+        canSend: { [weak self] in self?.acceptsStreamCommands == true },
+        visibilityChanged: { [weak self] visible in
+            guard let self else { return }
+            self.reportKeyboardVisibility?(visible)
+            self.updateStatisticsAccessibility()
+            if !visible, !self.keyboardRequestedVisible { self.requestKeyboardFocus() }
+        }, failed: { [weak self] result in self?.reportKeyboardInputIssue?(result) })
+    var keyboardRequestedVisible = false {
+        didSet {
+            guard keyboardRequestedVisible != oldValue else { return }
+            releaseTouchAndOtherInputs()
+            cancelKeyboardFocus()
+            requestKeyboardFocus()
+            updateStatisticsAccessibility()
+        }
+    }
     private var stopped = false
     private var keyboardFocusTask: Task<Void, Never>?
     private var keyboardFocusPending = false
@@ -385,11 +428,12 @@ private final class MobileFrameSignal: @unchecked Sendable {
     private var installedStatistics: InstalledStatistics?
     private var statisticsAccessibilityRows: [String: UIAccessibilityElement] = [:]
     private var accessibilityStatisticsVisible: Bool?
+    private var accessibilityKeyboardVisible: Bool?
     private lazy var streamAccessibilityElement: MobileStreamAccessibilityElement = {
         let element = MobileStreamAccessibilityElement(accessibilityContainer: self)
         element.accessibilityLabel = "Game stream"
         element.accessibilityIdentifier = "streamSurface"
-        element.accessibilityHint = "Use the Statistics, Disconnect, or Stream Controls actions."
+        element.accessibilityHint = "Use the Statistics, Keyboard, Disconnect, or Stream Controls actions."
         element.activate = { [weak self] in self?.showControls() ?? false }
         return element
     }()
@@ -456,6 +500,11 @@ private final class MobileFrameSignal: @unchecked Sendable {
         let edge = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(disconnectFromEdge(_:)))
         edge.delaysTouchesBegan = false; edge.delaysTouchesEnded = false
         edge.edges = .left; edge.maximumNumberOfTouches = 1; addGestureRecognizer(edge)
+        let keyboardEdge = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(keyboardFromEdge(_:)))
+        keyboardEdge.edges = .right; keyboardEdge.maximumNumberOfTouches = 1
+        keyboardEdge.delaysTouchesBegan = false; keyboardEdge.delaysTouchesEnded = false
+        keyboardEdge.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        addGestureRecognizer(keyboardEdge)
         // Keep UIKit mouse/trackpad button input separate from finger modes.
         let pointerTap = UITapGestureRecognizer(target: self, action: #selector(clickIndirectPointer(_:)))
         pointerTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
@@ -503,7 +552,7 @@ private final class MobileFrameSignal: @unchecked Sendable {
         updateStatisticsAccessibility()
     }
     private func requestKeyboardFocus() {
-        guard acceptsStreamCommands, !keyboardFocusPending else { return }
+        guard acceptsStreamCommands, !keyboardFocusPending, !softwareKeyboard.isShowing else { return }
         keyboardFocusPending = true
         let revision = keyboardFocusRevision
         keyboardFocusTask = Task { @MainActor [weak self] in
@@ -531,11 +580,14 @@ private final class MobileFrameSignal: @unchecked Sendable {
         guard revision == keyboardFocusRevision else { return }
         keyboardFocusPending = false
         guard acceptsStreamCommands else { return }
-        becomeFirstResponder()
+        if keyboardRequestedVisible {
+            if !softwareKeyboard.show(in: self) { reportKeyboardVisibility?(false) }
+        } else { becomeFirstResponder() }
     }
     private func cancelKeyboardFocus() {
         keyboardFocusRevision &+= 1
         keyboardFocusTask?.cancel(); keyboardFocusTask = nil; keyboardFocusPending = false
+        softwareKeyboard.hide()
         if isFirstResponder { resignFirstResponder() }
     }
     override func layoutSubviews() {
@@ -727,6 +779,18 @@ private final class MobileFrameSignal: @unchecked Sendable {
             _ = disconnectAction()
         }
     }
+    @objc private func keyboardFromEdge(_ gesture: UIScreenEdgePanGestureRecognizer) {
+        if gesture.state == .began { releaseTouchAndOtherInputs() }
+        if gesture.state == .ended, gesture.translation(in: self).x <= -min(64, bounds.width * 0.2) {
+            _ = toggleKeyboardAction()
+        }
+    }
+    @objc private func toggleKeyboardAction() -> Bool {
+        guard acceptsLocalStreamActions, keyboardRequestedVisible || inputEnabled else { return false }
+        releaseTouchAndOtherInputs()
+        reportKeyboardVisibility?(!keyboardRequestedVisible)
+        return true
+    }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         forwardTouches(touches, phase: .began)
     }
@@ -792,11 +856,14 @@ private final class MobileFrameSignal: @unchecked Sendable {
     private func updateStatisticsAccessibility() {
         let stream = streamAccessibilityElement
         stream.accessibilityFrameInContainerSpace = bounds
-        if accessibilityStatisticsVisible != statisticsVisible {
+        if accessibilityStatisticsVisible != statisticsVisible || accessibilityKeyboardVisible != keyboardRequestedVisible {
             accessibilityStatisticsVisible = statisticsVisible
+            accessibilityKeyboardVisible = keyboardRequestedVisible
             stream.accessibilityCustomActions = [
                 UIAccessibilityCustomAction(name: statisticsVisible ? "Hide Statistics" : "Show Statistics", target: self, selector: #selector(toggleStatisticsAction)),
                 UIAccessibilityCustomAction(name: "Disconnect", target: self, selector: #selector(disconnectAction)),
+                UIAccessibilityCustomAction(name: keyboardRequestedVisible ? "Hide keyboard" : "Show keyboard",
+                                           target: self, selector: #selector(toggleKeyboardAction)),
                 UIAccessibilityCustomAction(name: "Stream Controls", target: self, selector: #selector(showControls))
             ]
         }

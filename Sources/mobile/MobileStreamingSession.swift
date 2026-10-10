@@ -21,6 +21,8 @@ import UIKit
     @Published private(set) var statisticsRows: [StreamStatisticRow] = []
     @Published private(set) var statisticsPreferences = StreamStatisticsPreferences()
     @Published private(set) var controlsVisible = false
+    @Published private(set) var keyboardVisible = false
+    @Published private(set) var keyboardInputIssue: String?
     @Published private(set) var touchInputIssue: MobileTouchInputIssue?
     /// Current output capability/user preference, not a head-tracking state.
     @Published private(set) var spatialPlaybackAvailable: Bool?
@@ -64,6 +66,7 @@ import UIKit
         let generation = state.generation
         latencyCapture = MobileStreamDiagnostics.makeIfEnabled(settings: settings)
         isActive = true; hasVideo = false; errorMessage = nil; touchInputIssue = nil
+        keyboardVisible = false; keyboardInputIssue = nil
         status = "Connecting"; self.settings = settings
         resetStatisticsSamples()
         statisticsRequest = nil; statisticsSelection = nil
@@ -138,6 +141,19 @@ import UIKit
         touchInputIssue = issue
         setControlsVisible(true)
     }
+    func setKeyboardVisible(_ visible: Bool) { keyboardVisible = visible && inputEnabled }
+    func showKeyboard() {
+        guard isActive, hasVideo, transportReady, sceneActive else { return }
+        setControlsVisible(false)
+        setKeyboardVisible(true)
+    }
+    func reportKeyboardInputIssue(_ result: Int32) {
+        guard isActive else { return }
+        keyboardInputIssue = result == -2
+            ? "Keyboard input is not allowed for this client on your computer."
+            : "Keyboard input could not be sent. Try again after checking your connection and computer's input permissions."
+        setControlsVisible(true)
+    }
     func setSceneActive(_ active: Bool) { sceneActive = active; updateInputAdmission() }
     func setControlsVisible(_ visible: Bool) {
         controlsVisible = visible && isActive && sceneActive
@@ -164,6 +180,7 @@ import UIKit
     }
     private func updateInputAdmission() {
         let enabled = sceneActive && !controlsVisible && isActive && transportReady && hasVideo
+        if !enabled { keyboardVisible = false }
         guard enabled != inputEnabled else { return }
         inputEnabled = enabled
         transport?.releaseAllInputs()

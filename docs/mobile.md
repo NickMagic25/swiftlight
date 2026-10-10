@@ -26,7 +26,7 @@ In **Trackpad** mode, slide one finger to move the pointer, tap to left-click, o
 
 **Native Touch** sends individual touch contacts directly to a compatible computer, using the displayed video's position and crop. New touches in letterboxes are ignored. When the host does not advertise native touch support, the first touch opens Stream Controls with an explanation, and Trackpad is used for the rest of that stream. An explicit host touch-permission denial shows an explanation and does not switch input modes; enable the client's touch permission or choose Trackpad for your next stream. These choices apply only to iPhone/iPad screen touches. Connected UIKit mouse/trackpad clicks retain their separate pointer routing.
 
-The left 24 points are reserved for disconnect, and three-finger touches are reserved for local statistics and controls in both modes. Opening controls, resizing, backgrounding or disconnecting releases active drags and cancels native contacts. A connected physical game controller can also provide game input. The stream fills the screen with the status bar and controls hidden initially. See [mobile touch implementation and validation](dev/mobile-touch-input.md) for the protocol boundary and pending device checks.
+The left 24 points are reserved for disconnect and the right 24 points for the keyboard gesture. Three-finger touches are reserved for local statistics and controls in both modes. Opening controls, resizing, backgrounding or disconnecting releases active drags and cancels native contacts. A connected physical game controller can also provide game input. The stream fills the screen with the status bar and controls hidden initially. See [mobile touch implementation and validation](dev/mobile-touch-input.md) for the protocol boundary and pending device checks.
 
 Controllers already connected when streaming begins are registered immediately, and connecting or disconnecting a controller updates the stream's controller state. Controls held while starting or resuming input must be released before they are forwarded, so selecting a game does not also press a button in it. Stream Controls and an inactive app pause controller forwarding and release held input.
 
@@ -37,12 +37,15 @@ For the host's **Home/Guide** action on iOS/iPadOS 26, double-press the controll
 | Show or hide statistics | Tap with three fingers. | Press **Control–Option–Shift–S**, or use the **Game stream** element's **Show Statistics** / **Hide Statistics** custom action. |
 | Open Stream Controls | Touch and hold with three fingers. | Press **Command–Escape**, activate **Game stream**, or use its **Stream Controls** custom action. |
 | Disconnect locally | Swipe one finger inward from the left edge to about the middle of the screen, then release. | Open **Stream Controls** and choose **Disconnect**, or use the **Game stream** element's **Disconnect** custom action. |
+| Show or hide the system keyboard | Swipe one finger inward from the right edge of the video, then release. Repeat to hide it, or tap the keyboard-down button above the keys. | Open **Stream Controls** and choose **Show keyboard**, or use the **Game stream** element's **Show keyboard** / **Hide keyboard** custom action. |
 
 The current automated iPad check could not open **Stream Controls** with
 **Command–Escape**. Keyboard shortcut acceptance remains unresolved; use the touch
 or accessibility controls. See the [current validation record](dev/shared-client-validation-2026-09-14.md).
 
 **Stream Controls** also provides **Show statistics** and **Detail** controls for the current stream. These changes do not alter your saved preferences. While controls are open, game input is paused. With VoiceOver, visible statistics expose their labels and values as individual elements.
+
+The system keyboard starts hidden and includes **Windows**, **Alt–Tab** and **Alt–F4** buttons above its keys. These send shortcuts to your computer; Alt–F4 closes its active window. **Return** sends Enter and keeps the keyboard open. Composed text is sent after composition finishes. The keyboard hides when controls open, input pauses, or the stream ends. The right-edge gesture starts on the video above the keyboard; the keyboard-down button stays visible in the accessory bar while the host shortcuts can scroll at narrow widths or large text sizes. This feature is available on iPhone and iPad. See [mobile keyboard implementation and validation](dev/mobile-keyboard.md) for host and physical-device checks.
 
 Disconnecting returns to the library and leaves the application running on your computer. The local Disconnect action remains available when gameplay input is paused. Moving the app into the background ends the local stream. After a network or audio interruption, reconnect when the computer and device are ready. See the [native presentation validation record](dev/mobile-controller-presentation.md) for current startup, gesture and HDR acceptance.
 
@@ -94,7 +97,7 @@ See [Xcode Cloud](dev/xcode-cloud.md) for simulator workflows, signed device arc
 
 The mobile MVP includes real discovery, nonsecret saved-computer persistence, Keychain-backed identity and certificate pins, standard PIN pairing, authenticated application browsing with cover artwork, saved stream preferences, and the first full-screen streaming adapter. Bonjour is stopped in the background, cancelled host requests cannot publish into a newer selection, and input is released when the app loses focus or disconnects. Artwork requests pause during streaming and background work, and host changes clear the artwork cache.
 
-Apollo OTP-link entry, on-screen gamepad controls, general hardware keyboard forwarding, and diagnostic export UI are not part of this mobile delivery. The keyboard shortcuts above control Swiftlight itself; they do not establish general keyboard input support for host applications.
+Apollo OTP-link entry, on-screen gamepad controls, general hardware keyboard forwarding, and diagnostic export UI are not part of this mobile delivery. The physical keyboard shortcuts above control Swiftlight itself; the system keyboard and its accessory buttons send input to the host.
 
 The [September 14 physical iPad checks](dev/mobile-stream-controls-2026-09-14.md) verified live statistics show/hide, local edge-swipe disconnect, settings persistence, and remote-quit confirmations. Physical iPhone streaming, audio/controller routes, interruption recovery, manual accessibility acceptance, and matched frame-to-display measurements remain separate checks. Compilation and simulator UI tests do not establish those results. Do not interpret the deployment target as evidence that iOS/iPadOS 27 was built or tested: that requires an installed, compatible Xcode SDK and runtime.
 

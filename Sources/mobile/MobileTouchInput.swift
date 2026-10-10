@@ -62,9 +62,10 @@ enum MobileTouchInputIssue: Equatable, Sendable {
             for touch in touches where touch.type == .direct || touch.type == .pencil {
                 let key = ObjectIdentifier(touch)
                 if physicalContacts.count < 16 { physicalContacts.insert(key) }
-                // The left edge belongs to the local disconnect gesture. Never
+                // Edges belong to local disconnect and keyboard gestures. Never
                 // start a remote contact that would later become an edge swipe.
                 guard touch.location(in: view).x - view.bounds.minX > 24,
+                      view.bounds.maxX - touch.location(in: view).x > 24,
                       contacts.count < 10 else { continue }
                 guard contacts[key] == nil else { continue }
                 contacts[key] = nextID

@@ -25,7 +25,7 @@ contacts owns a stable wrapping UInt32 wire ID. Unknown motion and completion
 cannot recreate a rejected or retired contact.
 
 `MobileTouchInput` keeps UIKit identities on the main actor and sends bounded
-value actions. It reserves the left 24 points and all three-finger gestures for
+value actions. It reserves the left and right 24 points and all three-finger gestures for
 local controls, counting edge-only fingers toward local suppression. Gesture
 recognizers do not delay raw finger delivery. Indirect pointer taps and pans
 remain separate UIKit recognizers and use the existing mouse pointer setting.

@@ -2,7 +2,7 @@
 """Exercise the production mobile presenter in UIKit with a fake stream owner.
 
 This simulator app validates presentation lifetime, SwiftUI/native observation,
-and local exit admission only. It does not decode video or establish HDR
+and local exit/keyboard gesture admission only. It does not decode video or establish HDR
 correctness, Direct mode, or live latency. Observation mode drives published
 session changes through the production SwiftUI adapter without manual updates.
 """
@@ -36,6 +36,7 @@ private enum MobileTouchInputIssue { case unsupported, denied, failed }
     @Published var hasVideo = false
     @Published var status = "Connecting"
     @Published var controlsVisible = false
+    @Published var keyboardVisible = false
     var presentationGeneration: UInt64 = 0
     @Published var pipeline: HarnessPipeline?
     var transport: HarnessTransport?
@@ -46,8 +47,14 @@ private enum MobileTouchInputIssue { case unsupported, denied, failed }
     @Published var statisticsPreferences = HarnessStatisticsPreferences()
     private(set) var disconnectBegan = false
     private(set) var teardownCompleted = false
+    private(set) var keyboardVisibilityRequests = 0
+    private(set) var keyboardIssues: [Int32] = []
     func releaseInputs() {}
     func reportTouchInputIssue(_ issue: MobileTouchInputIssue) {}
+    func reportKeyboardInputIssue(_ result: Int32) { keyboardIssues.append(result) }
+    func setKeyboardVisible(_ visible: Bool) {
+        keyboardVisibilityRequests += 1; keyboardVisible = visible && inputEnabled
+    }
     func toggleStatistics() { showingStatistics.toggle() }
     func setControlsVisible(_ visible: Bool) { controlsVisible = visible }
     func disconnect() async {
@@ -70,6 +77,9 @@ private struct MobileStreamControls: View {
     private var lastTouch: CGPoint?
     var inputEnabled = false
     var reportTouchInputIssue: ((MobileTouchInputIssue) -> Void)?
+    var keyboardRequestedVisible = false
+    var reportKeyboardVisibility: ((Bool) -> Void)?
+    var reportKeyboardInputIssue: ((Int32) -> Void)?
     private(set) var statisticsVisible = false
     private(set) var statisticsRows: [String] = []
     private(set) var stopped = false
@@ -102,6 +112,11 @@ private struct MobileStreamControls: View {
         disconnectFromEdge(gesture)
     }
     func testExitAction() -> Bool { disconnectAction() }
+    func testKeyboardEdge(state: UIGestureRecognizer.State, distance: CGFloat) {
+        let gesture = SyntheticEdge(); gesture.syntheticState = state; gesture.distance = distance
+        keyboardFromEdge(gesture)
+    }
+    func testKeyboardAction() -> Bool { toggleKeyboardAction() }
 }
 '''
 
@@ -193,6 +208,17 @@ HARNESS = r'''
         presenter.update(session: session)
         check(!first.testFeedback && first.children.isEmpty, "streaming must completely remove feedback host")
         check(first.testSurface?.inputEnabled == true, "stream input must follow session admission")
+        let keyboardSurface = first.testSurface!
+        let oldKeyboardVisibility = keyboardSurface.reportKeyboardVisibility
+        let oldKeyboardIssue = keyboardSurface.reportKeyboardInputIssue
+        let keyboardThreshold = min(64, keyboardSurface.bounds.width * 0.2)
+        keyboardSurface.testKeyboardEdge(state: .ended, distance: -keyboardThreshold)
+        check(session.keyboardVisible, "right edge publishes a keyboard request through the captured session")
+        presenter.update(session: session)
+        check(keyboardSurface.keyboardRequestedVisible, "presenter forwards saved keyboard request to the native surface")
+        keyboardSurface.testKeyboardEdge(state: .ended, distance: -keyboardThreshold)
+        presenter.update(session: session)
+        check(!session.keyboardVisible && !keyboardSurface.keyboardRequestedVisible, "second right edge closes the captured keyboard request")
         session.controlsVisible = true; session.inputEnabled = false
         presenter.update(session: session)
         await wait("controls must present") { first.presentedViewController != nil }
@@ -211,6 +237,10 @@ HARNESS = r'''
         }
         check(first.testStopped && oldSurface.stopped, "old attempt must stop before replacement")
         check(presenter.testStream !== first, "reconnect must not reuse retired owners")
+        let keyboardRequestCount = session.keyboardVisibilityRequests
+        oldKeyboardVisibility?(true); oldKeyboardIssue?(-1)
+        check(!session.keyboardVisible && session.keyboardVisibilityRequests == keyboardRequestCount && session.keyboardIssues.isEmpty,
+              "retired keyboard callbacks cannot mutate a replacement generation")
 
         // Retire the attempt while UIKit is presenting controls, deliberately
         // delaying the SwiftUI presenter update until its completion arrives.
@@ -299,6 +329,8 @@ HARNESS = r'''
             "checks": ["inactive admission", "feedback before pipeline", "opaque Metal controller root",
                        "feedback removal", "controls dismissal", "coalesced generation retirement",
                        "controls presentation retirement", "controls dismissal retirement",
+                       "right-edge keyboard session publication", "native keyboard request propagation",
+                       "second edge keyboard close", "keyboard callback generation retirement",
                        "disconnect", "failure before pipeline", "session owner replacement",
                        "old-owner observation cancellation", "dismantle stale update rejection"],
             "liveVideoTested": false, "hdrCorrectnessTested": false, "directPresentationVerified": false]
@@ -431,16 +463,41 @@ private struct HarnessSuspendedLibrary: View {
         check(exits == 0, "short and cancelled edge gestures reject local exit")
         probe.testEdge(state: .ended, distance: 450)
         check(exits == 1, "local edge exit remains available with remote input disabled")
+        var keyboardRequests: [Bool] = []
+        probe.reportKeyboardVisibility = { visible in
+            keyboardRequests.append(visible); probe.keyboardRequestedVisible = visible
+        }
+        check(!probe.testKeyboardAction(), "closed keyboard cannot open while remote input is disabled")
+        probe.inputEnabled = true
+        let releaseBeforeKeyboard = transport.releaseCount
+        probe.testKeyboardEdge(state: .began, distance: 0)
+        check(transport.releaseCount == releaseBeforeKeyboard + 1, "right-edge begin releases held input")
+        probe.testKeyboardEdge(state: .ended, distance: -63)
+        probe.testKeyboardEdge(state: .cancelled, distance: -1000)
+        probe.testKeyboardEdge(state: .ended, distance: 1000)
+        check(keyboardRequests.isEmpty, "short cancelled and outward right-edge gestures reject keyboard toggle")
+        probe.testKeyboardEdge(state: .ended, distance: -64)
+        check(keyboardRequests == [true] && probe.keyboardRequestedVisible,
+              "inward right-edge threshold opens keyboard when remote input is enabled")
+        probe.inputEnabled = false
+        probe.testKeyboardEdge(state: .ended, distance: -64)
+        check(keyboardRequests == [true, false] && !probe.keyboardRequestedVisible,
+              "open keyboard can close through the local edge with remote input paused")
         probe.stop(); probe.testEdge(state: .ended, distance: 1000)
         check(exits == 1, "stopped surface rejects local exit")
+        probe.inputEnabled = true; probe.testKeyboardEdge(state: .ended, distance: -1000)
+        check(keyboardRequests == [true, false], "stopped surface rejects keyboard toggles")
         probe.removeFromSuperview()
         let detached = MobileStreamView(pipeline: HarnessPipeline(100), transport: transport, settings: HarnessSettings(),
             toggleStatistics: {}, disconnect: { exits += 1 }, controls: {})
+        detached.inputEnabled = true
         check(!detached.testExitAction(), "surface outside key window rejects local exit")
+        check(!detached.testKeyboardAction(), "surface outside key window rejects keyboard toggle")
         let other = UIWindow(windowScene: window.windowScene!)
         other.addSubview(detached)
         check(detached.window === other && !other.isKeyWindow, "non-key window probe is attached")
         check(!detached.testExitAction(), "surface in non-key window rejects local exit")
+        check(!detached.testKeyboardAction(), "surface in non-key window rejects keyboard toggle")
         detached.removeFromSuperview()
     }
     private func run(session: MobileStreamingSession,
@@ -475,6 +532,18 @@ private struct HarnessSuspendedLibrary: View {
         await wait("published statistics update native surface") {
             first.testSurface?.statisticsVisible == true && first.testSurface?.statisticsRows == ["FPS 120"]
         }
+        let keyboardSurface = first.testSurface!
+        let oldKeyboardVisibility = keyboardSurface.reportKeyboardVisibility
+        let oldKeyboardIssue = keyboardSurface.reportKeyboardInputIssue
+        let keyboardThreshold = min(64, keyboardSurface.bounds.width * 0.2)
+        keyboardSurface.testKeyboardEdge(state: .ended, distance: -keyboardThreshold)
+        await wait("right-edge keyboard publication reaches native surface without manual update") {
+            session.keyboardVisible && keyboardSurface.keyboardRequestedVisible
+        }
+        keyboardSurface.testKeyboardEdge(state: .ended, distance: -keyboardThreshold)
+        await wait("second right edge closes published keyboard without manual update") {
+            !session.keyboardVisible && !keyboardSurface.keyboardRequestedVisible
+        }
         session.controlsVisible = true; session.inputEnabled = false
         await wait("published controls request presents sheet") {
             first.testControls && !first.testControlsTransitioning && first.presentedViewController != nil
@@ -489,6 +558,10 @@ private struct HarnessSuspendedLibrary: View {
             presenter.testStream?.generation == 2 && presenter.testStream?.testSurface?.pipeline.id == 2
         }
         check(first.testStopped && retired.stopped, "old native owners stop before reconnect")
+        let keyboardRequestCount = session.keyboardVisibilityRequests
+        oldKeyboardVisibility?(true); oldKeyboardIssue?(-1)
+        check(!session.keyboardVisible && session.keyboardVisibilityRequests == keyboardRequestCount && session.keyboardIssues.isEmpty,
+              "retired keyboard callbacks reject the replacement generation without publication")
         let next = presenter.testStream!.testSurface!
         check(next.inputEnabled == false, "reconnected surface preserves disabled remote admission")
         next.testEdge(state: .ended, distance: next.bounds.width * 0.45)

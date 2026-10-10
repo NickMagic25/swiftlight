@@ -19,3 +19,5 @@ Start with the [Xcode app build guide](README.md#build-and-run-the-app-with-xcod
 13. Run the [benchmark procedure](benchmarking.md), including 30-minute4K60 thermal/memory/queue/performance observation and matched reference-client/Game Mode trials.
 
 Record the host version, encoder, Mac/OS, display/mode, network, actual command/interaction and pass/fail evidence for each acceptance row. Change BLOCKED to PASS only after that check succeeds. The iPhone/iPad checks use the same `Swiftlight` scheme with their native destinations; follow the [mobile guide](../mobile.md) and [shared-app validation record](shared-client-validation-2026-09-14.md) for those flows and outstanding device checks. tvOS remains future platform work.
+
+For the iPhone/iPad system keyboard, run the [mobile keyboard acceptance checks](mobile-keyboard.md#physical-acceptance): right-edge show/hide, text composition, host shortcuts, input cleanup, rotation/accessibility, and hidden/visible presentation timing. Validate the left-edge disconnect gesture and HDR Direct presentation after hiding the keyboard on the same physical device.

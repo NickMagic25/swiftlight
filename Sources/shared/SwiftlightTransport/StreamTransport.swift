@@ -145,6 +145,19 @@ public enum TouchEventPhase: UInt8, Sendable, CaseIterable {
     }
 }
 
+public enum HostKeyboardShortcut: UInt8, Sendable, CaseIterable {
+    case windows = 0, altTab = 1, altF4 = 2, backspace = 3, enter = 4
+    var native: SFHostKeyboardShortcut {
+        switch self {
+        case .windows: SF_KEY_CHORD_WINDOWS
+        case .altTab: SF_KEY_CHORD_ALT_TAB
+        case .altF4: SF_KEY_CHORD_ALT_F4
+        case .backspace: SF_KEY_CHORD_BACKSPACE
+        case .enter: SF_KEY_CHORD_ENTER
+        }
+    }
+}
+
 /// Setup and video are synchronous admission calls, not UI callbacks. `video` returns
 /// true only after MoonlightAppleVideo acquired its input; false requests an IDR.
 /// Event callbacks must enqueue orchestration and never synchronously stop this transport.
@@ -324,6 +337,27 @@ public final class StreamTransport: @unchecked Sendable {
     public func mousePosition(x: Int16, y: Int16, width: Int16, height: Int16) { _ = sf_stream_mouse_position(pointer, x, y, width, height) }
     public func mouseButton(_ button: Int, pressed: Bool) { _ = sf_stream_mouse_button(pointer, Int32(clamping: button), pressed) }
     public func key(_ virtualKey: UInt16, pressed: Bool, modifiers: UInt8 = 0) { _ = sf_stream_key(pointer, virtualKey, pressed, modifiers) }
+    public static let maximumTextBytes = Int(SF_MAX_UTF8_TEXT_BYTES)
+    /// Sends committed Unicode text, bounded to 4096 UTF-8 bytes per call.
+    /// A success confirms queue admission, rather than host text insertion.
+    @discardableResult
+    public func sendText(_ text: String) -> Int32 {
+        // Copy at most one byte beyond the native bound, so an oversized paste
+        // is rejected without allocating an unbounded intermediate payload.
+        let bytes = Array(text.utf8.prefix(Self.maximumTextBytes + 1))
+        return bytes.withUnsafeBytes { buffer in
+            sf_stream_text(pointer, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), buffer.count)
+        }
+    }
+    @discardableResult
+    public func keyStroke(_ virtualKey: UInt16, modifiers: UInt8 = 0) -> Int32 {
+        sf_stream_key_stroke(pointer, virtualKey, modifiers)
+    }
+    /// Sends a complete host key gesture without releasing physically held modifiers.
+    @discardableResult
+    public func keyChord(_ shortcut: HostKeyboardShortcut) -> Int32 {
+        sf_stream_key_chord(pointer, shortcut.native)
+    }
     public func scroll(vertical: Int16, horizontal: Int16 = 0) { _ = sf_stream_scroll(pointer, vertical, horizontal) }
     public func controller(index: UInt8, activeMask: UInt16, buttons: UInt32, leftTrigger: UInt8, rightTrigger: UInt8,
                            leftX: Int16, leftY: Int16, rightX: Int16, rightY: Int16) {
