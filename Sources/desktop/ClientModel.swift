@@ -414,7 +414,7 @@ import SwiftlightVideo
                 let request = preparation.request, selection = preparation.selection
                 let launchResponse = try await route.client.launchOrResume(preparation.launchRequest)
                 try ensureCurrent(generation)
-                let pipeline = StreamingPipeline(renderOptions: renderOptions)
+                let pipeline = StreamingPipeline(renderOptions: renderOptions.resolvingHDRPresentation(settings: launchSettings))
                 let config = preparation.transportConfiguration(address: route.address.host,
                     sessionURL: launchResponse.sessionURL, displayRefreshHz: display.refreshHz)
                 let transport = try StreamTransport(configuration: config, callbacks: .init(setup: { pipeline.setup($0) }, video: { pipeline.receive($0) },

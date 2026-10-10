@@ -16,11 +16,17 @@ On iPhone and at narrow iPad window sizes, the computer list opens the selected 
 
 The library displays a grid of cover art from your computer, with each game's name beneath its cover. The number of columns adapts to the available width; accessibility text sizes use one column with wrapping titles. Applications without usable artwork show a placeholder and remain playable. **Add Host** uses the same blue semibold text as the game titles.
 
+A connected physical controller can also browse the computer list and application library. The D-pad or left stick moves the outlined selection and scrolls it into view. **A** selects a computer, begins pairing when required, or starts/resumes the selected game. **B** returns to the computer list or cancels an open form or confirmation. **Menu** opens Settings. In a form or confirmation, controller navigation and activation are paused; use touch, a keyboard, or accessibility controls to enter an address, edit settings, or confirm a remote action. Controller input cannot confirm a destructive quit or application switch.
+
 To end an application on your computer, touch and hold its running tile, choose **Quit Remote Application**, and confirm. This is separate from disconnecting your device. Swiftlight checks the computer's current application again before quitting; if another application has taken its place, it asks you to review a new confirmation.
 
 ## Stream controls
 
 Touch the video to move the pointer and tap to click. A connected physical game controller can provide game input. The stream fills the screen with the status bar and controls hidden initially.
+
+Controllers already connected when streaming begins are registered immediately, and connecting or disconnecting a controller updates the stream's controller state. Controls held while starting or resuming input must be released before they are forwarded, so selecting a game does not also press a button in it. Stream Controls and an inactive app pause controller forwarding and release held input.
+
+For the host's **Home/Guide** action on iOS/iPadOS 26, double-press the controller's Home/logo button while stream input is active. A single press can open Apple's Game Overlay. Swiftlight forwards the Home presses and releases that the system delivers; this depends on the controller exposing a Home button. On iOS/iPadOS 27, system Home Button Overrides may allow direct single-press delivery when configured for Swiftlight. Forwarding pauses with other game input, and Swiftlight restores the previous system-button preference when input pauses or the stream ends. Physical Home/Guide and host behavior still require device validation; see the [routing notes](dev/mobile-controller-presentation.md#homeguide-passthrough).
 
 | Action | Touch | Physical keyboard or VoiceOver |
 | --- | --- | --- |
@@ -34,13 +40,15 @@ or accessibility controls. See the [current validation record](dev/shared-client
 
 **Stream Controls** also provides **Show statistics** and **Detail** controls for the current stream. These changes do not alter your saved preferences. While controls are open, game input is paused. With VoiceOver, visible statistics expose their labels and values as individual elements.
 
-Disconnecting returns to the library and leaves the application running on your computer. Moving the app into the background ends the local stream. After a network or audio interruption, reconnect when the computer and device are ready.
+Disconnecting returns to the library and leaves the application running on your computer. The local Disconnect action remains available when gameplay input is paused. Moving the app into the background ends the local stream. After a network or audio interruption, reconnect when the computer and device are ready. See the [native presentation validation record](dev/mobile-controller-presentation.md) for current startup, gesture and HDR acceptance.
 
 HEVC and AV1 availability depends on the computer and the device's hardware. **PyroWave (wired LAN)** is an explicit codec choice for compatible Vibepollo hosts and Metal-capable devices; it also exposes **4:2:0** and **4:4:4** chroma sampling. Automatic codec selection continues to use HEVC or AV1. PyroWave requires much more bandwidth; see [PyroWave streaming](pyrowave.md) for bitrate settings and profile requirements. A simulator cannot establish hardware decoding support or physical device streaming performance.
 
 ## HDR and audio
 
-In **Settings → Video**, **HDR** offers **Automatic**, **On**, and **Off**. Automatic negotiates HDR only when the computer, selected codec, and owning display support it. On requires compatible HDR support and reports an error if it is unavailable. Off requests standard dynamic range and remains the default for an existing installation without an HDR preference. Enable HDR on the computer before connecting. The Metal surface uses the shared HDR renderer and Apple's display tone mapping; display brightness and available HDR headroom remain system controlled.
+In **Settings → Video**, **HDR** offers **Automatic**, **On**, and **Off**. Automatic negotiates HDR only when the computer, selected codec, and owning display support it. On requires compatible HDR support and reports an error if it is unavailable. Off requests standard dynamic range and remains the default for an existing installation without an HDR preference. Enable HDR on the computer before connecting. The Metal surface uses the shared HDR renderer; display brightness and available HDR headroom remain system controlled.
+
+**HDR tone mapping** offers **Linear** and **PQ** in every build configuration, including Release and archived builds. **PQ** is the default. An older installation with no saved choice, or the former System tone mapping choice, migrates to PQ; an existing Linear or PQ choice is retained. Save and reconnect to apply a change. Both modes showed Direct presentation in the user's M5 iPad Metal HUD test; brightness, highlight handling and performance still need comparison on your display. See the [comparison procedure](dev/mobile-controller-presentation.md#hdr-tone-mapping).
 
 In **Settings → Audio**, choose **Stereo**, **5.1**, or **7.1** separately from **Direct** or **System Spatial Audio**. Stereo uses Direct. Direct uses the output's available channels and downmixes when needed. For System Spatial Audio, select 5.1 or 7.1, configure the host/game for surround speakers, and use a compatible output such as supported AirPods. In Control Center, touch and hold the volume control to select available spatial playback options. The operating system controls head tracking. Stream Controls reports whether spatial playback is available on the current output; that capability is not proof that head tracking is active.
 

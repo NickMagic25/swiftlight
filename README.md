@@ -50,13 +50,17 @@ The reusable **MoonlightAppleVideo** decoder is maintained in [`Packages/moonlig
 
 During a stream, **Control–Option–Shift–Z** releases input capture and shows the stream controls; click the video to capture input again. **Control–Option–Shift–Q** disconnects while leaving the remote application running. **Control–Command–F** toggles native full screen.
 
+Before streaming, a connected controller can browse computers and games. Use the D-pad or left stick to move the highlighted selection, **A** to select or play, **B** to return or cancel, and **Menu** to open Settings. Controller input never confirms a remote quit or application switch. Address entry, pairing, and editing settings still use the platform's ordinary controls.
+
+During streaming, delivered **Home/Guide** presses go to the host while game input is active. On iOS/iPadOS 26, double-press the controller's Home/logo button for the system passthrough path; a single press can open Apple's Game Overlay. macOS uses the same host mapping, and newer system controller settings may allow a single press. The operating system controls which events reach Swiftlight. See the [controller routing notes](docs/dev/mobile-controller-presentation.md#homeguide-passthrough) for platform limits and physical-device checks.
+
 See the [pairing and host guide](docs/host-protocol.md) for connection behavior and [appearance and library guide](docs/appearance.md) for artwork and accessibility behavior.
 
 ## Configure streaming
 
 Stream settings apply when the next connection starts. Presentation settings—frame pacing, VSync, and drawable buffers—can be changed in Settings and apply on reconnect. HDR **Auto** selects a compatible mode; HDR **On** reports an incompatibility instead of silently falling back when the full path is unavailable.
 
-HEVC and AV1 HDR retain the host's mastering-display and content-light metadata when it is absent from the encoded video. The renderer uses that information for system tone mapping and configures it before acquiring a drawable. HDR brightness and shadow visibility still require validation on the destination display.
+HEVC and AV1 HDR retain the host's mastering-display and content-light metadata when it is absent from the encoded video. In **Settings → Video → HDR tone mapping**, choose **Linear** or **PQ**; PQ is the default and changes apply on reconnect. Older settings with no selection or the former System tone mapping selection migrate to PQ, while existing Linear and PQ selections are retained. The renderer configures the output before acquiring a drawable. HDR brightness and shadow visibility still require validation on the destination display.
 
 In **Settings → Video → Chroma sampling**, choose **4:4:4 (sharper text)** to retain full color detail. The default remains **4:2:0**. HEVC and AV1 require matching host encoding and a successful hardware check for the exact 8-bit or 10-bit 4:4:4 profile; **Automatic** chooses a compatible codec. An unavailable explicitly requested mode reports an error. 4:4:4 uses more bandwidth, and changes apply on the next connection. See the [compatibility guide](docs/compatibility-matrix.md) for device validation.
 

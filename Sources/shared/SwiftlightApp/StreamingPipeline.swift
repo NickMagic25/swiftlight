@@ -1,4 +1,5 @@
 import Foundation
+import SwiftlightCore
 import SwiftlightVideo
 import SwiftlightTransport
 import os
@@ -10,6 +11,9 @@ struct StreamRenderOptions: Codable, Equatable, Sendable {
     var configureEDRBeforeAcquire = true
     var captureScheduledCallback = true
     var nativePQOutput = false
+    /// Unresolved options use the shared Settings choice (PQ by default).
+    /// The system mode is retained for internal baseline captures and fallbacks.
+    var hdrPresentationMode: HDRPresentationMode = .systemToneMapped
     /// Native render-loop lifetime boundary; disable only in explicit debug A/B captures.
     var useFrameAutoreleasePool = true
     var showMetalHUD = false
@@ -17,6 +21,25 @@ struct StreamRenderOptions: Codable, Equatable, Sendable {
     var useRootMetalLayer = false
     var hideEmptyOverlayContainer = false
     var useSwiftUIStatisticsOverlay = false
+
+    func resolvingHDRPresentation(settings: StreamSettings) -> Self {
+        var options = self
+        #if DEBUG
+        // Preserve explicit legacy capture/menu trials. Ordinary launches use
+        // the shared Settings selection without changing pacing or hierarchy.
+        if nativePQOutput {
+            options.hdrPresentationMode = .nativePQ
+        } else if hdrPresentationMode == .systemToneMapped {
+            options.hdrPresentationMode = settings.effectiveHDRPresentationMode
+        }
+        #else
+        // Release/archive builds honor the visible opt-in Settings control,
+        // while legacy debug-only capture/menu flags cannot override it.
+        options.hdrPresentationMode = settings.effectiveHDRPresentationMode
+        #endif
+        options.nativePQOutput = options.hdrPresentationMode == .nativePQ
+        return options
+    }
 }
 
 /// Fixed-size semantic color metadata, assembled only when diagnostics are captured.
@@ -275,10 +298,12 @@ final class StreamingPipeline: @unchecked Sendable {
         var result = presentationRuntime; result?.edrMetadataUpdates = edrMetadataUpdates
         result?.outputColorSpace = outputColorSpace; result?.layerPixelFormat = layerPixelFormat; return result
     }
-    func recordEDRMetadataUpdate(nativePQ: Bool) {
+    func recordEDRMetadataUpdate(nativePQ: Bool, wantsEDR: Bool? = nil, metadataConfigured: Bool? = nil) {
         lock.lock(); defer { lock.unlock() }; edrMetadataUpdates += 1
         outputColorSpace = nativePQ ? "rec2020PQ" : "linearSRGB"
         layerPixelFormat = nativePQ ? "bgr10a2Unorm" : "rgba16Float"
+        if let wantsEDR { presentationRuntime?.wantsExtendedDynamicRangeContent = wantsEDR }
+        if let metadataConfigured { presentationRuntime?.edrMetadataConfigured = metadataConfigured }
     }
     var statistics: DecoderStatistics? {
         lock.lock(); let owner = decoder; lock.unlock(); return owner?.statistics

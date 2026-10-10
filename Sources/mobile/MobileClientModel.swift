@@ -30,6 +30,7 @@ import SwiftlightHost
     private let hostStore = SavedHostStore()
     private var controlTask: Task<Void, Never>?
     private var controlGeneration: UInt64 = 0
+    private var launchPreparation: (generation: UInt64, previousStatus: String)?
     private var foreground = false
     private var loaded = false
     private var addingComputer = false
@@ -183,6 +184,7 @@ import SwiftlightHost
     func prepareLaunch(_ app: RemoteApp, quitting expectedAppID: Int? = nil,
                        onPrepared: @escaping @MainActor (RemoteApp, HostClient, HostInfo) -> Void) {
         guard let client, let hostID = selectedHostID, !busy, !streaming, foreground else { return }
+        let previousStatus = status
         status = expectedAppID == nil ? "Checking session…" : "Quitting remote application…"
         perform { model, generation in
             do {
@@ -203,6 +205,16 @@ import SwiftlightHost
                 try await model.refreshAfterQuitRefusal(client: client, hostID: hostID, generation: generation)
             }
         }
+        launchPreparation = (controlGeneration, previousStatus)
+    }
+
+    /// A local Back action may cancel an in-flight preparation, including a
+    /// late conflict result, without cancelling a refresh or pairing operation.
+    func cancelLaunchPreparation() {
+        guard let preparation = launchPreparation, preparation.generation == controlGeneration else { return }
+        cancelOperation()
+        status = preparation.previousStatus
+        updateArtworkLoading()
     }
 
     func requestQuitRemoteApplication(_ app: RemoteApp) {
@@ -336,6 +348,7 @@ import SwiftlightHost
             guard let self else { return }
             defer {
                 if isCurrent(generation) {
+                    if launchPreparation?.generation == generation { launchPreparation = nil }
                     busy = false
                     controlTask = nil
                     updateArtworkLoading()
@@ -363,6 +376,7 @@ import SwiftlightHost
 
     private func cancelOperation() {
         controlGeneration &+= 1
+        launchPreparation = nil
         remoteApplicationAction = nil
         controlTask?.cancel()
         controlTask = nil

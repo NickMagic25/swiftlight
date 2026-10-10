@@ -193,6 +193,44 @@ import XCTest
         app.buttons["saveStreamSettings"].tap()
     }
 
+    func testHDRToneMappingOffersOnlyLinearAndPQAndPersists() throws {
+        launch()
+        openSettings()
+        let picker = app.buttons["hdrOutputExperiment"]
+        revealSetting(picker)
+        let original = try XCTUnwrap(picker.value as? String)
+        let choices = ["Linear", "PQ"]
+        XCTAssertTrue(choices.contains(original))
+        let changed = original == choices[1] ? choices[0] : choices[1]
+        addTeardownBlock { @MainActor [self] in
+            app.terminate()
+            launch()
+            openSettings()
+            chooseSetting(app.buttons["hdrOutputExperiment"], option: original)
+            app.buttons["saveStreamSettings"].tap()
+        }
+        picker.tap()
+        XCTAssertTrue(app.buttons["Linear"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["PQ"].exists)
+        XCTAssertFalse(app.buttons["System tone mapping"].exists)
+        XCTAssertFalse(app.buttons["System tone mapping (default)"].exists)
+        app.buttons[original].tap()
+        for choice in choices { chooseSetting(picker, option: choice) }
+        chooseSetting(picker, option: changed)
+        app.buttons["cancelStreamSettings"].tap()
+        openSettings()
+        revealSetting(picker)
+        XCTAssertEqual(picker.value as? String, original, "Cancel must discard the experimental selection")
+        chooseSetting(picker, option: changed)
+        app.buttons["saveStreamSettings"].tap()
+        app.terminate()
+        launch()
+        openSettings()
+        revealSetting(picker)
+        XCTAssertEqual(picker.value as? String, changed, "The saved experiment must remain selected after relaunch")
+        attachScreenshot("Saved HDR tone mapping")
+    }
+
     func testHDRAndAudioSettingsCancelAndPersist() throws {
         launch()
         openSettings()

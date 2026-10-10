@@ -46,6 +46,10 @@ import UIKit
     private var statisticsSampler = StreamStatisticsSampler()
     private var latencyCapture: MobileStreamDiagnostics?
 
+    /// Native presentation must retire an earlier attempt even when SwiftUI
+    /// coalesces an inactive-to-active reconnect into one update.
+    var presentationGeneration: UInt64 { state.generation }
+
     func updateDisplay(_ geometry: DisplayGeometry, _ hdr: MobileHDRDisplayCapabilities) {
         display = geometry; hdrDisplay = hdr
     }
@@ -98,7 +102,8 @@ import UIKit
             observeInterruptions(generation: generation)
             let response = try await route.client.launchOrResume(preparation.launchRequest)
             try ensureCurrent(generation)
-            let pipeline = StreamingPipeline(renderOptions: latencyCapture?.renderOptions ?? .init())
+            let options = (latencyCapture?.renderOptions ?? .init()).resolvingHDRPresentation(settings: settings)
+            let pipeline = StreamingPipeline(renderOptions: options)
             let configuration = preparation.transportConfiguration(address: route.address.host,
                 sessionURL: response.sessionURL, displayRefreshHz: display.refreshHz)
             let transport = try StreamTransport(configuration: configuration, callbacks: .init(

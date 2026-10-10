@@ -49,7 +49,7 @@ struct SwiftlightApp: App {
                 Button("Run Statistics Overlay Comparison") { model.runStatisticsOverlayComparison() }
                 Button("Cancel Latency Comparison") { model.cancelLatencyExperiments() }
                 Button("Toggle Metal HUD for Next Stream") { model.renderOptions.showMetalHUD.toggle() }
-                Button("Preview Cached HDR Metadata on Next Stream") {
+                Button("Preview Selected HDR Output on Next Stream") {
                     var options = StreamRenderOptions()
                     options.cacheEDRMetadata = true; options.configureEDRBeforeAcquire = true
                     options.showMetalHUD = true

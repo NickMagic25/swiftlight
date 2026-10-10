@@ -128,8 +128,12 @@ extension ClientModel {
                 settings.displaySyncEnabled = false
                 settings.maximumDrawableCount = comparison.drawableCount
                 settings.launchInFullScreen = true
+                // A saved HDR experiment must not redefine this runner's
+                // named baseline or statistics-only comparisons.
+                settings.hdrPresentationMode = .systemToneMapped
                 model.settings = settings
                 var options = originalOptions
+                options.hdrPresentationMode = .systemToneMapped
                 options.cacheEDRMetadata = comparison.cachesMetadata
                 options.nativePQOutput = comparison.nativePQ
                 options.showMetalHUD = comparison.metalHUD

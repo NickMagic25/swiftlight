@@ -1,4 +1,6 @@
 #if os(iOS)
+import Combine
+import GameController
 import Metal
 import QuartzCore
 import SwiftUI
@@ -7,102 +9,306 @@ import SwiftlightTransport
 import SwiftlightVideo
 import UIKit
 
-struct MobileStreamScreen: View {
+private struct MobileStreamControls: View {
     @ObservedObject var session: MobileStreamingSession
+    let generation: UInt64
     var body: some View {
-        ZStack {
-            Color.black
-            if let pipeline = session.pipeline, let transport = session.transport {
-                MobileStreamSurface(pipeline: pipeline, transport: transport, settings: session.settings, inputEnabled: session.inputEnabled,
-                    statisticsRows: session.statisticsRows, statisticsVisible: session.showingStatistics,
-                    statisticsPosition: session.statisticsPreferences.position,
-                    toggleStatistics: session.toggleStatistics,
-                    disconnect: { Task { await session.disconnect() } },
-                    controls: { session.releaseInputs(); session.setControlsVisible(true) })
-            }
-            // Keep connection feedback and cancellation available through the
-            // wait for the first decoded frame. Remove it once streaming starts.
-            if !session.hasVideo {
-                VStack(spacing: 20) {
-                    ProgressView(session.status).tint(.white)
-                    Button("Cancel") { Task { await session.disconnect() } }.buttonStyle(.borderedProminent)
-                }.foregroundStyle(.white)
-            }
-        }
-        .ignoresSafeArea()
-        .persistentSystemOverlays(.hidden)
-        .statusBarHidden(true)
-        .interactiveDismissDisabled()
-        .sheet(isPresented: Binding(get: { session.controlsVisible }, set: { session.setControlsVisible($0) })) {
-            NavigationStack {
-                Form {
-                    Section {
-                        Text("Touch the video to move the pointer. Tap to click, or use a connected game controller.")
-                        Text("Tap with three fingers to show or hide statistics. Hold three fingers to open these controls.")
-                        Text("Swipe one finger from the left edge to the middle of the screen to disconnect.")
-                    }
-                    Section("Stream Statistics") {
-                        Toggle("Show statistics", isOn: Binding(get: { session.showingStatistics }, set: { visible in
-                            session.setStatisticsVisible(visible)
-                        }))
-                            .accessibilityIdentifier("inStreamStatistics")
-                        Picker("Detail", selection: Binding(get: { session.statisticsPreferences.detail }, set: { detail in
-                            var preferences = session.statisticsPreferences; preferences.detail = detail
-                            session.setStatisticsPreferences(preferences)
-                        })) {
-                            ForEach(StreamStatisticsDetail.allCases, id: \.self) { Text($0.label).tag($0) }
-                        }
-                    }
-                    if session.settings.effectiveAudioOutput == .systemSpatial {
-                        Section {
-                            LabeledContent("Spatial playback", value: session.spatialPlaybackAvailable.map {
-                                $0 ? "Available on this output" : "Unavailable or turned off"
-                            } ?? "Checking output")
-                            .accessibilityIdentifier("spatialPlaybackAvailability")
-                        } header: {
-                            Text("Audio")
-                        } footer: {
-                            Text("Use Control Center to choose available Spatial Audio and head tracking options.")
-                        }
-                    }
-                    Section {
-                        Button("Disconnect", role: .destructive) {
-                            session.setControlsVisible(false)
-                            Task { await session.disconnect() }
-                        }
-                        .accessibilityIdentifier("disconnectStream")
-                    } footer: { Text("Disconnecting leaves the application running on your computer.") }
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Touch the video to move the pointer. Tap to click, or use a connected game controller.")
+                    Text("Tap with three fingers to show or hide statistics. Hold three fingers to open these controls.")
+                    Text("Swipe one finger from the left edge to the middle of the screen to disconnect.")
                 }
-                .navigationTitle("Stream Controls")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Close") { session.setControlsVisible(false) } } }
-            }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+                Section("Stream Statistics") {
+                    Toggle("Show statistics", isOn: Binding(get: { session.showingStatistics }, set: { visible in
+                        guard session.presentationGeneration == generation else { return }
+                        session.setStatisticsVisible(visible)
+                    }))
+                        .accessibilityIdentifier("inStreamStatistics")
+                    Picker("Detail", selection: Binding(get: { session.statisticsPreferences.detail }, set: { detail in
+                        guard session.presentationGeneration == generation else { return }
+                        var preferences = session.statisticsPreferences; preferences.detail = detail
+                        session.setStatisticsPreferences(preferences)
+                    })) {
+                        ForEach(StreamStatisticsDetail.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                }
+                if session.settings.effectiveAudioOutput == .systemSpatial {
+                    Section {
+                        LabeledContent("Spatial playback", value: session.spatialPlaybackAvailable.map {
+                            $0 ? "Available on this output" : "Unavailable or turned off"
+                        } ?? "Checking output")
+                        .accessibilityIdentifier("spatialPlaybackAvailability")
+                    } header: {
+                        Text("Audio")
+                    } footer: {
+                        Text("Use Control Center to choose available Spatial Audio and head tracking options.")
+                    }
+                }
+                Section {
+                    Button("Disconnect", role: .destructive) {
+                        guard session.presentationGeneration == generation else { return }
+                        session.setControlsVisible(false)
+                        Task {
+                            guard session.presentationGeneration == generation else { return }
+                            await session.disconnect()
+                        }
+                    }
+                    .accessibilityIdentifier("disconnectStream")
+                } footer: { Text("Disconnecting leaves the application running on your computer.") }
+            }
+            .navigationTitle("Stream Controls")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Close") {
+                guard session.presentationGeneration == generation else { return }
+                session.setControlsVisible(false)
+            } } }
         }
     }
 }
 
-private struct MobileStreamSurface: UIViewRepresentable {
-    let pipeline: StreamingPipeline
-    let transport: StreamTransport
-    let settings: StreamSettings
-    let inputEnabled: Bool
-    let statisticsRows: [StreamStatisticRow]
-    let statisticsVisible: Bool
-    let statisticsPosition: StreamStatisticsPosition
-    let toggleStatistics: () -> Void
-    let disconnect: () -> Void
-    let controls: () -> Void
-    func makeUIView(context: Context) -> MobileStreamView {
-        MobileStreamView(pipeline: pipeline, transport: transport, settings: settings,
-                         toggleStatistics: toggleStatistics, disconnect: disconnect, controls: controls)
+/// The presenter is a narrow UIKit boundary; the library and stream controls
+/// remain SwiftUI. The streaming controller's root is the opaque Metal view,
+/// without a full-screen SwiftUI hosting surface between it and UIKit.
+struct MobileStreamPresentation: UIViewControllerRepresentable {
+    @ObservedObject var session: MobileStreamingSession
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let controller = MobileStreamPresentationController()
+        controller.update(session: session)
+        return controller
     }
-    func updateUIView(_ view: MobileStreamView, context: Context) {
-        view.inputEnabled = inputEnabled
-        view.updateStatistics(rows: statisticsRows, visible: statisticsVisible, position: statisticsPosition)
-        view.refreshPresentationDiagnostics()
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        (controller as? MobileStreamPresentationController)?.update(session: session)
     }
-    static func dismantleUIView(_ view: MobileStreamView, coordinator: ()) { view.stop() }
+    static func dismantleUIViewController(_ controller: UIViewController, coordinator: ()) {
+        (controller as? MobileStreamPresentationController)?.stop()
+    }
 }
+
+@MainActor private final class MobileStreamPresentationController: UIViewController {
+    private var session: MobileStreamingSession?
+    private var sessionObservation: AnyCancellable?
+    private var sessionUpdateTask: Task<Void, Never>?
+    private var streamController: MobileStreamViewController?
+    private var transitioning = false
+    private var stopped = false
+
+    override func loadView() {
+        view = UIView(); view.backgroundColor = .clear
+    }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        reconcile()
+    }
+    func update(session: MobileStreamingSession) {
+        guard !stopped else { return }
+        if self.session !== session {
+            sessionObservation?.cancel()
+            sessionUpdateTask?.cancel(); sessionUpdateTask = nil
+            self.session = session
+            // Full-screen UIKit presentation removes the presenting SwiftUI
+            // host from the window. Keep native lifecycle updates independent
+            // of that hidden host's representable updates.
+            sessionObservation = session.objectWillChange.sink { [weak self] in
+                MainActor.assumeIsolated { self?.scheduleSessionUpdate() }
+            }
+        }
+        updateSession()
+    }
+    private func scheduleSessionUpdate() {
+        guard !stopped, sessionUpdateTask == nil else { return }
+        // Published emits before its property is assigned. One coalesced actor
+        // task reads the completed state change, never an individual frame.
+        sessionUpdateTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self, !self.stopped else { return }
+            self.sessionUpdateTask = nil
+            self.updateSession()
+        }
+    }
+    private func updateSession() {
+        streamController?.update()
+        reconcile()
+    }
+    private func reconcile() {
+        guard !stopped, !transitioning, let session else { return }
+        if let stream = streamController,
+           !session.isActive || stream.sessionIdentity != ObjectIdentifier(session) ||
+               stream.generation != session.presentationGeneration {
+            stream.stop(); transitioning = true
+            // A false/true publication can be coalesced during reconnection.
+            // Retire the captured attempt before presenting its replacement.
+            dismiss(animated: false) { [weak self] in
+                guard let self, !self.stopped else { return }
+                self.streamController = nil; self.transitioning = false
+                self.reconcile()
+            }
+        } else if session.isActive {
+            guard streamController == nil, viewIfLoaded?.window != nil,
+                  presentedViewController == nil else { return }
+            let stream = MobileStreamViewController(session: session)
+            streamController = stream; transitioning = true
+            present(stream, animated: false) { [weak self] in
+                guard let self, !self.stopped else { return }
+                self.transitioning = false
+                stream.update()
+                self.reconcile()
+            }
+        }
+    }
+    func stop() {
+        guard !stopped else { return }
+        stopped = true
+        sessionObservation?.cancel(); sessionObservation = nil
+        sessionUpdateTask?.cancel(); sessionUpdateTask = nil
+        streamController?.stop(); streamController = nil
+        dismiss(animated: false)
+        session = nil
+    }
+}
+
+private struct MobileConnectionFeedback: View {
+    @ObservedObject var session: MobileStreamingSession
+    let generation: UInt64
+    var body: some View {
+        VStack(spacing: 20) {
+            ProgressView(session.status).tint(.white)
+            Button("Cancel") {
+                Task {
+                    guard session.presentationGeneration == generation else { return }
+                    await session.disconnect()
+                }
+            }.buttonStyle(.borderedProminent)
+        }.foregroundStyle(.white)
+    }
+}
+
+/// A controller profile owns game input while this surface is first responder.
+/// Temporary feedback is removed completely after the first video frame;
+/// statistics continue to use the existing pass on the video drawable.
+@MainActor private final class MobileStreamViewController: GCEventViewController, UIAdaptivePresentationControllerDelegate {
+    private let session: MobileStreamingSession
+    let sessionIdentity: ObjectIdentifier
+    let generation: UInt64
+    private var surface: MobileStreamView?
+    private var feedback: UIHostingController<MobileConnectionFeedback>?
+    private var controls: UIHostingController<MobileStreamControls>?
+    private var controlsTransitioning = false
+    private var stopped = false
+
+    init(session: MobileStreamingSession) {
+        self.session = session
+        sessionIdentity = ObjectIdentifier(session)
+        generation = session.presentationGeneration
+        super.init(nibName: nil, bundle: nil)
+        controllerUserInteractionEnabled = false
+        modalPresentationStyle = .fullScreen
+        modalPresentationCapturesStatusBarAppearance = true
+        isModalInPresentation = true
+    }
+    required init?(coder: NSCoder) { fatalError("Use the streaming initializer") }
+    override var prefersStatusBarHidden: Bool { true }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+    override func loadView() {
+        view = UIView(); view.backgroundColor = .black; view.isOpaque = true
+    }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        update()
+    }
+    func update() {
+        guard !stopped else { return }
+        guard session.isActive, session.presentationGeneration == generation else { stop(); return }
+        loadViewIfNeeded()
+        if surface == nil, let pipeline = session.pipeline, let transport = session.transport {
+            removeFeedback()
+            let metal = MobileStreamView(pipeline: pipeline, transport: transport, settings: session.settings,
+                toggleStatistics: { [weak session, generation] in
+                    guard let session, session.presentationGeneration == generation else { return }
+                    session.toggleStatistics()
+                },
+                disconnect: { [weak session, generation] in
+                    Task {
+                        guard let session, session.presentationGeneration == generation else { return }
+                        await session.disconnect()
+                    }
+                },
+                controls: { [weak session, generation] in
+                    guard let session, session.presentationGeneration == generation else { return }
+                    session.releaseInputs(); session.setControlsVisible(true)
+                })
+            // Replace the waiting root in place. Keep the presentation
+            // container's geometry, including a windowed iPad scene.
+            let previous = view!
+            let container = previous.superview
+            let index = container?.subviews.firstIndex(where: { $0 === previous })
+            metal.frame = previous.frame
+            metal.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            view = metal
+            if let container, metal.superview !== container {
+                // Assigning UIViewController.view may already detach its old
+                // root. Preserve its slot without using a detached sibling.
+                container.insertSubview(metal, at: min(index ?? container.subviews.count, container.subviews.count))
+            }
+            previous.removeFromSuperview()
+            surface = metal
+        }
+        surface?.inputEnabled = session.inputEnabled
+        surface?.updateStatistics(rows: session.statisticsRows, visible: session.showingStatistics,
+                                  position: session.statisticsPreferences.position)
+        surface?.refreshPresentationDiagnostics()
+        if session.hasVideo { removeFeedback() }
+        else if feedback == nil {
+            let host = UIHostingController(rootView: MobileConnectionFeedback(session: session, generation: generation))
+            host.view.backgroundColor = .clear
+            addChild(host); view.addSubview(host.view)
+            host.view.frame = view.bounds; host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            host.didMove(toParent: self); feedback = host
+        }
+        updateControls()
+    }
+    private func removeFeedback() {
+        guard let feedback else { return }
+        feedback.willMove(toParent: nil); feedback.view.removeFromSuperview(); feedback.removeFromParent()
+        self.feedback = nil
+    }
+    private func updateControls() {
+        guard !stopped, session.isActive, session.presentationGeneration == generation,
+              !controlsTransitioning else { return }
+        if session.controlsVisible, controls == nil, view.window != nil, presentedViewController == nil {
+            let host = UIHostingController(rootView: MobileStreamControls(session: session, generation: generation))
+            host.modalPresentationStyle = .pageSheet
+            host.sheetPresentationController?.detents = [.medium(), .large()]
+            host.sheetPresentationController?.prefersGrabberVisible = true
+            host.presentationController?.delegate = self
+            controls = host; controlsTransitioning = true
+            present(host, animated: true) { [weak self] in
+                guard let self, !self.stopped else { return }
+                self.controlsTransitioning = false; self.updateControls()
+            }
+        } else if !session.controlsVisible, let controls {
+            controlsTransitioning = true
+            controls.dismiss(animated: true) { [weak self] in
+                guard let self, !self.stopped else { return }
+                self.controls = nil; self.controlsTransitioning = false; self.update()
+            }
+        }
+    }
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        guard !stopped, session.presentationGeneration == generation else { return }
+        guard presentationController.presentedViewController === controls else { return }
+        controls = nil; controlsTransitioning = false
+        session.setControlsVisible(false)
+    }
+    func stop() {
+        guard !stopped else { return }
+        stopped = true; surface?.stop(); surface = nil
+        removeFeedback()
+    }
+}
+
 
 /// A dispatch source coalesces callback wakeups. It owns no decoded frames and
 /// never accumulates one main-queue closure per decoder callback.
@@ -202,10 +408,11 @@ private final class MobileFrameSignal: @unchecked Sendable {
             }
         }
     }
-    private var acceptsStreamCommands: Bool {
-        !stopped && inputEnabled && window?.isKeyWindow == true &&
+    private var acceptsLocalStreamActions: Bool {
+        !stopped && window?.isKeyWindow == true &&
             window?.windowScene?.activationState == .foregroundActive
     }
+    private var acceptsStreamCommands: Bool { acceptsLocalStreamActions && inputEnabled }
     override var canBecomeFirstResponder: Bool { acceptsStreamCommands }
     override var keyCommands: [UIKeyCommand]? { acceptsStreamCommands ? streamKeyCommands : nil }
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
@@ -463,8 +670,10 @@ private final class MobileFrameSignal: @unchecked Sendable {
     }
     @discardableResult private func applyHDRMetadata(_ frame: DecodedFrame) throws -> Bool {
         guard try hdrLayerState.apply(color: frame.color, to: metalLayer,
-                                     nativePQOutput: pipeline.renderOptions.nativePQOutput) else { return false }
-        pipeline.recordEDRMetadataUpdate(nativePQ: hdrLayerState.outputColorSpace == .rec2020PQ)
+                                     hdrPresentationMode: pipeline.renderOptions.hdrPresentationMode) else { return false }
+        pipeline.recordEDRMetadataUpdate(nativePQ: hdrLayerState.outputColorSpace == .rec2020PQ,
+                                        wantsEDR: metalLayer.wantsExtendedDynamicRangeContent,
+                                        metadataConfigured: metalLayer.edrMetadata != nil)
         recordPresentationRuntime()
         return true
     }
@@ -489,7 +698,7 @@ private final class MobileFrameSignal: @unchecked Sendable {
         transport.releaseAllInputs(); lastTouch = nil; toggleStatistics(); requestKeyboardFocus(); return true
     }
     @objc private func disconnectAction() -> Bool {
-        guard acceptsStreamCommands else { return false }
+        guard acceptsLocalStreamActions else { return false }
         transport.releaseAllInputs(); lastTouch = nil; disconnect(); return true
     }
     @objc private func disconnectFromEdge(_ gesture: UIScreenEdgePanGestureRecognizer) {
