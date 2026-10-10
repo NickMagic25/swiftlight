@@ -34,6 +34,10 @@ public enum ResolutionMode: String, Codable, CaseIterable, Sendable {
     }
 }
 public enum PointerMode: String, Codable, CaseIterable, Sendable { case relative, absolute }
+public enum MobileTouchMode: String, Codable, CaseIterable, Sendable {
+    case trackpad, nativeTouch
+    public var label: String { self == .trackpad ? "Trackpad" : "Native Touch" }
+}
 public enum VideoScaling: String, Codable, CaseIterable, Sendable { case fit, fill, integer }
 public enum VideoPacing: String, Codable, CaseIterable, Sendable {
     case displayLink, immediate
@@ -81,6 +85,8 @@ public struct StreamSettings: Codable, Equatable, Sendable {
     public var chromaSampling: StreamChromaSampling = .yuv420
     public var scaling: VideoScaling = .fit
     public var pointerMode: PointerMode = .relative
+    /// Finger input is independent of an attached mouse's pointer mode.
+    public var mobileTouchMode: MobileTouchMode = .trackpad
     /// macOS launch preference; other Apple platforms always present full screen.
     public var launchInFullScreen = true
     public var videoPacing: VideoPacing = .immediate
@@ -95,7 +101,7 @@ public struct StreamSettings: Codable, Equatable, Sendable {
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case resolution, customSize, framesPerSecond, bitrateMbps, automaticBitrate
-        case codec, hdr, hdrPresentationMode, chromaSampling, scaling, pointerMode, launchInFullScreen
+        case codec, hdr, hdrPresentationMode, chromaSampling, scaling, pointerMode, mobileTouchMode, launchInFullScreen
         case videoPacing, displaySyncEnabled, maximumDrawableCount
         case audioChannels, audioOutput, playAudioOnHost
     }
@@ -114,6 +120,7 @@ public struct StreamSettings: Codable, Equatable, Sendable {
         chromaSampling = try values.decodeIfPresent(StreamChromaSampling.self, forKey: .chromaSampling) ?? chromaSampling
         scaling = try values.decodeIfPresent(VideoScaling.self, forKey: .scaling) ?? scaling
         pointerMode = try values.decodeIfPresent(PointerMode.self, forKey: .pointerMode) ?? pointerMode
+        mobileTouchMode = try values.decodeIfPresent(MobileTouchMode.self, forKey: .mobileTouchMode) ?? mobileTouchMode
         // Existing global/per-host JSON predates this key. Preserve its settings
         // while adopting the full-screen launch default for the new preference.
         launchInFullScreen = try values.decodeIfPresent(Bool.self, forKey: .launchInFullScreen) ?? launchInFullScreen

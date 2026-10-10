@@ -129,6 +129,22 @@ public enum TransportEvent: Sendable {
     case rumble(controller: UInt16, low: UInt16, high: UInt16)
 }
 
+public enum NativeTouchAvailability: Sendable, Equatable {
+    case supported, unsupported, denied, notStreaming
+}
+
+public enum TouchEventPhase: UInt8, Sendable, CaseIterable {
+    case down = 0, move = 1, up = 2, cancel = 3
+    var native: SFTouchEventPhase {
+        switch self {
+        case .down: SF_TOUCH_DOWN
+        case .move: SF_TOUCH_MOVE
+        case .up: SF_TOUCH_UP
+        case .cancel: SF_TOUCH_CANCEL
+        }
+    }
+}
+
 /// Setup and video are synchronous admission calls, not UI callbacks. `video` returns
 /// true only after MoonlightAppleVideo acquired its input; false requests an IDR.
 /// Event callbacks must enqueue orchestration and never synchronously stop this transport.
@@ -289,6 +305,21 @@ public final class StreamTransport: @unchecked Sendable {
     }
     public func requestKeyFrame() { sf_stream_request_idr(pointer) }
     public func releaseAllInputs() { sf_stream_release_inputs(pointer) }
+    public var nativeTouchAvailability: NativeTouchAvailability {
+        switch sf_stream_native_touch_availability(pointer) {
+        case SF_NATIVE_TOUCH_SUPPORTED: .supported
+        case SF_NATIVE_TOUCH_UNSUPPORTED: .unsupported
+        case SF_NATIVE_TOUCH_DENIED: .denied
+        default: .notStreaming
+        }
+    }
+    /// Coordinates and pressure are normalized; pressure 0 means unknown.
+    /// A nonzero result rejects the event. Input cleanup cancels all accepted
+    /// contacts, including contacts whose terminal enqueue previously failed.
+    @discardableResult
+    public func touch(event: TouchEventPhase, id: UInt32, x: Float, y: Float, pressure: Float = 0) -> Int32 {
+        sf_stream_touch(pointer, event.native, id, x, y, pressure)
+    }
     public func mouseMove(dx: Int16, dy: Int16) { _ = sf_stream_mouse_move(pointer, dx, dy) }
     public func mousePosition(x: Int16, y: Int16, width: Int16, height: Int16) { _ = sf_stream_mouse_position(pointer, x, y, width, height) }
     public func mouseButton(_ button: Int, pressed: Bool) { _ = sf_stream_mouse_button(pointer, Int32(clamping: button), pressed) }

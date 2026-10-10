@@ -117,6 +117,7 @@ The reusable decoder source is in [`Packages/moonlight-apple-decoder/`](../../Pa
 - [Stream latency debugging](stream-latency-debugging.md)
 - [iPad presentation latency investigation](ipad-presentation-2026-09-14.md)
 - [Mobile presentation and controller routing](mobile-controller-presentation.md)
+- [Mobile touch input and validation](mobile-touch-input.md)
 - [Stream deadlock validation](stream-deadlock-validation.md)
 - [Statistics overlay validation](statistics-metal-overlay-2026-09-13.md)
 - [Statistics and shortcut validation](stream-statistics-validation.md)

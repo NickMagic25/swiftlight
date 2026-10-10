@@ -22,6 +22,10 @@ extern void sf_common_video_frame_counts(uint64_t*, uint64_t*);
 #define MAX_COMPRESSED_FRAME (32u * 1024u * 1024u)
 #define MAX_FRAME_FRAGMENTS 65536u
 #define MAX_PYROWAVE_QUEUE_DRAIN 15u
+#define MAX_TOUCH_CONTACTS 16u
+// Apollo crypto::PERM::input_touch at adc5c5a0bd80831ce495434bb16aee2cd4175fb8.
+// Native touch is a distinct permission from mouse (0x800) and pen (0x400).
+#define TOUCH_PERMISSION 0x200u
 #define ALLOWED_VIDEO_FORMATS (VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | \
     VIDEO_FORMAT_H265_REXT8_444 | VIDEO_FORMAT_H265_REXT10_444 | \
     VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10 | \
@@ -57,6 +61,10 @@ struct SFStream {
     SFVideoFragment *frame_fragments;
     SFAudioOutput *audio;
     int (*send_key)(struct SFStream *, uint16_t, char, char, char);
+    uint32_t (*host_features)(struct SFStream *);
+    int (*send_touch)(struct SFStream *, uint8_t, uint32_t, float, float, float, float, float, uint16_t);
+    // Accepted contacts and sender/capability access are serialized by api_mutex.
+    struct { uint32_t id; bool active; } touch_contacts[MAX_TOUCH_CONTACTS];
     uint16_t held_keys[256];
     bool held_mouse[6];
     uint16_t controller_mask;
@@ -278,6 +286,11 @@ static void audio_decode(char *data, int length) { sf_audio_decode(active_stream
 static int send_key_common(SFStream *s, uint16_t key, char action, char modifiers, char flags) {
     (void)s; return LiSendKeyboardEvent2((short)key, action, modifiers, flags);
 }
+static uint32_t host_features_common(SFStream *s) { (void)s; return LiGetHostFeatureFlags(); }
+static int send_touch_common(SFStream *s, uint8_t event, uint32_t id, float x, float y, float pressure,
+                             float major, float minor, uint16_t rotation) {
+    (void)s; return LiSendTouchEvent(event, id, x, y, pressure, major, minor, rotation);
+}
 static char *copy_string(const char *s) { return s ? strdup(s) : NULL; }
 int sf_stream_audio_configuration(int channels) {
     switch (channels) {
@@ -306,6 +319,7 @@ SFStream *sf_stream_create(const SFStreamConfiguration *c, SFStreamCallbacks cal
     s->configuration.address = copy_string(c->address); s->configuration.app_version = copy_string(c->app_version);
     s->configuration.gfe_version = copy_string(c->gfe_version); s->configuration.rtsp_url = copy_string(c->rtsp_url);
     s->callbacks = callbacks; s->context = context; s->send_key = send_key_common;
+    s->host_features = host_features_common; s->send_touch = send_touch_common;
     s->frame_buffer = malloc(MAX_COMPRESSED_FRAME);
     if (c->video_formats & VIDEO_FORMAT_MASK_PYROWAVE) s->frame_fragments = malloc(MAX_FRAME_FRAGMENTS * sizeof(*s->frame_fragments));
     if (!s->configuration.address || !s->configuration.app_version || !s->frame_buffer ||
@@ -363,6 +377,15 @@ void sf_stream_cancel_start(SFStream *s) {
     pthread_mutex_unlock(&active_mutex);
 }
 static void release_inputs_locked(SFStream *s) {
+    bool touches_active = false;
+    for (unsigned i = 0; i < MAX_TOUCH_CONTACTS; ++i) touches_active |= s->touch_contacts[i].active;
+    if (touches_active) {
+        // Accepted contacts owe cleanup even if permissions/capabilities later
+        // change. Send before STOPPING retires common-c's input queue, then
+        // retire local ownership even if that queue rejects the cancellation.
+        s->send_touch(s, LI_TOUCH_EVENT_CANCEL_ALL, 0, 0, 0, 0, 0, 0, LI_ROT_UNKNOWN);
+        memset(s->touch_contacts, 0, sizeof(s->touch_contacts));
+    }
     for (unsigned i = 0; i < 256; ++i) if (s->held_keys[i]) {
         s->send_key(s, s->held_keys[i], KEY_ACTION_UP, 0, 0); s->held_keys[i] = 0;
     }
@@ -402,6 +425,63 @@ void sf_stream_request_idr(SFStream *s) {
 #define PERMISSION(bit) (!s->configuration.has_permissions || (s->configuration.permissions & (bit)) != 0)
 #define INPUT_BEGIN pthread_mutex_lock(&s->api_mutex); int r = -1; if (atomic_load_explicit(&s->state, memory_order_acquire) == STREAMING) {
 #define INPUT_END } pthread_mutex_unlock(&s->api_mutex); return r
+static SFNativeTouchAvailability native_touch_availability_locked(SFStream *s) {
+    if (atomic_load_explicit(&s->state, memory_order_acquire) != STREAMING) return SF_NATIVE_TOUCH_NOT_STREAMING;
+    if (!PERMISSION(TOUCH_PERMISSION)) return SF_NATIVE_TOUCH_DENIED;
+    return s->host_features(s) & LI_FF_PEN_TOUCH_EVENTS ? SF_NATIVE_TOUCH_SUPPORTED : SF_NATIVE_TOUCH_UNSUPPORTED;
+}
+SFNativeTouchAvailability sf_stream_native_touch_availability(SFStream *s) {
+    pthread_mutex_lock(&s->api_mutex);
+    SFNativeTouchAvailability availability = native_touch_availability_locked(s);
+    pthread_mutex_unlock(&s->api_mutex);
+    return availability;
+}
+int sf_stream_touch(SFStream *s, SFTouchEventPhase phase, uint32_t id, float x, float y, float pressure) {
+    pthread_mutex_lock(&s->api_mutex);
+    int result = -1;
+    if (atomic_load_explicit(&s->state, memory_order_acquire) != STREAMING) goto done;
+    if (!isfinite(x) || !isfinite(y) || !isfinite(pressure) || x < 0 || x > 1 || y < 0 || y > 1 || pressure < 0 || pressure > 1) {
+        result = -4; goto done;
+    }
+    uint8_t event;
+    switch (phase) {
+        case SF_TOUCH_DOWN: event = LI_TOUCH_EVENT_DOWN; break;
+        case SF_TOUCH_MOVE: event = LI_TOUCH_EVENT_MOVE; break;
+        case SF_TOUCH_UP: event = LI_TOUCH_EVENT_UP; break;
+        case SF_TOUCH_CANCEL: event = LI_TOUCH_EVENT_CANCEL; break;
+        default: result = -4; goto done;
+    }
+    unsigned slot = MAX_TOUCH_CONTACTS, free_slot = MAX_TOUCH_CONTACTS;
+    for (unsigned i = 0; i < MAX_TOUCH_CONTACTS; ++i) {
+        if (s->touch_contacts[i].active && s->touch_contacts[i].id == id) slot = i;
+        if (!s->touch_contacts[i].active && free_slot == MAX_TOUCH_CONTACTS) free_slot = i;
+    }
+    bool terminal = phase == SF_TOUCH_UP || phase == SF_TOUCH_CANCEL;
+    if ((phase == SF_TOUCH_DOWN && slot != MAX_TOUCH_CONTACTS) || (phase != SF_TOUCH_DOWN && slot == MAX_TOUCH_CONTACTS)) {
+        result = -4; goto done;
+    }
+    SFNativeTouchAvailability availability = native_touch_availability_locked(s);
+    if (availability != SF_NATIVE_TOUCH_SUPPORTED) {
+        if (!terminal) { result = availability == SF_NATIVE_TOUCH_DENIED ? -2 : -3; goto done; }
+        // A previously accepted contact still owes a terminal event. Cancel
+        // rather than submit new position/pressure data after admission closes.
+        event = LI_TOUCH_EVENT_CANCEL; x = y = pressure = 0;
+    }
+    if (phase == SF_TOUCH_DOWN) {
+        if (free_slot == MAX_TOUCH_CONTACTS) { result = -5; goto done; }
+        slot = free_slot;
+    }
+    if (event == LI_TOUCH_EVENT_CANCEL) x = y = pressure = 0;
+    result = s->send_touch(s, event, id, x, y, pressure, 0, 0, LI_ROT_UNKNOWN);
+    if (result == 0) {
+        if (terminal) s->touch_contacts[slot].active = false;
+        else if (phase == SF_TOUCH_DOWN) { s->touch_contacts[slot].id = id; s->touch_contacts[slot].active = true; }
+    }
+    // Failed terminal sends retain their slot so release_inputs can cancel all.
+done:
+    pthread_mutex_unlock(&s->api_mutex);
+    return result;
+}
 int sf_stream_mouse_move(SFStream *s, int16_t x, int16_t y) { if (!PERMISSION(0x800)) return -2; INPUT_BEGIN r = LiSendMouseMoveEvent(x, y); INPUT_END; }
 int sf_stream_mouse_position(SFStream *s, int16_t x, int16_t y, int16_t w, int16_t h) {
     if (!PERMISSION(0x800)) return -2;
@@ -749,6 +829,128 @@ bool sf_stream_validate_keyboard_wire_codes(void) {
          spy.actions[2] == KEY_ACTION_DOWN && spy.actions[3] == KEY_ACTION_UP &&
          spy.modifiers[0] == MODIFIER_SHIFT && spy.modifiers[2] == MODIFIER_ALT && !s.held_keys[0x12];
     pthread_mutex_destroy(&s.api_mutex); return ok;
+}
+typedef struct {
+    uint8_t event;
+    uint32_t id;
+    float x, y, pressure, major, minor;
+    uint16_t rotation;
+} TouchWireEvent;
+typedef struct {
+    uint32_t features;
+    unsigned feature_reads, count;
+    int result;
+    TouchWireEvent events[128];
+} TouchWireSpy;
+static uint32_t spy_host_features(SFStream *s) {
+    TouchWireSpy *spy = s->context; ++spy->feature_reads; return spy->features;
+}
+static int spy_touch(SFStream *s, uint8_t event, uint32_t id, float x, float y, float pressure,
+                     float major, float minor, uint16_t rotation) {
+    TouchWireSpy *spy = s->context;
+    if (spy->count >= 128) return -99;
+    spy->events[spy->count++] = (TouchWireEvent) { event, id, x, y, pressure, major, minor, rotation };
+    return spy->result;
+}
+static unsigned active_touch_count(SFStream *s) {
+    unsigned count = 0;
+    for (unsigned i = 0; i < MAX_TOUCH_CONTACTS; ++i) count += s->touch_contacts[i].active;
+    return count;
+}
+bool sf_stream_validate_native_touch(void) {
+    // Inject only common-c capability/sender calls. Public production admission,
+    // wire mapping, registry and release_inputs execute unchanged without a host.
+    TouchWireSpy spy = { .features = LI_FF_PEN_TOUCH_EVENTS };
+    SFStream s = { .state = CREATED, .context = &spy, .host_features = spy_host_features, .send_touch = spy_touch };
+    pthread_mutex_init(&s.api_mutex, NULL);
+    bool ok = sf_stream_native_touch_availability(&s) == SF_NATIVE_TOUCH_NOT_STREAMING &&
+        sf_stream_touch(&s, SF_TOUCH_DOWN, 1, 0.2f, 0.3f, 0) == -1 && !spy.feature_reads && !spy.count;
+    atomic_store_explicit(&s.state, STREAMING, memory_order_release);
+    spy.features = 0;
+    ok &= sf_stream_native_touch_availability(&s) == SF_NATIVE_TOUCH_UNSUPPORTED &&
+        sf_stream_touch(&s, SF_TOUCH_DOWN, 1, 0.2f, 0.3f, 0) == -3 && !spy.count && !active_touch_count(&s);
+    spy.features = LI_FF_PEN_TOUCH_EVENTS;
+    s.configuration.has_permissions = true;
+    const uint32_t denied_permissions[] = { 0, 0x100, 0x400, 0x800, 0x1000 };
+    for (unsigned i = 0; i < sizeof(denied_permissions) / sizeof(denied_permissions[0]); ++i) {
+        s.configuration.permissions = denied_permissions[i];
+        unsigned reads = spy.feature_reads;
+        ok &= sf_stream_native_touch_availability(&s) == SF_NATIVE_TOUCH_DENIED &&
+            sf_stream_touch(&s, SF_TOUCH_DOWN, 1, 0.2f, 0.3f, 0) == -2 && spy.feature_reads == reads && !spy.count;
+    }
+    s.configuration.permissions = TOUCH_PERMISSION;
+    ok &= sf_stream_native_touch_availability(&s) == SF_NATIVE_TOUCH_SUPPORTED &&
+        sf_stream_mouse_move(&s, 1, 1) == -2; // Native touch does not require the mouse grant.
+    s.configuration.has_permissions = false; // Standard host without Apollo permission field.
+    ok &= sf_stream_native_touch_availability(&s) == SF_NATIVE_TOUCH_SUPPORTED;
+    const float invalid[] = { NAN, INFINITY, -INFINITY, -0.1f, 1.1f };
+    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+        ok &= sf_stream_touch(&s, SF_TOUCH_DOWN, 1, invalid[i], 0.3f, 0) == -4 &&
+            sf_stream_touch(&s, SF_TOUCH_DOWN, 1, 0.2f, invalid[i], 0) == -4 &&
+            sf_stream_touch(&s, SF_TOUCH_DOWN, 1, 0.2f, 0.3f, invalid[i]) == -4;
+    }
+    ok &= sf_stream_touch(&s, (SFTouchEventPhase)99, 1, 0.2f, 0.3f, 0) == -4 && !spy.count && !active_touch_count(&s);
+    ok &= sf_stream_touch(&s, SF_TOUCH_MOVE, 1, 0.2f, 0.3f, 0) == -4 &&
+        sf_stream_touch(&s, SF_TOUCH_UP, 1, 0.2f, 0.3f, 0) == -4 &&
+        sf_stream_touch(&s, SF_TOUCH_CANCEL, 1, 0, 0, 0) == -4 && !spy.count;
+    ok &= sf_stream_touch(&s, SF_TOUCH_DOWN, UINT32_MAX, 0, 1, 0) == 0 && active_touch_count(&s) == 1;
+    ok &= sf_stream_touch(&s, SF_TOUCH_DOWN, UINT32_MAX, 0, 1, 0) == -4 && spy.count == 1;
+    ok &= sf_stream_touch(&s, SF_TOUCH_MOVE, UINT32_MAX, 1, 0, 1) == 0;
+    ok &= sf_stream_touch(&s, SF_TOUCH_UP, UINT32_MAX, 1, 0, 0) == 0 && !active_touch_count(&s);
+    ok &= spy.count == 3 && spy.events[0].event == LI_TOUCH_EVENT_DOWN && spy.events[1].event == LI_TOUCH_EVENT_MOVE &&
+        spy.events[2].event == LI_TOUCH_EVENT_UP && spy.events[0].id == UINT32_MAX &&
+        spy.events[0].x == 0 && spy.events[0].y == 1 && spy.events[0].pressure == 0 && spy.events[1].pressure == 1;
+    ok &= sf_stream_touch(&s, SF_TOUCH_DOWN, 0, 0.2f, 0.3f, 0) == 0 &&
+        sf_stream_touch(&s, SF_TOUCH_CANCEL, 0, 0.4f, 0.5f, 1) == 0 && !active_touch_count(&s);
+    ok &= spy.events[4].event == LI_TOUCH_EVENT_CANCEL && spy.events[4].id == 0 &&
+        spy.events[4].x == 0 && spy.events[4].y == 0 && spy.events[4].pressure == 0;
+    unsigned before = spy.count;
+    spy.result = -17;
+    ok &= sf_stream_touch(&s, SF_TOUCH_DOWN, 17, 0.2f, 0.3f, 0) == -17 && !active_touch_count(&s);
+    ok &= sf_stream_touch(&s, SF_TOUCH_UP, 17, 0.2f, 0.3f, 0) == -4 && spy.count == before + 1;
+    spy.result = 0;
+    for (unsigned i = 0; i < MAX_TOUCH_CONTACTS; ++i) ok &= sf_stream_touch(&s, SF_TOUCH_DOWN, i, 0.2f, 0.3f, 0) == 0;
+    before = spy.count;
+    ok &= active_touch_count(&s) == MAX_TOUCH_CONTACTS && sf_stream_touch(&s, SF_TOUCH_DOWN, 17, 0.2f, 0.3f, 0) == -5 &&
+        sf_stream_touch(&s, SF_TOUCH_UP, 17, 0.2f, 0.3f, 0) == -4 && spy.count == before;
+    ok &= sf_stream_touch(&s, SF_TOUCH_UP, 5, 0.2f, 0.3f, 0) == 0 &&
+        sf_stream_touch(&s, SF_TOUCH_DOWN, 17, 0.2f, 0.3f, 0) == 0 && active_touch_count(&s) == MAX_TOUCH_CONTACTS;
+    // An accepted contact can still cancel after its permission is removed.
+    s.configuration.has_permissions = true; s.configuration.permissions = 0;
+    ok &= sf_stream_touch(&s, SF_TOUCH_MOVE, 0, 0.2f, 0.3f, 0) == -2;
+    ok &= sf_stream_touch(&s, SF_TOUCH_UP, 0, 0.2f, 0.3f, 0) == 0 &&
+        spy.events[spy.count - 1].event == LI_TOUCH_EVENT_CANCEL && active_touch_count(&s) == MAX_TOUCH_CONTACTS - 1;
+    before = spy.count;
+    sf_stream_release_inputs(&s);
+    ok &= !active_touch_count(&s) && spy.count == before + 1 && spy.events[before].event == LI_TOUCH_EVENT_CANCEL_ALL;
+    sf_stream_release_inputs(&s);
+    ok &= spy.count == before + 1;
+    s.configuration.permissions = TOUCH_PERMISSION;
+    ok &= sf_stream_touch(&s, SF_TOUCH_DOWN, 3, 0.2f, 0.3f, 0) == 0;
+    spy.result = -18;
+    ok &= sf_stream_touch(&s, SF_TOUCH_UP, 3, 0.2f, 0.3f, 0) == -18 && active_touch_count(&s) == 1;
+    before = spy.count;
+    sf_stream_release_inputs(&s);
+    ok &= !active_touch_count(&s) && spy.count == before + 1 && spy.events[before].event == LI_TOUCH_EVENT_CANCEL_ALL;
+    spy.result = 0;
+    ok &= sf_stream_touch(&s, SF_TOUCH_DOWN, 3, 0.2f, 0.3f, 0) == 0;
+    spy.features = 0;
+    ok &= sf_stream_touch(&s, SF_TOUCH_MOVE, 3, 0.2f, 0.3f, 0) == -3 &&
+        sf_stream_touch(&s, SF_TOUCH_CANCEL, 3, 0, 0, 0) == 0 && !active_touch_count(&s);
+    spy.features = LI_FF_PEN_TOUCH_EVENTS;
+    ok &= sf_stream_touch(&s, SF_TOUCH_DOWN, 4, 0.2f, 0.3f, 0) == 0;
+    sf_stream_release_inputs(&s); // Same cleanup runs under api_mutex before stop closes admission.
+    atomic_store_explicit(&s.state, STOPPED, memory_order_release);
+    before = spy.count; unsigned reads = spy.feature_reads;
+    ok &= sf_stream_native_touch_availability(&s) == SF_NATIVE_TOUCH_NOT_STREAMING &&
+        sf_stream_touch(&s, SF_TOUCH_DOWN, 4, 0.2f, 0.3f, 0) == -1 &&
+        sf_stream_touch(&s, SF_TOUCH_UP, 4, 0.2f, 0.3f, 0) == -1 && !active_touch_count(&s) &&
+        spy.count == before && spy.feature_reads == reads;
+    for (unsigned i = 0; i < spy.count; ++i) {
+        ok &= spy.events[i].major == 0 && spy.events[i].minor == 0 && spy.events[i].rotation == LI_ROT_UNKNOWN;
+    }
+    pthread_mutex_destroy(&s.api_mutex);
+    return ok;
 }
 typedef struct { SFStream *stream; dispatch_semaphore_t ready, done; _Atomic bool valid; } CancelRace;
 static void *cancellation_test_worker(void *context) {

@@ -10,7 +10,7 @@ The single `Swiftlight` app target and scheme in `Swiftlight.xcodeproj` support 
 4. Open **Settings** using the gear at the top right to choose resolution, frame rate, codec, picture size, and bitrate. **Save** applies your choices to the next stream; **Cancel** discards edits.
 5. Tap an application to start streaming. Tap a running application to resume it. If a different application is already running, review the **Switch Applications?** confirmation. **Quit and Start** quits the running application on your computer before starting the selected one; unsaved progress may be lost. **Cancel** leaves it running.
 
-Video settings include custom pixel dimensions and frame rate, fit/fill/integer scaling, and relative or absolute pointer mode. With Automatic bitrate off, use the slider or enter an exact bitrate. Invalid values keep the settings sheet open with an explanation so you can correct them or cancel.
+Video settings include custom pixel dimensions and frame rate, and fit/fill/integer scaling. **Settings → Touch Input → Touch mode** offers **Trackpad** and **Native Touch** on iPhone and iPad. Trackpad is the default, including when upgrading existing settings. With Automatic bitrate off, use the slider or enter an exact bitrate. Invalid values keep the settings sheet open with an explanation so you can correct them or cancel.
 
 On iPhone and at narrow iPad window sizes, the computer list opens the selected computer's library in a navigation stack. On a wider iPad window, the computer list and library appear side by side. Forms, controls, and text adapt to the window, orientation, appearance, and system text size.
 
@@ -22,7 +22,11 @@ To end an application on your computer, touch and hold its running tile, choose 
 
 ## Stream controls
 
-Touch the video to move the pointer and tap to click. A connected physical game controller can provide game input. The stream fills the screen with the status bar and controls hidden initially.
+In **Trackpad** mode, slide one finger to move the pointer, tap to left-click, or double tap and keep the second touch down to drag. Lift to release the drag. Tap with two fingers to right-click; slide two fingers to scroll vertically or horizontally. Adding a second finger releases an active drag before scrolling.
+
+**Native Touch** sends individual touch contacts directly to a compatible computer, using the displayed video's position and crop. New touches in letterboxes are ignored. When the host does not advertise native touch support, the first touch opens Stream Controls with an explanation, and Trackpad is used for the rest of that stream. An explicit host touch-permission denial shows an explanation and does not switch input modes; enable the client's touch permission or choose Trackpad for your next stream. These choices apply only to iPhone/iPad screen touches. Connected UIKit mouse/trackpad clicks retain their separate pointer routing.
+
+The left 24 points are reserved for disconnect, and three-finger touches are reserved for local statistics and controls in both modes. Opening controls, resizing, backgrounding or disconnecting releases active drags and cancels native contacts. A connected physical game controller can also provide game input. The stream fills the screen with the status bar and controls hidden initially. See [mobile touch implementation and validation](dev/mobile-touch-input.md) for the protocol boundary and pending device checks.
 
 Controllers already connected when streaming begins are registered immediately, and connecting or disconnecting a controller updates the stream's controller state. Controls held while starting or resuming input must be released before they are forwarded, so selecting a game does not also press a button in it. Stream Controls and an inactive app pause controller forwarding and release held input.
 

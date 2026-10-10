@@ -105,12 +105,14 @@ struct StreamVideoSettingsSection: View {
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("videoScaling")
+            #if !os(iOS)
             Picker("Pointer", selection: $settings.pointerMode) {
                 Text("Relative (Games)").tag(PointerMode.relative)
                 Text("Absolute (Desktop)").tag(PointerMode.absolute)
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("pointerMode")
+            #endif
         } header: {
             Text("Video")
         } footer: {

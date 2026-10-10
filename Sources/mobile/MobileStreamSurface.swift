@@ -16,7 +16,14 @@ private struct MobileStreamControls: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Touch the video to move the pointer. Tap to click, or use a connected game controller.")
+                    if let issue = session.touchInputIssue {
+                        Text(issue.message).accessibilityIdentifier("touchInputIssue")
+                    }
+                    if session.settings.mobileTouchMode == .trackpad || session.touchInputIssue == .unsupported {
+                        Text("Slide one finger to move the pointer. Tap to click, double tap and hold to drag, or use two fingers to right-click and scroll.")
+                    } else {
+                        Text("Touch the video to interact directly with your computer. Native Touch supports separate touch contacts on compatible hosts.")
+                    }
                     Text("Tap with three fingers to show or hide statistics. Hold three fingers to open these controls.")
                     Text("Swipe one finger from the left edge to the middle of the screen to disconnect.")
                 }
@@ -253,6 +260,10 @@ private struct MobileConnectionFeedback: View {
                 container.insertSubview(metal, at: min(index ?? container.subviews.count, container.subviews.count))
             }
             previous.removeFromSuperview()
+            metal.reportTouchInputIssue = { [weak session, generation] issue in
+                guard let session, session.presentationGeneration == generation else { return }
+                session.reportTouchInputIssue(issue)
+            }
             surface = metal
         }
         surface?.inputEnabled = session.inputEnabled
@@ -344,7 +355,11 @@ private final class MobileFrameSignal: @unchecked Sendable {
     private var hierarchyCapture = MobilePresentationHierarchyCapture()
     private var recordedHierarchyTime: Double?
     private var redraw = false
-    private var lastTouch: CGPoint?
+    private var lastIndirectPointer: CGPoint?
+    var reportTouchInputIssue: ((MobileTouchInputIssue) -> Void)?
+    private lazy var touchInput = MobileTouchInput(mode: settings.mobileTouchMode, transport: transport) { [weak self] issue in
+        self?.reportTouchInputIssue?(issue)
+    }
     private var stopped = false
     private var keyboardFocusTask: Task<Void, Never>?
     private var keyboardFocusPending = false
@@ -403,7 +418,7 @@ private final class MobileFrameSignal: @unchecked Sendable {
             guard inputEnabled != oldValue else { return }
             if inputEnabled { requestKeyboardFocus() }
             else {
-                transport.releaseAllInputs(); lastTouch = nil
+                releaseTouchAndOtherInputs()
                 cancelKeyboardFocus()
             }
         }
@@ -432,17 +447,22 @@ private final class MobileFrameSignal: @unchecked Sendable {
         isAccessibilityElement = false
         updateStatisticsAccessibility()
         let controlsHold = UILongPressGestureRecognizer(target: self, action: #selector(holdControls(_:)))
+        controlsHold.delaysTouchesBegan = false; controlsHold.delaysTouchesEnded = false
         controlsHold.numberOfTouchesRequired = 3; addGestureRecognizer(controlsHold)
         let statisticsTap = UITapGestureRecognizer(target: self, action: #selector(toggleStatisticsAction))
+        statisticsTap.delaysTouchesBegan = false; statisticsTap.delaysTouchesEnded = false
         statisticsTap.numberOfTouchesRequired = 3
         statisticsTap.require(toFail: controlsHold); addGestureRecognizer(statisticsTap)
         let edge = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(disconnectFromEdge(_:)))
+        edge.delaysTouchesBegan = false; edge.delaysTouchesEnded = false
         edge.edges = .left; edge.maximumNumberOfTouches = 1; addGestureRecognizer(edge)
-        let tap = UITapGestureRecognizer(target: self, action: #selector(clickPointer(_:)))
-        tap.require(toFail: statisticsTap); tap.require(toFail: controlsHold); tap.require(toFail: edge)
-        addGestureRecognizer(tap)
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(movePointer(_:)))
-        pan.maximumNumberOfTouches = 1; pan.require(toFail: edge); addGestureRecognizer(pan)
+        // Keep UIKit mouse/trackpad button input separate from finger modes.
+        let pointerTap = UITapGestureRecognizer(target: self, action: #selector(clickIndirectPointer(_:)))
+        pointerTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
+        addGestureRecognizer(pointerTap)
+        let pointerPan = UIPanGestureRecognizer(target: self, action: #selector(moveIndirectPointer(_:)))
+        pointerPan.allowedTouchTypes = pointerTap.allowedTouchTypes
+        pointerPan.maximumNumberOfTouches = 1; addGestureRecognizer(pointerPan)
         do {
             let renderer = try MetalVideoRenderer()
             self.renderer = renderer; pipeline.attachRenderer(renderer)
@@ -539,7 +559,7 @@ private final class MobileFrameSignal: @unchecked Sendable {
         contentScaleFactor = scale
         metalLayer.contentsScale = scale
         metalLayer.drawableSize = size
-        redraw = true; signal?.signal(); transport.releaseAllInputs()
+        redraw = true; signal?.signal(); releaseTouchAndOtherInputs()
         refreshStatisticsOverlay()
         updateStatisticsAccessibility()
         recordPresentationRuntime()
@@ -687,7 +707,7 @@ private final class MobileFrameSignal: @unchecked Sendable {
     }
     @objc private func showControls() -> Bool {
         guard acceptsStreamCommands else { return false }
-        transport.releaseAllInputs(); lastTouch = nil; controls(); return true
+        releaseTouchAndOtherInputs(); controls(); return true
     }
     override func accessibilityActivate() -> Bool { showControls() }
     @objc private func holdControls(_ gesture: UILongPressGestureRecognizer) {
@@ -695,42 +715,68 @@ private final class MobileFrameSignal: @unchecked Sendable {
     }
     @objc private func toggleStatisticsAction() -> Bool {
         guard acceptsStreamCommands else { return false }
-        transport.releaseAllInputs(); lastTouch = nil; toggleStatistics(); requestKeyboardFocus(); return true
+        releaseTouchAndOtherInputs(); toggleStatistics(); requestKeyboardFocus(); return true
     }
     @objc private func disconnectAction() -> Bool {
         guard acceptsLocalStreamActions else { return false }
-        transport.releaseAllInputs(); lastTouch = nil; disconnect(); return true
+        releaseTouchAndOtherInputs(); disconnect(); return true
     }
     @objc private func disconnectFromEdge(_ gesture: UIScreenEdgePanGestureRecognizer) {
-        if gesture.state == .began { transport.releaseAllInputs(); lastTouch = nil }
+        if gesture.state == .began { releaseTouchAndOtherInputs() }
         if gesture.state == .ended, gesture.translation(in: self).x >= bounds.width * 0.45 {
             _ = disconnectAction()
         }
     }
-    @objc private func clickPointer(_ gesture: UITapGestureRecognizer) {
-        guard inputEnabled else { return }
-        if settings.pointerMode == .absolute, !positionPointer(at: gesture.location(in: self)) { return }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        forwardTouches(touches, phase: .began)
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        forwardTouches(touches, phase: .moved)
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        forwardTouches(touches, phase: .ended)
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        forwardTouches(touches, phase: .cancelled)
+    }
+    private func forwardTouches(_ touches: Set<UITouch>, phase: TrackpadTouchPhase) {
+        guard acceptsStreamCommands else { touchInput.cancel(); return }
+        let geometry = lastFrame.map { frame in
+            NativeTouchGeometry(frameSize: CGSize(width: frame.width, height: frame.height),
+                                contentRect: frame.contentRect, viewBounds: bounds,
+                                drawableSize: metalLayer.drawableSize, scaling: settings.scaling)
+        }
+        touchInput.consume(touches, phase: phase, in: self, geometry: geometry)
+    }
+    private func releaseTouchAndOtherInputs() {
+        touchInput.cancel(); lastIndirectPointer = nil; transport.releaseAllInputs()
+    }
+    @objc private func clickIndirectPointer(_ gesture: UITapGestureRecognizer) {
+        guard acceptsStreamCommands else { return }
+        if settings.pointerMode == .absolute, !positionIndirectPointer(at: gesture.location(in: self)) { return }
         transport.mouseButton(1, pressed: true); transport.mouseButton(1, pressed: false)
     }
-    @objc private func movePointer(_ gesture: UIPanGestureRecognizer) {
-        guard inputEnabled else { return }
+    @objc private func moveIndirectPointer(_ gesture: UIPanGestureRecognizer) {
+        guard acceptsStreamCommands else { return }
         let point = gesture.location(in: self)
-        if settings.pointerMode == .absolute { _ = positionPointer(at: point) }
-        else if gesture.state == .changed, let previous = lastTouch {
-            transport.mouseMove(dx: Int16(clamping: Int((point.x - previous.x).rounded())),
-                dy: Int16(clamping: Int((point.y - previous.y).rounded())))
+        if settings.pointerMode == .absolute { _ = positionIndirectPointer(at: point) }
+        else if gesture.state == .changed, let previous = lastIndirectPointer,
+                point.x.isFinite, point.y.isFinite, previous.x.isFinite, previous.y.isFinite {
+            let x = min(CGFloat(Int16.max), max(CGFloat(Int16.min), (point.x - previous.x).rounded()))
+            let y = min(CGFloat(Int16.max), max(CGFloat(Int16.min), (point.y - previous.y).rounded()))
+            transport.mouseMove(dx: Int16(x), dy: Int16(y))
         }
-        lastTouch = [.ended, .cancelled, .failed].contains(gesture.state) ? nil : point
-        if gesture.state == .cancelled { transport.releaseAllInputs() }
+        lastIndirectPointer = [.ended, .cancelled, .failed].contains(gesture.state) ? nil : point
+        if gesture.state == .cancelled { releaseTouchAndOtherInputs() }
     }
-    private func positionPointer(at point: CGPoint) -> Bool {
+    private func positionIndirectPointer(at point: CGPoint) -> Bool {
         guard let frame = lastFrame else { return false }
-        let crop = frame.contentRect
-        let transform = ViewportTransform(source: crop.size,
+        let transform = ViewportTransform(source: frame.contentRect.size,
             destination: CGRect(origin: .zero, size: metalLayer.drawableSize), scaling: settings.scaling)
         guard let position = transform.videoPoint(point, from: bounds) else { return false }
-        transport.mousePosition(x: Int16(clamping: Int(position.x + crop.minX)), y: Int16(clamping: Int(position.y + crop.minY)),
-            width: Int16(clamping: frame.width), height: Int16(clamping: frame.height))
+        transport.mousePosition(x: Int16(clamping: Int(position.x + frame.contentRect.minX)),
+                                y: Int16(clamping: Int(position.y + frame.contentRect.minY)),
+                                width: Int16(clamping: frame.width), height: Int16(clamping: frame.height))
         return true
     }
     func updateStatistics(rows: [StreamStatisticRow], visible: Bool, position: StreamStatisticsPosition) {
@@ -875,7 +921,7 @@ private final class MobileFrameSignal: @unchecked Sendable {
         clearStatisticsOverlay()
         pipeline.setFrameAvailableHandler(nil); signal?.cancel(); signal = nil
         displayLink?.invalidate(); displayLink = nil
-        transport.releaseAllInputs(); lastFrame = nil; lastTouch = nil
+        releaseTouchAndOtherInputs(); lastFrame = nil
         hdrLayerState.reset(metalLayer)
     }
 }

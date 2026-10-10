@@ -21,6 +21,7 @@ import UIKit
     @Published private(set) var statisticsRows: [StreamStatisticRow] = []
     @Published private(set) var statisticsPreferences = StreamStatisticsPreferences()
     @Published private(set) var controlsVisible = false
+    @Published private(set) var touchInputIssue: MobileTouchInputIssue?
     /// Current output capability/user preference, not a head-tracking state.
     @Published private(set) var spatialPlaybackAvailable: Bool?
     private(set) var statisticsSnapshot = StreamStatisticsSnapshot()
@@ -62,7 +63,8 @@ import UIKit
         state.apply(.connect)
         let generation = state.generation
         latencyCapture = MobileStreamDiagnostics.makeIfEnabled(settings: settings)
-        isActive = true; hasVideo = false; errorMessage = nil; status = "Connecting"; self.settings = settings
+        isActive = true; hasVideo = false; errorMessage = nil; touchInputIssue = nil
+        status = "Connecting"; self.settings = settings
         resetStatisticsSamples()
         statisticsRequest = nil; statisticsSelection = nil
         self.statisticsPreferences = statisticsPreferences
@@ -131,6 +133,11 @@ import UIKit
         guard state.generation == generation, isActive else { throw CancellationError() }
     }
     func releaseInputs() { transport?.releaseAllInputs() }
+    func reportTouchInputIssue(_ issue: MobileTouchInputIssue) {
+        guard isActive else { return }
+        touchInputIssue = issue
+        setControlsVisible(true)
+    }
     func setSceneActive(_ active: Bool) { sceneActive = active; updateInputAdmission() }
     func setControlsVisible(_ visible: Bool) {
         controlsVisible = visible && isActive && sceneActive

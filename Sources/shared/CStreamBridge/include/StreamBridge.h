@@ -76,6 +76,20 @@ void sf_stream_stop(SFStream *stream);
 void sf_stream_destroy(SFStream *stream);
 void sf_stream_request_idr(SFStream *stream);
 void sf_stream_release_inputs(SFStream *stream);
+typedef enum {
+    SF_NATIVE_TOUCH_SUPPORTED = 0, SF_NATIVE_TOUCH_UNSUPPORTED = 1,
+    SF_NATIVE_TOUCH_DENIED = 2, SF_NATIVE_TOUCH_NOT_STREAMING = 3
+} SFNativeTouchAvailability;
+// Bridge phases are independent of common-c's protocol event constants.
+typedef enum {
+    SF_TOUCH_DOWN = 0, SF_TOUCH_MOVE = 1, SF_TOUCH_UP = 2, SF_TOUCH_CANCEL = 3
+} SFTouchEventPhase;
+SFNativeTouchAvailability sf_stream_native_touch_availability(SFStream *stream);
+// 0 means enqueued; -1 inactive, -2 denied, -3 unsupported, -4 invalid or
+// stale contact, -5 contact capacity. Other common-c enqueue errors propagate.
+// Positions/pressure must be finite normalized values. Only accepted down
+// events own a slot; release_inputs also cancels all accepted native contacts.
+int sf_stream_touch(SFStream *, SFTouchEventPhase, uint32_t id, float x, float y, float pressure);
 int sf_stream_mouse_move(SFStream *, int16_t dx, int16_t dy);
 int sf_stream_mouse_position(SFStream *, int16_t x, int16_t y, int16_t width, int16_t height);
 int sf_stream_mouse_button(SFStream *, int button, bool pressed);
@@ -117,6 +131,7 @@ uint32_t sf_stream_surround_audio_info(int channels);
 // Server-free seam runs the exact frame flattener, callback, and exactly-once completion owner.
 // A valid acquired frame is completed once even if malformed, cancelled, or rejected.
 bool sf_stream_validate_keyboard_wire_codes(void);
+bool sf_stream_validate_native_touch(void);
 bool sf_stream_validate_video_telemetry(void);
 bool sf_stream_validate_cancel_state_race(void);
 bool sf_stream_validate_clock_mapping(void);

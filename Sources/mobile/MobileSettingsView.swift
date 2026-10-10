@@ -20,6 +20,19 @@ struct MobileSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("Touch mode", selection: $draft.mobileTouchMode) {
+                        Text("Trackpad").tag(MobileTouchMode.trackpad)
+                        Text("Native Touch").tag(MobileTouchMode.nativeTouch)
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("mobileTouchMode")
+                    .accessibilityValue(draft.mobileTouchMode == .trackpad ? "Trackpad" : "Native Touch")
+                } header: {
+                    Text("Touch Input")
+                } footer: {
+                    Text("Trackpad: slide to move, tap to click, double tap and hold to drag, or use two fingers to right-click and scroll. Native Touch sends touches directly to a supporting computer. Unsupported computers use Trackpad. Changes apply to your next stream.")
+                }
                 StreamSettingsSections(settings: $draft, preferences: $statisticsDraft,
                                        showByDefault: $showStatisticsByDefaultDraft)
                 AppBuildIdentitySection()

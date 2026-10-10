@@ -163,6 +163,7 @@ int main(void) {
     CHECK(sf_stream_validate_keyboard_wire_codes());
     CHECK(sf_stream_validate_cancel_state_race());
     CHECK(sf_stream_validate_clock_mapping());
+    CHECK(sf_stream_validate_native_touch());
     CHECK(sf_stream_validate_video_telemetry());
     CHECK(sf_stream_validate_event_retirement());
     CHECK(sf_stream_validate_pyrowave_sideband());
@@ -209,6 +210,6 @@ int main(void) {
     validate_pyrowave_negotiation();
     validate_pyrowave_depacketizer();
     validate_hdr_snapshot_race();
-    puts("{\"status\":\"PASS\",\"pyrowave_negotiation_sdp_depacketizer_sideband\":true,\"pyrowave_queue_ownership_scenarios\":10,\"video_telemetry_units_windows_concurrency\":true,\"ownership_scenarios\":6,\"audio_ordered_frames\":100000,\"audio_ring_wrap_overflow_silence\":true,\"clock_mapping\":true,\"permission_gates\":true,\"event_retirements\":1000,\"keyboard_wire_codes\":true,\"cancel_state_phases\":20000,\"cancel_state_race_iterations\":100000}");
+    puts("{\"status\":\"PASS\",\"pyrowave_negotiation_sdp_depacketizer_sideband\":true,\"pyrowave_queue_ownership_scenarios\":10,\"video_telemetry_units_windows_concurrency\":true,\"ownership_scenarios\":6,\"audio_ordered_frames\":100000,\"audio_ring_wrap_overflow_silence\":true,\"clock_mapping\":true,\"permission_gates\":true,\"native_touch_admission_wire_lifetime\":true,\"event_retirements\":1000,\"keyboard_wire_codes\":true,\"cancel_state_phases\":20000,\"cancel_state_race_iterations\":100000}");
     return 0;
 }

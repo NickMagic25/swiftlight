@@ -30,6 +30,7 @@ import UIKit
 }
 private struct HarnessSettings {}
 private struct HarnessStatisticsPreferences { var position = 0 }
+private enum MobileTouchInputIssue { case unsupported, denied, failed }
 @MainActor private final class MobileStreamingSession: ObservableObject {
     @Published var isActive = false
     @Published var hasVideo = false
@@ -46,6 +47,7 @@ private struct HarnessStatisticsPreferences { var position = 0 }
     private(set) var disconnectBegan = false
     private(set) var teardownCompleted = false
     func releaseInputs() {}
+    func reportTouchInputIssue(_ issue: MobileTouchInputIssue) {}
     func toggleStatistics() { showingStatistics.toggle() }
     func setControlsVisible(_ visible: Bool) { controlsVisible = visible }
     func disconnect() async {
@@ -67,6 +69,7 @@ private struct MobileStreamControls: View {
     private let disconnect: () -> Void
     private var lastTouch: CGPoint?
     var inputEnabled = false
+    var reportTouchInputIssue: ((MobileTouchInputIssue) -> Void)?
     private(set) var statisticsVisible = false
     private(set) var statisticsRows: [String] = []
     private(set) var stopped = false
@@ -83,6 +86,7 @@ private struct MobileStreamControls: View {
     }
     func refreshPresentationDiagnostics() {}
     func stop() { stopped = true }
+    private func releaseTouchAndOtherInputs() { transport.releaseAllInputs(); lastTouch = nil }
     // Exact production admission and edge handlers are injected here.
     __LOCAL_EXIT_HANDLERS__
 }
@@ -547,7 +551,7 @@ def main():
     admission = "    private var acceptsLocalStreamActions: Bool {" + source.split(
         "    private var acceptsLocalStreamActions: Bool {", 1)[1].split("    override var canBecomeFirstResponder:", 1)[0]
     edge = "    @objc private func disconnectAction() -> Bool {" + source.split(
-        "    @objc private func disconnectAction() -> Bool {", 1)[1].split("    @objc private func clickPointer(", 1)[0]
+        "    @objc private func disconnectAction() -> Bool {", 1)[1].split("    override func touchesBegan(", 1)[0]
     if args.remote_exit_gate:
         edge = edge.replace("guard acceptsLocalStreamActions else", "guard acceptsStreamCommands else")
     stubs = STUBS.replace("__LOCAL_EXIT_HANDLERS__", admission + edge)
