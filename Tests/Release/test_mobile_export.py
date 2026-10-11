@@ -28,7 +28,7 @@ class MobileExportTests(unittest.TestCase):
         self.env = os.environ | {"PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
                                  "SWIFTLIGHT_TEST_ARGUMENTS": str(self.arguments)}
 
-    def export(self, platform="iPhoneOS", family=(1, 2), identifier="net.edrisil.swiftlight.ios"):
+    def export(self, platform="iPhoneOS", family=(1, 2), identifier="net.edrisil.swiftlight"):
         (self.app / "Info.plist").write_bytes(plistlib.dumps({
             "CFBundleSupportedPlatforms": [platform], "UIDeviceFamily": list(family),
             "CFBundleIdentifier": identifier}))
@@ -50,7 +50,7 @@ class MobileExportTests(unittest.TestCase):
 
     def test_rejects_simulator_and_wrong_product_before_signing(self):
         for options in ({"platform": "iPhoneSimulator"}, {"platform": "MacOSX"}, {"family": (1,)},
-                        {"identifier": "net.edrisil.swiftlight"}):
+                        {"identifier": "net.edrisil.swiftlight.ios"}, {"identifier": "com.example.other"}):
             with self.subTest(options=options):
                 result = self.export(**options)
                 self.assertNotEqual(result.returncode, 0)

@@ -90,7 +90,7 @@ configuration if it loses the requested presentation cadence.
 ```sh
 xcrun devicectl device copy from --device YOUR_DEVICE_UDID \
   --domain-type appDataContainer \
-  --domain-identifier net.edrisil.swiftlight.ios \
+  --domain-identifier net.edrisil.swiftlight \
   --source 'Library/Application Support/SwiftlightLatency' \
   --destination artifacts/mobile-latency-captures
 python3 scripts/analyze-stream-latency.py artifacts/mobile-latency-captures/*.json

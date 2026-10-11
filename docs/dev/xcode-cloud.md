@@ -16,7 +16,7 @@ workflows, and a local simulator run does not verify Cloud signing or delivery.
 | Destination | Scheme | Bundle identifier | Minimum OS |
 | --- | --- | --- | --- |
 | Mac | `Swiftlight` | `net.edrisil.swiftlight` | macOS 14 |
-| iPhone and iPad | `Swiftlight` | `net.edrisil.swiftlight.ios` | iOS/iPadOS 26 |
+| iPhone and iPad | `Swiftlight` | `net.edrisil.swiftlight` | iOS/iPadOS 26 |
 
 The shared package supplies Core, Host, Transport and Video. The mobile app
 uses UIKit and SwiftUI with the production `MoonlightAppleVideo` decoder and
@@ -64,11 +64,12 @@ archive. `--platform all` prepares every supported native SDK variant.
    GitHub integration access to this repository, including its pinned recursive
    dependencies. All requested changes must be present on the remote branch
    before a Cloud build can consume them.
-3. Set up distribution for `net.edrisil.swiftlight.ios`. Associate the existing
-   matching App Store Connect record, or create the iOS app record for this
-   destination if none exists. iPadOS uses this same record. The target retains
-   its established platform-specific bundle identifiers and plists. Confirm the team and
-   identifier before creating it.
+3. Use the existing Swiftlight App Store Connect record with bundle identifier
+   `net.edrisil.swiftlight` for both macOS and iOS/iPadOS. Ensure the record has
+   the iOS platform enabled and that Cloud's iOS action uses that same product.
+   Both destinations use the shared identifier with their platform-specific
+   plists and provisioning. Confirm the Developer team and matching App ID
+   before configuring distribution.
 4. Create an internal TestFlight tester group and add the intended testers.
    Register the physical iPhone and iPad UDIDs in the same Developer team for
    ad-hoc installation. TestFlight does not require UDID registration.
@@ -81,6 +82,12 @@ Apple's [Cloud distribution setup](https://developer.apple.com/documentation/xco
 can associate or create the app record and configure internal testing. A
 matching record and a successful archive are still required before testers
 receive a build.
+
+Earlier iOS builds used `net.edrisil.swiftlight.ios`. New archives and registered-device
+exports use `net.edrisil.swiftlight`; the export helper rejects archives with the
+earlier identifier. Existing iOS app data and Keychain credentials do not migrate
+automatically across that identity change. Preserve the earlier installation and
+pairing state during validation; see the [mobile migration note](../mobile.md#build-and-run).
 
 ## Workflows
 

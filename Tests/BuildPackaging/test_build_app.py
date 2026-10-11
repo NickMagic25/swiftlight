@@ -18,7 +18,7 @@ COMMIT_SHA = "c" * 40
 ONE = f'  1) {A} "Apple Development: Fixture (TEAM)"\n     1 valid identities found\n'
 TWO = ONE + f'  2) {B} "Developer ID Application: Fixture (TEAM)"\n'
 STUB = '''#!/usr/bin/python3
-import json, os, sys
+import json, os, plistlib, sys
 from pathlib import Path
 name, args = Path(sys.argv[0]).name, sys.argv[1:]
 root = Path(os.environ['STUB_ROOT'])
@@ -35,12 +35,17 @@ if name == 'git':
     if status == 0: print(os.environ.get('STUB_COMMIT_SHA', 'c' * 40))
     sys.exit(status)
 phase = ('verify' if '--verify' in args else 'sign') if name == 'codesign' else name
+if phase == 'sign':
+    with (Path(args[-1]) / 'Contents/Info.plist').open('rb') as source:
+        info = plistlib.load(source)
+    (root / 'signed-info.json').write_text(json.dumps(info))
 if os.environ.get('STUB_FAIL_AT') == phase: sys.exit(23)
 if name == 'otool':
     print('/opt/homebrew/lib/bad.dylib' if os.environ.get('STUB_HOMEBREW') else '/usr/lib/libSystem.B.dylib')
 '''
 CASES = [
     ("none", {}, True, "-"),
+    ("literal_bundle_identifier", {}, True, "-"),
     ("one", {"STUB_IDENTITIES": ONE}, True, A),
     ("developer_id", {"STUB_IDENTITIES": f'  1) {B} "Developer ID Application: Fixture (TEAM)"'}, True, B),
     ("duplicate", {"STUB_IDENTITIES": ONE + ONE}, True, A),
@@ -104,8 +109,10 @@ def run_case(root, source, case):
     (legacy_decoder / "LICENSE").write_text("Stale checkout notice\n")
     # A cached product from the old name must never enter the packaged app.
     (root / "bin/Swiftlight").write_text("stale-legacy-binary")
+    source_bundle_identifier = ("net.edrisil.swiftlight" if name == "literal_bundle_identifier"
+                                else "$(PRODUCT_BUNDLE_IDENTIFIER)")
     with (root / "App/Info.plist").open("wb") as destination:
-        plistlib.dump({"CFBundleIdentifier": "net.edrisil.swiftlight", "CFBundleExecutable": "Swiftlight",
+        plistlib.dump({"CFBundleIdentifier": source_bundle_identifier, "CFBundleExecutable": "Swiftlight",
                        "CFBundleShortVersionString": "0.0.1", "CFBundleVersion": "1"}, destination)
     tools = root / "stub-bin"
     tools.mkdir()
@@ -152,6 +159,10 @@ def run_case(root, source, case):
             with (app / "Contents/Info.plist").open("rb") as source_plist:
                 info = plistlib.load(source_plist)
             require(info["CFBundleExecutable"] == "Swiftlight", "Packaged executable identity changed")
+            require(info["CFBundleIdentifier"] == "net.edrisil.swiftlight", "Packaged bundle identity was not resolved")
+            signed_info = json.loads((root / "signed-info.json").read_text())
+            require(signed_info["CFBundleIdentifier"] == "net.edrisil.swiftlight",
+                    "Bundle identifier was not resolved before signing")
             if name == "missing_git_metadata":
                 require("GitCommitSHA" not in info, "Missing Git metadata produced a commit SHA")
             else:
@@ -179,6 +190,9 @@ def run_case(root, source, case):
             require(not any(command == "codesign" for command, _ in calls),
                     "Invalid build metadata or missing dependency notice reached signing")
         require(not list((root / ".build").glob(".Swiftlight-stage.*")), "Staging was not cleaned")
+        with (root / "App/Info.plist").open("rb") as source_plist:
+            require(plistlib.load(source_plist)["CFBundleIdentifier"] == source_bundle_identifier,
+                    "Packaging modified the source plist")
         if "SIGNING_IDENTITY" in extra:
             require(not any(command == "security" for command, _ in calls), "Explicit identity performed automatic lookup")
         if success and identity == "-":
