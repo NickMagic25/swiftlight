@@ -18,7 +18,7 @@ with open(sys.argv[1], "rb") as source:
     info = plistlib.load(source)
 if info.get("CFBundleSupportedPlatforms") != ["iPhoneOS"]:
     raise SystemExit("error: Export requires an iOS device archive, not a Simulator build")
-if info.get("CFBundleIdentifier") != "net.edrisil.swiftlight.ios" or set(info.get("UIDeviceFamily", [])) != {1, 2}:
+if info.get("CFBundleIdentifier") != "net.edrisil.swiftlight" or set(info.get("UIDeviceFamily", [])) != {1, 2}:
     raise SystemExit("error: Export requires the universal Swiftlight iPhone/iPad app")
 PY
 

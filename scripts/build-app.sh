@@ -57,6 +57,20 @@ staged_app="$stage_dir/Swiftlight.app"
 mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources/Licenses"
 cp -f "$bin_path/swiftlight-desktop" "$staged_app/Contents/MacOS/Swiftlight"
 cp -f App/Info.plist "$staged_app/Contents/Info.plist"
+# SwiftPM does not expand Xcode build settings in the shared source plist.
+python3 - "$staged_app/Contents/Info.plist" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+with path.open("rb") as source:
+    info = plistlib.load(source)
+if info.get("CFBundleIdentifier") == "$(PRODUCT_BUNDLE_IDENTIFIER)":
+    info["CFBundleIdentifier"] = "net.edrisil.swiftlight"
+    with path.open("wb") as destination:
+        plistlib.dump(info, destination, sort_keys=False)
+PY
 cp -f App/AppIcon.icns "$staged_app/Contents/Resources/AppIcon.icns"
 version_args=(--build-number "${BUILD_NUMBER:-1}" --plist "$staged_app/Contents/Info.plist")
 if [[ -n "${RELEASE_TAG:-}" ]]; then
